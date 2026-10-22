@@ -1,0 +1,9 @@
+{
+  "title": "ASCII AI Terminal Companion",
+  "type": "web",
+  "file": "index.html",
+  "general": {
+    "supportsaudioprocessing": true,
+    "properties": {}
+  }
+}

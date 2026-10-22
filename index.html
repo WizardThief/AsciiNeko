@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ASCII AI Companion // Terminal Wallpaper</title>
+  <link rel="stylesheet" href="css/terminal.css" />
+</head>
+<body>
+  <!-- Griglia ASCII Interattiva a 60 FPS -->
+  <canvas id="ascii-canvas"></canvas>
+
+  <!-- Sottile filtro scanline / vignettatura terminale -->
+  <div class="crt-overlay" id="crt-overlay"></div>
+
+  <!-- Interfaccia HUD Terminale -->
+  <div class="hud-layer" id="hud-layer">
+    <!-- Riga Superiore: Telemetria Sistema/AI a sinistra, Controlli Stato a destra -->
+    <div class="hud-top-row">
+      <!-- Pannello Sistema & Rilevamento AI -->
+      <div class="term-panel hud-collapsible" id="system-panel">
+        <div class="panel-header">
+          <span><i class="status-dot"></i>SYSTEM // NODE-AMD04</span>
+          <span id="bridge-badge">BRIDGE: INIT</span>
+        </div>
+        <div class="telemetry-grid">
+          <div class="metric-row">
+            <span class="metric-label">CPU</span>
+            <span class="metric-bar" id="cpu-bar">[|||·········]</span>
+            <span class="metric-val" id="cpu-val">18%</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-label">MEM</span>
+            <span class="metric-bar" id="ram-bar">[|||||·······]</span>
+            <span class="metric-val" id="ram-val">42%</span>
+          </div>
+          <div class="ai-status-banner" id="ai-status-banner">
+            <span id="ai-status-text">AI MONITOR: STANDBY (WATCHING)</span>
+          </div>
+          <!-- Lista dinamica delle vere cartelle del Desktop Windows -->
+          <div class="desktop-folders-bar" id="desktop-folders-bar" title="Clicca su una cartella per mandare il Neko a giocarci!"></div>
+        </div>
+      </div>
+
+      <!-- Pannello Toggle Stati del Companion -->
+      <div class="term-panel" id="status-matrix-panel">
+        <div class="panel-header">
+          <span>COMPANION // STATUS MATRIX</span>
+          <div class="header-right-actions">
+            <span id="companion-affection">SYNC LVL 1</span>
+            <button class="term-btn term-btn-sm" id="btn-toggle-hud" title="Cambia visibilità HUD: Completa / Compatta / Nascosta (Tasto H)">
+              [👁 HUD: FULL]
+            </button>
+          </div>
+        </div>
+        <div class="mode-buttons">
+          <button class="term-btn active" data-mode-btn="companion" title="Stato normale interattivo (Tasto 1)">
+            ● COMPANION <span class="shortcut-hint">[1]</span>
+          </button>
+          <button class="term-btn" data-mode-btn="ai" title="Modalità elaborazione AI attiva (Tasto 2 o A)">
+            ⚡ AI WORK <span class="shortcut-hint">[2]</span>
+          </button>
+          <button class="term-btn" data-mode-btn="coffee" title="Pausa Caffè con tazzina fumante e timer (Tasto 3 o C)">
+            ☕ PAUSA CAFFÈ <span class="shortcut-hint">[3]</span>
+          </button>
+          <button class="term-btn" data-mode-btn="afk" title="Sono fuori / Standby AFK (Tasto 4)">
+            🌙 AFK / OUT <span class="shortcut-hint">[4]</span>
+          </button>
+          <button class="term-btn" data-mode-btn="focus" title="Modalità Deep Focus minimale (Tasto 5 o F)">
+            🎯 FOCUS <span class="shortcut-hint">[5]</span>
+          </button>
+        </div>
+
+        <!-- Sotto-controlli rapidi -->
+        <div class="sub-controls hud-collapsible">
+          <button class="term-btn term-btn-sm" id="btn-fish-snack" title="Lancia un pescetto croccante ><(((º> al Neko (oppure usa il Tasto Destro)">
+            [🐟 LANCIA SNACK]
+          </button>
+          <button class="term-btn term-btn-sm active" id="btn-ai-auto" title="Attiva/Disattiva il rilevamento automatico di Antigravity/Claude/Ollama">
+            [🤖 AUTO-AI: ON]
+          </button>
+          <button class="term-btn term-btn-sm" id="btn-audio-demo" title="Testa la reattività vocale e le onde sonore">
+            [♪ AUDIO: PULSE]
+          </button>
+          <button class="term-btn term-btn-sm active" id="btn-face-style" title="Attiva/Disattiva il movimento autonomo del Neko tra le cartelle del desktop">
+            [🐾 ROAM: LIBERO]
+          </button>
+          <button class="term-btn term-btn-sm" id="btn-density" title="Cambia densità della griglia di caratteri ASCII">
+            [# GRID: BALANCED]
+          </button>
+        </div>
+
+        <!-- Timer per Pausa Caffè / Focus / AFK -->
+        <div class="session-timer-badge" id="session-timer-badge">
+          <span id="session-timer-label">☕ COFFEE BREAK TIMER</span>
+          <strong id="session-timer-val">00:00</strong>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pulsante flottante di ripristino quando l'HUD è completamente nascosto (Zen Mode) -->
+    <button class="hud-restore-pill" id="btn-restore-hud" title="Ripristina l'interfaccia HUD">
+      [ 👁 MOSTRA HUD ]
+    </button>
+
+    <!-- Riga Inferiore: Console Dialogo del Companion a sinistra, Audio/Orologio a destra -->
+    <div class="hud-bottom-row hud-collapsible">
+      <div class="term-panel companion-console">
+        <div class="panel-header">
+          <span>TERMINAL // NEKO COMPANION LOG</span>
+          <span id="dialogue-mode-tag">MODE // COMPANION</span>
+        </div>
+        <div class="dialogue-line">
+          <span class="dialogue-prefix">&gt;</span>
+          <span id="companion-dialogue">Inizializzazione Neko...</span>
+          <span class="dialogue-cursor"></span>
+        </div>
+        <div class="companion-meta">
+          <span>INTERAZIONI: [CLICCA OVUNQUE = LANCIA GOMITOLO (@)] · [AVVICINA MOUSE = ZAMPATA] · [ACCAREZZA TESTA = FUSA]</span>
+        </div>
+      </div>
+
+      <div class="term-panel audio-clock-panel">
+        <div class="panel-header">
+          <span>CHRONO // AUDIO SPECTRUM</span>
+          <span>60 FPS</span>
+        </div>
+        <div class="clock-display" id="clock-display">00:00:00</div>
+        <div class="date-display" id="date-display">GIO 22 OTT 2026</div>
+        <div class="audio-spectrum-bars" id="audio-spectrum">▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Moduli JS -->
+  <script src="js/ascii-renderer.js"></script>
+  <script src="js/fluid-field.js"></script>
+  <script src="js/companion-face.js"></script>
+  <script src="js/system-bridge.js"></script>
+  <script src="js/hud-terminal.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
