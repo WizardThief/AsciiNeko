@@ -1,0 +1,4 @@
+workspace/tasks.json merge=neko-task-merge
+workspace/TASKS.md merge=neko-task-merge
+tasks.json merge=neko-task-merge
+TASKS.md merge=neko-task-merge

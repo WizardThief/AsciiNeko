@@ -4,6 +4,9 @@ __pycache__/
 *$py.class
 bridge/.desktop_layer_profile/
 bridge/todo.json
+.agents/
+neko_bot/.agents/
+neko_bot/.neko/
 
 # OS & Editor files
 .DS_Store
