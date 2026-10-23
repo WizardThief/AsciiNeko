@@ -1,16 +1,15 @@
 :root {
   --bg-deep: #060608;
-  --bg-panel: rgba(10, 10, 14, 0.82);
-  --bg-panel-hover: rgba(20, 20, 28, 0.92);
-  --border-dim: #24242c;
-  --border-mid: #3e3e4a;
-  --border-bright: #8a8a98;
-  --text-muted: #565664;
-  --text-secondary: #8c8c9e;
-  --text-primary: #d8d8e2;
+  --bg-panel: rgba(10, 10, 14, 0.84);
+  --bg-panel-hover: rgba(22, 22, 30, 0.94);
+  --border-dim: #22222c;
+  --border-mid: #3c3c4c;
+  --border-bright: #9090a4;
+  --text-muted: #585868;
+  --text-secondary: #9292a6;
+  --text-primary: #d8d8e4;
   --text-bright: #f4f4f8;
-  --accent-glow: rgba(244, 244, 248, 0.18);
-  --font-mono: 'JetBrains Mono', 'Cascadia Mono', 'Fira Code', 'Consolas', 'Courier New', monospace;
+  --font-mono: 'Cascadia Mono', 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
 }
 
 * {
@@ -28,12 +27,10 @@ html, body {
   background-color: var(--bg-deep);
   color: var(--text-primary);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.4;
-  cursor: crosshair;
 }
 
-/* Canvas principale ASCII */
 #ascii-canvas {
   position: fixed;
   inset: 0;
@@ -43,99 +40,162 @@ html, body {
   display: block;
 }
 
-/* Sottile effetto CRT / Scanline e Vignettatura (disattivabile) */
 .crt-overlay {
   position: fixed;
   inset: 0;
   z-index: 2;
   pointer-events: none;
-  background:
-    radial-gradient(circle at 50% 50%, transparent 58%, rgba(3, 3, 5, 0.65) 100%),
-    repeating-linear-gradient(
-      0deg,
-      rgba(255, 255, 255, 0.014) 0px,
-      rgba(255, 255, 255, 0.014) 1px,
-      transparent 1px,
-      transparent 3px
-    );
-  transition: opacity 0.4s ease;
+  background: radial-gradient(circle at 50% 50%, transparent 62%, rgba(3, 3, 5, 0.65) 100%);
 }
 
-.crt-overlay.hidden {
-  opacity: 0;
-}
-
-/* Layout HUD Terminale - Si adatta automaticamente lasciando libera la zona sinistra delle icone Desktop */
+/* Layout HUD: lascia tutta la parte sinistra dello schermo 100% libera per le icone di Windows */
 .hud-layer {
   position: fixed;
   inset: 0;
   z-index: 10;
   pointer-events: none;
-  padding: 20px 26px;
+  padding: 14px 20px 20px 20px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  transition: padding-left 0.4s ease, opacity 0.35s ease;
-}
-
-.hud-layer.desktop-safe-1col {
-  padding-left: 240px;
-}
-
-.hud-layer.desktop-safe-2col {
-  padding-left: 420px;
-}
-
-.desktop-folders-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  margin-top: 7px;
-  padding-top: 6px;
-  border-top: 1px dashed rgba(255, 255, 255, 0.08);
-}
-
-.folder-chip {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--border-dim);
-  color: var(--text-secondary);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  padding: 2px 7px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.folder-chip:hover {
-  border-color: var(--border-bright);
-  color: var(--text-bright);
-  background: var(--bg-panel-hover);
+  align-items: flex-end;
 }
 
 .hud-layer.hud-minimal .hud-collapsible {
+  display: none !important;
+}
+
+.hud-layer.hud-hidden #status-matrix-panel,
+.hud-layer.hud-hidden #ai-terminal-dock {
   opacity: 0;
+  pointer-events: none;
   transform: translateY(-6px);
-  pointer-events: none;
 }
 
-.hud-layer.hud-hidden .hud-collapsible,
-.hud-layer.hud-hidden #status-matrix-panel {
-  opacity: 0;
-  transform: translateY(-8px);
-  pointer-events: none;
-}
-
-.header-right-actions {
+/* TOP BAR: Singola barra orizzontale minimale in alto a destra */
+.hud-top-bar {
+  pointer-events: auto;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-dim);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  padding: 5px 10px;
   display: flex;
   align-items: center;
   gap: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  transition: all 0.25s ease;
 }
 
-/* Pulsante discreto in alto a destra per ripristinare l'HUD quando è in modalità ZEN (tutto nascosto) */
+.hud-top-bar:hover {
+  border-color: var(--border-mid);
+}
+
+.top-bar-section {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.top-bar-divider {
+  color: var(--border-mid);
+  font-size: 11px;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--text-secondary);
+  display: inline-block;
+}
+
+.status-dot.ai-active {
+  background: var(--text-bright);
+  box-shadow: 0 0 8px var(--text-bright);
+}
+
+.sys-stat {
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.sys-stat strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.sys-sep {
+  color: var(--text-muted);
+}
+
+.mode-buttons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.term-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 3px 8px;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition: all 0.15s ease;
+}
+
+.term-btn:hover {
+  border-color: var(--border-mid);
+  color: var(--text-bright);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.term-btn.active {
+  background: var(--text-bright);
+  color: var(--bg-deep);
+  border-color: var(--text-bright);
+  font-weight: 600;
+}
+
+.term-btn-sm {
+  padding: 2px 7px;
+  font-size: 10px;
+  border-color: var(--border-dim);
+}
+
+.clock-inline {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-bright);
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+  padding: 0 4px;
+}
+
+.session-timer-badge {
+  display: none;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--border-mid);
+  color: var(--text-bright);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.session-timer-badge.visible {
+  display: inline-flex;
+}
+
+/* Pulsante ripristino HUD in modalità ZEN */
 .hud-restore-pill {
   position: fixed;
-  top: 20px;
-  right: 26px;
+  top: 14px;
+  right: 20px;
   z-index: 30;
   pointer-events: none;
   opacity: 0;
@@ -144,11 +204,9 @@ html, body {
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: 10px;
-  padding: 5px 10px;
+  padding: 4px 9px;
   cursor: pointer;
-  letter-spacing: 0.08em;
-  transition: all 0.25s ease;
-  backdrop-filter: blur(6px);
+  transition: all 0.2s ease;
 }
 
 .hud-layer.hud-hidden .hud-restore-pill {
@@ -160,314 +218,133 @@ html, body {
   opacity: 1;
   color: var(--text-bright);
   border-color: var(--border-bright);
-  background: var(--bg-panel-hover);
-  box-shadow: 0 0 14px rgba(244, 244, 248, 0.2);
 }
 
-.hud-top-row,
-.hud-bottom-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.hud-bottom-row {
-  align-items: flex-end;
-}
-
-/* Pannelli in stile Terminale Moderno */
-.term-panel {
+/* BOTTOM AI TERMINAL DOCK (Ollama Locale) */
+.ai-terminal-dock {
   pointer-events: auto;
+  align-self: center;
+  width: min(740px, 92vw);
   background: var(--bg-panel);
   border: 1px solid var(--border-dim);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  padding: 10px 14px;
-  position: relative;
-  transition: border-color 0.25s ease, box-shadow 0.25s ease, opacity 0.3s ease, transform 0.3s ease;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  padding: 8px 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.65);
+  transition: all 0.25s ease;
 }
 
-.term-panel:hover {
+.ai-terminal-dock:hover,
+.ai-terminal-dock:focus-within {
   border-color: var(--border-mid);
 }
 
-.term-panel.active-alert {
-  border-color: var(--border-bright);
-  box-shadow: 0 0 22px rgba(244, 244, 248, 0.08), inset 0 0 12px rgba(244, 244, 248, 0.04);
+.ai-terminal-dock.term-collapsed .ai-term-body {
+  display: none;
 }
 
-/* Angoli decorativi ASCII/Terminale */
-.term-panel::before,
-.term-panel::after {
-  content: '';
-  position: absolute;
-  width: 6px;
-  height: 6px;
-  border-color: var(--text-secondary);
-  pointer-events: none;
-  transition: border-color 0.25s ease;
-}
-
-.term-panel::before {
-  top: -1px;
-  left: -1px;
-  border-top: 1px solid var(--text-secondary);
-  border-left: 1px solid var(--text-secondary);
-}
-
-.term-panel::after {
-  bottom: -1px;
-  right: -1px;
-  border-bottom: 1px solid var(--text-secondary);
-  border-right: 1px solid var(--text-secondary);
-}
-
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  padding-bottom: 5px;
-  margin-bottom: 8px;
-}
-
-.panel-header .status-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  background: var(--text-primary);
-  margin-right: 6px;
-  box-shadow: 0 0 8px var(--text-bright);
-  animation: pulseDot 2.2s infinite ease-in-out;
-}
-
-@keyframes pulseDot {
-  0%, 100% { opacity: 0.35; transform: scale(0.9); }
-  50% { opacity: 1; transform: scale(1.15); }
-}
-
-/* Griglia Telemetria Sistema & AI */
-.telemetry-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  min-width: 290px;
-}
-
-.metric-row {
+.ai-term-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  font-size: 11px;
+  flex-wrap: wrap;
 }
 
-.metric-label {
-  color: var(--text-secondary);
-  min-width: 42px;
-}
-
-.metric-bar {
-  font-family: var(--font-mono);
-  color: var(--text-primary);
-  letter-spacing: 0.04em;
-}
-
-.metric-val {
-  color: var(--text-bright);
-  min-width: 36px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-.ai-status-banner {
-  margin-top: 6px;
-  padding: 5px 8px;
-  border: 1px dashed var(--border-mid);
-  background: rgba(255, 255, 255, 0.02);
+.ai-term-title {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 11px;
-  transition: all 0.25s ease;
-}
-
-.ai-status-banner.ai-working {
-  border-style: solid;
-  border-color: var(--text-bright);
-  background: rgba(244, 244, 248, 0.07);
-  color: var(--text-bright);
-  text-shadow: 0 0 8px rgba(255, 255, 255, 0.35);
-}
-
-/* Pulsanti Stato Companion (Mode Toggles) */
-.mode-buttons {
-  display: flex;
-  flex-wrap: wrap;
   gap: 6px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--text-secondary);
 }
 
-.term-btn {
+.ai-model-badge {
+  color: var(--text-bright);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 6px;
+  border: 1px solid var(--border-dim);
+}
+
+.ai-quick-chips {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.ai-chip {
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid var(--border-dim);
   color: var(--text-secondary);
   font-family: var(--font-mono);
-  font-size: 11px;
-  padding: 5px 10px;
+  font-size: 10px;
+  padding: 2px 7px;
   cursor: pointer;
-  letter-spacing: 0.05em;
-  transition: all 0.18s ease;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  transition: all 0.15s ease;
 }
 
-.term-btn:hover {
+.ai-chip:hover {
   border-color: var(--border-bright);
   color: var(--text-bright);
   background: var(--bg-panel-hover);
-  transform: translateY(-1px);
 }
 
-.term-btn:active {
-  transform: translateY(0);
-}
-
-.term-btn.active {
-  background: var(--text-bright);
-  color: var(--bg-deep);
-  border-color: var(--text-bright);
-  font-weight: 600;
-  box-shadow: 0 0 14px rgba(244, 244, 248, 0.25);
-}
-
-.term-btn .shortcut-hint {
-  font-size: 9px;
-  opacity: 0.6;
-}
-
-.sub-controls {
-  display: flex;
-  gap: 6px;
+.ai-term-body {
   margin-top: 7px;
   padding-top: 7px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-  justify-content: flex-end;
-  flex-wrap: wrap;
-}
-
-.term-btn-sm {
-  padding: 3px 8px;
-  font-size: 10px;
-}
-
-/* Barra Dialogo Companion & Spettro Audio (In Basso) */
-.companion-console {
-  min-width: 340px;
-  max-width: 640px;
-  flex: 1;
-}
-
-.dialogue-line {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
   display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--text-bright);
-  min-height: 20px;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.dialogue-prefix {
-  color: var(--text-muted);
-  font-weight: 600;
-}
-
-.dialogue-cursor {
-  display: inline-block;
-  width: 7px;
-  height: 13px;
-  background: var(--text-bright);
-  vertical-align: middle;
-  animation: blinkCursor 1s step-end infinite;
-}
-
-@keyframes blinkCursor {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-
-.companion-meta {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 6px;
-  font-size: 10px;
-  color: var(--text-muted);
-  gap: 12px;
-}
-
-/* Spettro Audio & Orologio Terminale */
-.audio-clock-panel {
-  min-width: 250px;
-  text-align: right;
-}
-
-.clock-display {
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  color: var(--text-bright);
-  font-variant-numeric: tabular-nums;
-}
-
-.date-display {
-  font-size: 10px;
-  color: var(--text-muted);
-  letter-spacing: 0.1em;
-  margin-bottom: 6px;
-}
-
-.audio-spectrum-bars {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  letter-spacing: 1px;
-  color: var(--text-secondary);
-  height: 16px;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-/* Timer Overlay per Pausa Caffè / Focus / AFK */
-.session-timer-badge {
-  display: none;
-  margin-top: 6px;
-  padding: 4px 8px;
-  background: rgba(255, 255, 255, 0.05);
-  border-left: 2px solid var(--text-bright);
+.ai-output-line {
   font-size: 11px;
   color: var(--text-bright);
-  justify-content: space-between;
-  align-items: center;
+  line-height: 1.45;
+  max-height: 54px;
+  overflow-y: auto;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
-.session-timer-badge.visible {
+.ai-prefix {
+  color: var(--text-muted);
+  margin-right: 6px;
+}
+
+.ai-input-row {
   display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border-dim);
+  padding: 3px 6px;
 }
 
-@media (max-width: 820px) {
-  .hud-layer {
-    padding: 12px;
-  }
-  .telemetry-grid, .companion-console, .audio-clock-panel {
-    min-width: 100%;
-  }
+.ai-input-row:focus-within {
+  border-color: var(--border-bright);
+}
+
+.ai-prompt-char {
+  color: var(--text-secondary);
+  font-weight: 700;
+}
+
+.ai-input-field {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-bright);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.ai-input-field::placeholder {
+  color: var(--text-muted);
 }

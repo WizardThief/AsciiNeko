@@ -138,6 +138,29 @@ class SystemBridge {
     }).catch(() => {});
   }
 
+  /**
+   * Invia una domanda o comando al Terminale AI Locale (Ollama / Tool rapidi)
+   */
+  async sendAiPrompt(promptText) {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/ai_chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: promptText,
+          model: this.state.system.ollamaActive || ''
+        })
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {}
+    return {
+      reply: '⚠️ Il bridge Python non è raggiungibile su 127.0.0.1:8765. Avvia start_companion.bat!',
+      model: 'OFFLINE'
+    };
+  }
+
   applyBridgeData(data) {
     this.bridgeConnected = true;
     this.state.system.bridgeOnline = true;
@@ -147,9 +170,14 @@ class SystemBridge {
     this.state.system.aiWorking = Boolean(data.ai_working);
     this.state.system.aiSource = data.ai_source || 'IDLE';
     this.state.system.aiDetail = data.ai_detail || '';
-
-    if (Array.isArray(data.desktop_items) && data.desktop_items.length > 0) {
-      this.state.system.desktopItems = data.desktop_items;
+    if (typeof data.is_desktop_focus === 'boolean') {
+      this.state.system.isDesktopFocus = data.is_desktop_focus;
+    }
+    if (data.ollama_active) {
+      this.state.system.ollamaActive = data.ollama_active;
+    }
+    if (Array.isArray(data.ollama_models)) {
+      this.state.system.ollamaModels = data.ollama_models;
     }
 
     // Calibrazione automatica dello Schermo (Schermo 0 = Principale, Schermo 1 = Secondario):

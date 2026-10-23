@@ -1,7 +1,9 @@
-# Python cache
+# Python cache & runtime data
 __pycache__/
 *.py[cod]
 *$py.class
+bridge/.desktop_layer_profile/
+bridge/todo.json
 
 # OS & Editor files
 .DS_Store
