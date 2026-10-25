@@ -1,34 +1,75 @@
 """
-ai_monitor.py - Bridge locale (Zero dipendenze esterne) per ASCII Neko Desktop Companion.
+ai_monitor.py - Bridge locale unificato (Zero dipendenze esterne) per ASCII Neko Desktop Companion.
 Funzionalità:
   1. Cattura in tempo reale (30 FPS) l'audio di sistema di Windows tramite WASAPI COM
      con filtro Anti-Notifiche (> 2.2s di musica continua).
   2. Rileva se il puntatore del mouse si trova davvero sullo sfondo vuoto del Desktop (is_desktop_under_cursor)
-     usando WindowFromPoint + GetClassNameW, così i click fatti dentro altre finestre vengono ignorati!
-  3. Integra il motore AI Locale (Ollama su http://127.0.0.1:11434), avviando automaticamente `ollama serve`
-     se spento, esponendo POST /ai_chat + Tool locali (Top CPU/RAM, To-Do list persistente, Apertura cartelle).
+     usando WindowFromPoint + GetClassNameW, così i click fatti dentro altre finestre vengono ignorati.
+  3. Motore Assistente AI Locale (Ollama su http://127.0.0.1:11434) con:
+     - Cronologia Chat persistente su disco (bridge/chat_history.json) e memoria conversazionale multi-turno
+     - Memoria a lungo termine di fatti e preferenze (bridge/memory.json)
+     - Integrazione Google Calendar (lettura feed privato iCal .ics + Google Calendar API / Quick-Add link)
+       e Agenda locale (bridge/events.json) con promemoria automatici sul desktop
+     - Controllo App e File del PC da chat (Avvio programmi dal Menu Start/percorsi comuni, apertura cartelle,
+       ricerca file rapida, lettura/riassunto degli Appunti di Windows)
+     - Briefing giornaliero unificato (Agenda + To-Do + Memoria + Stato PC)
   4. Sincronizzazione Multi-Schermo per avere UN SOLO Neko che vive sul Monitor 1 e può visitare il Monitor 2.
 """
 
 import ctypes
 from ctypes import wintypes, POINTER, Structure, c_float, c_uint32, c_void_p, byref, WINFUNCTYPE, HRESULT
+from datetime import datetime, date, timedelta, timezone
 import glob
 import http.server
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 import urllib.error
 
 PORT = 8765
 OLLAMA_BASE = "http://127.0.0.1:11434"
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-TODO_FILE = os.path.join(os.path.dirname(__file__), "todo.json")
+BRIDGE_DIR = os.path.abspath(os.path.dirname(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(BRIDGE_DIR, ".."))
+
+TODO_FILE = os.path.join(BRIDGE_DIR, "todo.json")
+CHAT_HISTORY_FILE = os.path.join(BRIDGE_DIR, "chat_history.json")
+MEMORY_FILE = os.path.join(BRIDGE_DIR, "memory.json")
+CALENDAR_CONFIG_FILE = os.path.join(BRIDGE_DIR, "calendar_config.json")
+EVENTS_FILE = os.path.join(BRIDGE_DIR, "events.json")
 USER_HOME = os.path.expanduser("~")
+
+
+# --- Helpers JSON su disco ---
+def _load_json(path, default):
+    if os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return default
+
+
+def _save_json(path, data):
+    try:
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
 
 # --- Strutture ctypes Windows ---
 class MEMORYSTATUSEX(Structure):
@@ -44,11 +85,13 @@ class MEMORYSTATUSEX(Structure):
         ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
     ]
 
+
 class FILETIME(Structure):
     _fields_ = [
         ("dwLowDateTime", wintypes.DWORD),
         ("dwHighDateTime", wintypes.DWORD),
     ]
+
 
 class GUID(Structure):
     _fields_ = [
@@ -57,9 +100,11 @@ class GUID(Structure):
         ("Data3", wintypes.WORD),
         ("Data4", wintypes.BYTE * 8),
     ]
+
     def __init__(self, l, w1, w2, b1, b2, b3, b4, b5, b6, b7, b8):
         self.Data1, self.Data2, self.Data3 = l, w1, w2
         self.Data4[:] = (b1, b2, b3, b4, b5, b6, b7, b8)
+
 
 CLSID_MMDeviceEnumerator = GUID(0xBCDE0395, 0xE52F, 0x467C, 0x8E, 0x3D, 0xC4, 0x57, 0x92, 0x91, 0x69, 0x2E)
 IID_IMMDeviceEnumerator = GUID(0xA95664D2, 0x9614, 0x4F35, 0xA7, 0x46, 0xDE, 0x8D, 0xB6, 0x36, 0x17, 0xE6)
@@ -71,12 +116,14 @@ user32.WindowFromPoint.restype = wintypes.HWND
 user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
 user32.GetAncestor.restype = wintypes.HWND
 
+
 def _filetime_to_int(ft):
     return (ft.dwHighDateTime << 32) | ft.dwLowDateTime
 
 
 class WindowsAudioCapture:
     """Legge il volume di picco dall'uscita audio di Windows con filtro Anti-Notifiche (> 2.2s)."""
+
     def __init__(self):
         self.peak = 0.0
         self.left = 0.0
@@ -208,18 +255,554 @@ class WindowsAudioCapture:
             }
 
 
-class OllamaLocalBridge:
-    """Gestisce la comunicazione con Ollama locale + Tool rapidi del terminale."""
+class CalendarManager:
+    """
+    Gestisce l'integrazione con Google Calendar (tramite feed iCal .ics privato e/o Google Calendar REST API)
+    più gli appuntamenti/scadenze locali salvati in bridge/events.json.
+    """
+
     def __init__(self):
+        self._lock = threading.RLock()
+        self.config = _load_json(
+            CALENDAR_CONFIG_FILE,
+            {
+                "ical_urls": [],
+                "google_access_token": "",
+                "google_calendar_id": "primary",
+                "reminder_minutes": 15,
+            },
+        )
+        self.local_events = _load_json(EVENTS_FILE, [])
+        self.remote_events = []
+        self.last_fetch_ts = 0.0
+        self.last_error = ""
+        self._thread = threading.Thread(target=self._sync_loop, daemon=True)
+        self._thread.start()
+
+    def _sync_loop(self):
+        while True:
+            try:
+                self.refresh_remote_events()
+            except Exception:
+                pass
+            time.sleep(240)  # Aggiorna ogni 4 minuti
+
+    def get_config(self):
+        with self._lock:
+            return dict(self.config)
+
+    def update_config(self, ical_url=None, google_access_token=None, clear_urls=False):
+        with self._lock:
+            if clear_urls:
+                self.config["ical_urls"] = []
+            if ical_url is not None:
+                clean_url = ical_url.strip()
+                if clean_url:
+                    urls = [u for u in self.config.get("ical_urls", []) if u != clean_url]
+                    urls.insert(0, clean_url)
+                    self.config["ical_urls"] = urls[:5]
+                else:
+                    self.config["ical_urls"] = []
+            if google_access_token is not None:
+                self.config["google_access_token"] = google_access_token.strip()
+            _save_json(CALENDAR_CONFIG_FILE, self.config)
+        self.refresh_remote_events(force=True)
+        return self.get_config()
+
+    def _parse_ics_datetime(self, raw_val):
+        """Converte un valore DTSTART/DTEND iCal in datetime locale naive."""
+        val = (raw_val or "").strip()
+        if not val:
+            return None, False
+        # Eventi tutto il giorno: YYYYMMDD
+        if len(val) == 8 and val.isdigit():
+            try:
+                dt = datetime.strptime(val, "%Y%m%d")
+                return dt, True
+            except Exception:
+                return None, False
+        # Formato con ora: YYYYMMDDTHHMMSSZ o YYYYMMDDTHHMMSS
+        is_utc = val.endswith("Z")
+        clean = val.rstrip("Z")
+        if "T" in clean:
+            parts = clean.split("T")
+            d_part = parts[0][:8]
+            t_part = parts[1][:6].ljust(6, "0")
+            try:
+                dt = datetime.strptime(d_part + t_part, "%Y%m%d%H%M%S")
+                if is_utc:
+                    dt = dt.replace(tzinfo=timezone.utc).astimezone().replace(tzinfo=None)
+                return dt, False
+            except Exception:
+                return None, False
+        return None, False
+
+    def _parse_ics_text(self, ics_text):
+        """Parser nativo per file iCalendar (.ics) di Google Calendar / Outlook / Apple."""
+        # Unfolding RFC 5545 (righe che iniziano con spazio o tab continuano la riga precedente)
+        unfolded = re.sub(r"\r?\n[ \t]", "", ics_text or "")
+        events = []
+        in_event = False
+        curr = {}
+
+        for line in unfolded.splitlines():
+            line = line.strip()
+            if line == "BEGIN:VEVENT":
+                in_event = True
+                curr = {}
+                continue
+            elif line == "END:VEVENT":
+                in_event = False
+                dt_start, all_day = self._parse_ics_datetime(curr.get("DTSTART", ""))
+                if dt_start:
+                    dt_end, _ = self._parse_ics_datetime(curr.get("DTEND", ""))
+                    summary = curr.get("SUMMARY", "Impegno a calendario")
+                    summary = summary.replace("\\,", ",").replace("\\;", ";").replace("\\n", " ")
+                    location = curr.get("LOCATION", "").replace("\\,", ",")
+                    events.append(
+                        {
+                            "id": curr.get("UID", f"ics_{int(dt_start.timestamp())}"),
+                            "title": summary,
+                            "start_iso": dt_start.strftime("%Y-%m-%dT%H:%M:%S"),
+                            "end_iso": dt_end.strftime("%Y-%m-%dT%H:%M:%S") if dt_end else "",
+                            "all_day": all_day,
+                            "location": location,
+                            "source": "google_ics",
+                        }
+                    )
+                continue
+
+            if in_event and ":" in line:
+                key_part, val_part = line.split(":", 1)
+                base_key = key_part.split(";", 1)[0].upper()
+                curr[base_key] = val_part
+
+        return events
+
+    def refresh_remote_events(self, force=False):
+        now = time.time()
+        if not force and (now - self.last_fetch_ts < 60):
+            return
+        self.last_fetch_ts = now
+
+        cfg = self.get_config()
+        urls = cfg.get("ical_urls") or []
+        token = cfg.get("google_access_token") or ""
+        cal_id = cfg.get("google_calendar_id") or "primary"
+
+        collected = []
+        err_msg = ""
+
+        # 1. Scarica da URL iCal (.ics)
+        for url in urls:
+            if not url:
+                continue
+            try:
+                req = urllib.request.Request(
+                    url,
+                    headers={"User-Agent": "AsciiNeko-Companion/2.0"},
+                    method="GET",
+                )
+                with urllib.request.urlopen(req, timeout=8.0) as resp:
+                    raw_ics = resp.read().decode("utf-8", errors="replace")
+                    collected.extend(self._parse_ics_text(raw_ics))
+            except Exception as e:
+                err_msg = f"Errore lettura iCal: {str(e)}"
+
+        # 2. Se configurato un token OAuth Google Calendar API
+        if token:
+            try:
+                t_min = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+                t_max = (datetime.now(timezone.utc) + timedelta(days=14)).isoformat()
+                q = urllib.parse.urlencode(
+                    {
+                        "timeMin": t_min,
+                        "timeMax": t_max,
+                        "singleEvents": "true",
+                        "orderBy": "startTime",
+                        "maxResults": "50",
+                    }
+                )
+                api_url = f"https://www.googleapis.com/calendar/v3/calendars/{urllib.parse.quote(cal_id)}/events?{q}"
+                req = urllib.request.Request(
+                    api_url,
+                    headers={"Authorization": f"Bearer {token}"},
+                    method="GET",
+                )
+                with urllib.request.urlopen(req, timeout=8.0) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    for item in data.get("items", []):
+                        st = item.get("start", {})
+                        et = item.get("end", {})
+                        dt_str = st.get("dateTime") or st.get("date")
+                        if not dt_str:
+                            continue
+                        all_day = "date" in st and "dateTime" not in st
+                        if all_day:
+                            dt_obj = datetime.strptime(dt_str[:10], "%Y-%m-%d")
+                        else:
+                            dt_obj = datetime.fromisoformat(dt_str.replace("Z", "+00:00")).astimezone().replace(tzinfo=None)
+                        collected.append(
+                            {
+                                "id": item.get("id", ""),
+                                "title": item.get("summary", "Evento Google Calendar"),
+                                "start_iso": dt_obj.strftime("%Y-%m-%dT%H:%M:%S"),
+                                "end_iso": et.get("dateTime", "")[:19],
+                                "all_day": all_day,
+                                "location": item.get("location", ""),
+                                "source": "google_api",
+                            }
+                        )
+            except Exception as e:
+                err_msg = f"Errore API Google Calendar: {str(e)}"
+
+        with self._lock:
+            self.remote_events = collected
+            self.last_error = err_msg
+
+    def add_event(self, title, start_dt: datetime, duration_minutes=60):
+        end_dt = start_dt + timedelta(minutes=duration_minutes)
+        ev = {
+            "id": f"loc_{int(time.time() * 1000)}",
+            "title": title.strip(),
+            "start_iso": start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+            "end_iso": end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+            "all_day": False,
+            "location": "",
+            "source": "local",
+        }
+        with self._lock:
+            self.local_events.append(ev)
+            _save_json(EVENTS_FILE, self.local_events)
+
+        # Se c'è un token OAuth Google Calendar attivo, prova a crearlo anche su Google Calendar API
+        token = self.config.get("google_access_token", "")
+        cal_id = self.config.get("google_calendar_id", "primary")
+        created_on_google = False
+        if token:
+            try:
+                local_tz = datetime.now().astimezone().tzinfo
+                body = {
+                    "summary": ev["title"],
+                    "start": {"dateTime": start_dt.replace(tzinfo=local_tz).isoformat()},
+                    "end": {"dateTime": end_dt.replace(tzinfo=local_tz).isoformat()},
+                }
+                api_url = f"https://www.googleapis.com/calendar/v3/calendars/{urllib.parse.quote(cal_id)}/events"
+                req = urllib.request.Request(
+                    api_url,
+                    data=json.dumps(body).encode("utf-8"),
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json",
+                    },
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=6.0) as resp:
+                    if resp.status in (200, 201):
+                        created_on_google = True
+            except Exception:
+                pass
+
+        # Genera anche il link rapido di Google Calendar per aggiunta con 1 click nel browser
+        gcal_fmt_start = start_dt.strftime("%Y%m%dT%H%M%S")
+        gcal_fmt_end = end_dt.strftime("%Y%m%dT%H%M%S")
+        gcal_quick_url = (
+            "https://calendar.google.com/calendar/render?action=TEMPLATE"
+            f"&text={urllib.parse.quote(ev['title'])}"
+            f"&dates={gcal_fmt_start}/{gcal_fmt_end}"
+        )
+        ev["gcal_url"] = gcal_quick_url
+        ev["created_on_google"] = created_on_google
+        return ev
+
+    def delete_local_event(self, index_or_title):
+        with self._lock:
+            if not self.local_events:
+                return False
+            if str(index_or_title).isdigit():
+                idx = int(index_or_title) - 1
+                if 0 <= idx < len(self.local_events):
+                    self.local_events.pop(idx)
+                    _save_json(EVENTS_FILE, self.local_events)
+                    return True
+            q = str(index_or_title).lower().strip()
+            before = len(self.local_events)
+            self.local_events = [e for e in self.local_events if q not in e.get("title", "").lower()]
+            if len(self.local_events) < before:
+                _save_json(EVENTS_FILE, self.local_events)
+                return True
+        return False
+
+    def get_upcoming_events(self, days_ahead=7):
+        now = datetime.now()
+        start_of_today = datetime(now.year, now.month, now.day)
+        limit_dt = start_of_today + timedelta(days=days_ahead)
+
+        with self._lock:
+            all_raw = list(self.local_events) + list(self.remote_events)
+
+        upcoming = []
+        seen_keys = set()
+        for ev in all_raw:
+            try:
+                dt = datetime.fromisoformat(ev["start_iso"])
+            except Exception:
+                continue
+            if dt < start_of_today - timedelta(hours=2) or dt > limit_dt:
+                continue
+            dedup = f"{ev.get('title', '').lower()}_{dt.strftime('%Y-%m-%d_%H:%M')}"
+            if dedup in seen_keys:
+                continue
+            seen_keys.add(dedup)
+
+            mins_until = int((dt - now).total_seconds() / 60)
+            is_today = dt.date() == now.date()
+            is_tomorrow = dt.date() == (now.date() + timedelta(days=1))
+            day_label = "Oggi" if is_today else ("Domani" if is_tomorrow else dt.strftime("%d/%m"))
+            time_label = "Tutto il giorno" if ev.get("all_day") else dt.strftime("%H:%M")
+
+            item = dict(ev)
+            item["day_label"] = day_label
+            item["time_label"] = time_label
+            item["minutes_until"] = mins_until
+            item["is_today"] = is_today
+            item["imminent"] = (not ev.get("all_day")) and (-10 <= mins_until <= int(self.config.get("reminder_minutes", 15)))
+            upcoming.append(item)
+
+        upcoming.sort(key=lambda x: x["start_iso"])
+        return upcoming
+
+    def get_summary_state(self):
+        upcoming = self.get_upcoming_events(days_ahead=7)
+        today_events = [e for e in upcoming if e.get("is_today")]
+        imminent = [e for e in upcoming if e.get("imminent")]
+        next_ev = None
+        for e in upcoming:
+            if e.get("minutes_until", -999) >= -15 or e.get("all_day"):
+                next_ev = e
+                break
+        cfg = self.get_config()
+        return {
+            "configured": bool(cfg.get("ical_urls") or cfg.get("google_access_token")),
+            "ical_urls": cfg.get("ical_urls", []),
+            "has_google_token": bool(cfg.get("google_access_token")),
+            "today_count": len(today_events),
+            "upcoming_count": len(upcoming),
+            "next_event": next_ev,
+            "imminent_events": imminent,
+            "upcoming_events": upcoming[:15],
+            "last_error": self.last_error,
+        }
+
+
+class WindowsPCActions:
+    """
+    Permette a Neko di interagire con le applicazioni del PC Windows:
+    - Avviare programmi installati (cercando nei percorsi noti e nei collegamenti .lnk del Menu Start)
+    - Aprire cartelle rapide (Desktop, Download, Documenti, Progetti) o URL
+    - Cercare file sul PC
+    - Leggere il contenuto degli Appunti di Windows (Clipboard)
+    """
+
+    KNOWN_FOLDERS = {
+        "desktop": os.path.join(USER_HOME, "Desktop"),
+        "download": os.path.join(USER_HOME, "Downloads"),
+        "downloads": os.path.join(USER_HOME, "Downloads"),
+        "scaricati": os.path.join(USER_HOME, "Downloads"),
+        "documenti": os.path.join(USER_HOME, "Documents"),
+        "documents": os.path.join(USER_HOME, "Documents"),
+        "immagini": os.path.join(USER_HOME, "Pictures"),
+        "pictures": os.path.join(USER_HOME, "Pictures"),
+        "video": os.path.join(USER_HOME, "Videos"),
+        "musica": os.path.join(USER_HOME, "Music"),
+        "home": USER_HOME,
+        "utente": USER_HOME,
+        "progetto": PROJECT_ROOT,
+        "asciineko": PROJECT_ROOT,
+    }
+
+    KNOWN_URLS = {
+        "google calendar": "https://calendar.google.com",
+        "calendario": "https://calendar.google.com",
+        "gmail": "https://mail.google.com",
+        "youtube": "https://www.youtube.com",
+        "github": "https://github.com/WizardThief/AsciiNeko",
+        "chatgpt": "https://chatgpt.com",
+    }
+
+    KNOWN_COMMANDS = {
+        "calcolatrice": "calc.exe",
+        "calc": "calc.exe",
+        "blocco note": "notepad.exe",
+        "notepad": "notepad.exe",
+        "paint": "mspaint.exe",
+        "esplora file": "explorer.exe",
+        "esplora risorse": "explorer.exe",
+        "explorer": "explorer.exe",
+        "cmd": "cmd.exe",
+        "powershell": "powershell.exe",
+        "terminale": "wt.exe",
+        "task manager": "taskmgr.exe",
+        "gestione attività": "taskmgr.exe",
+        "impostazioni": "ms-settings:",
+        "code": "code",
+        "vs code": "code",
+        "vscode": "code",
+        "visual studio code": "code",
+    }
+
+    @classmethod
+    def open_target(cls, target_name: str):
+        raw = (target_name or "").strip().strip("\"'")
+        low = raw.lower()
+        if not low:
+            return False, "Specifica il nome dell'applicazione o della cartella da aprire!"
+
+        # 1. URL noti (es. "Apri Google Calendar", "Apri Gmail", "Apri YouTube")
+        for k, url in cls.KNOWN_URLS.items():
+            if low == k or low.startswith(k):
+                os.startfile(url)
+                return True, f"🌐 Ho aperto **{k.title()}** nel browser!"
+
+        if low.startswith("http://") or low.startswith("https://"):
+            os.startfile(raw)
+            return True, f"🌐 Ho aperto il link: {raw}"
+
+        # 2. Cartelle utente note
+        for k, folder_path in cls.KNOWN_FOLDERS.items():
+            if low == k or low == f"cartella {k}":
+                if os.path.isdir(folder_path):
+                    os.startfile(folder_path)
+                    return True, f"📂 Ho aperto la cartella **{k.title()}** (`{folder_path}`)"
+
+        # 3. Percorso diretto su disco
+        if os.path.exists(raw):
+            os.startfile(raw)
+            return True, f"📂 Ho aperto `{raw}`"
+
+        # 4. Comandi rapidi di sistema Windows
+        for k, exe in cls.KNOWN_COMMANDS.items():
+            if low == k:
+                try:
+                    os.startfile(exe)
+                    return True, f"🚀 Ho avviato **{k.title()}**!"
+                except Exception:
+                    try:
+                        subprocess.Popen(exe, shell=True)
+                        return True, f"🚀 Ho avviato **{k.title()}**!"
+                    except Exception:
+                        pass
+
+        # 5. Ricerca automatica nei collegamenti (.lnk) del Menu Start di Windows
+        start_dirs = [
+            os.path.join(os.environ.get("PROGRAMDATA", r"C:\ProgramData"), r"Microsoft\Windows\Start Menu\Programs"),
+            os.path.join(os.environ.get("APPDATA", ""), r"Microsoft\Windows\Start Menu\Programs"),
+            os.path.join(USER_HOME, "Desktop"),
+        ]
+        best_match = None
+        for sdir in start_dirs:
+            if not os.path.isdir(sdir):
+                continue
+            for root, _, files in os.walk(sdir):
+                for fname in files:
+                    if fname.lower().endswith((".lnk", ".url", ".exe")):
+                        stem = os.path.splitext(fname)[0].lower()
+                        if low == stem:
+                            best_match = os.path.join(root, fname)
+                            break
+                        elif low in stem and not best_match:
+                            best_match = os.path.join(root, fname)
+                if best_match and os.path.splitext(os.path.basename(best_match))[0].lower() == low:
+                    break
+
+        if best_match:
+            try:
+                os.startfile(best_match)
+                app_title = os.path.splitext(os.path.basename(best_match))[0]
+                return True, f"🚀 Ho avviato **{app_title}**!"
+            except Exception as e:
+                return False, f"⚠️ Ho trovato `{best_match}` ma non sono riuscito ad avviarlo: {e}"
+
+        return False, f"⚠️ Non ho trovato l'applicazione o cartella **\"{raw}\"** nel Menu Start o nelle cartelle note."
+
+    @classmethod
+    def search_files(cls, query: str, max_results: int = 6):
+        q = (query or "").strip().lower()
+        if not q:
+            return []
+        search_roots = [
+            os.path.join(USER_HOME, "Desktop"),
+            os.path.join(USER_HOME, "Documents"),
+            os.path.join(USER_HOME, "Downloads"),
+            os.path.join(USER_HOME, "WizardThief"),
+        ]
+        matches = []
+        seen = set()
+        for rdir in search_roots:
+            if not os.path.isdir(rdir):
+                continue
+            for root, dirs, files in os.walk(rdir):
+                # Evita cartelle di cache pesanti
+                dirs[:] = [
+                    d
+                    for d in dirs
+                    if d not in (".git", "node_modules", "__pycache__", ".venv", "venv", "AppData")
+                ]
+                for item in files + dirs:
+                    if q in item.lower():
+                        full = os.path.join(root, item)
+                        if full not in seen:
+                            seen.add(full)
+                            matches.append(
+                                {
+                                    "name": item,
+                                    "path": full,
+                                    "parent": root,
+                                    "is_dir": os.path.isdir(full),
+                                }
+                            )
+                            if len(matches) >= max_results:
+                                return matches
+        return matches
+
+    @classmethod
+    def read_clipboard(cls) -> str:
+        try:
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            out = subprocess.check_output(
+                ["powershell", "-NoProfile", "-Command", "Get-Clipboard"],
+                startupinfo=startupinfo,
+                text=True,
+                timeout=2.5,
+            )
+            return (out or "").strip()
+        except Exception:
+            return ""
+
+
+class OllamaLocalBridge:
+    """
+    Gestisce il cervello locale di Neko:
+    - Conversazione con Ollama + Cronologia Chat persistente (chat_history.json)
+    - Memoria a lungo termine (memory.json)
+    - Calendario (Google Calendar + Eventi locali)
+    - Azioni rapide sul PC (App, File, Appunti, To-Do, Briefing)
+    """
+
+    def __init__(self, calendar_mgr: CalendarManager):
+        self.calendar = calendar_mgr
         self.models = []
         self.active_model = ""
         self.is_generating = False
         self.ollama_online = False
+        self._lock = threading.RLock()
+        self.chat_history = _load_json(CHAT_HISTORY_FILE, [])
+        self.memories = _load_json(MEMORY_FILE, [])
         self._ensure_thread = threading.Thread(target=self._init_ollama, daemon=True)
         self._ensure_thread.start()
 
     def _init_ollama(self):
-        # Controlla se Ollama risponde; altrimenti prova ad avviare `ollama serve` in background
         if not self._fetch_models():
             ollama_bin = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Ollama", "ollama.exe")
             if not os.path.isfile(ollama_bin):
@@ -253,21 +836,95 @@ class OllamaLocalBridge:
             self.ollama_online = False
             return False
 
+    # --- Gestione Cronologia Chat & Memoria ---
+    def get_chat_history(self, limit=60):
+        with self._lock:
+            return list(self.chat_history[-limit:])
+
+    def clear_chat_history(self):
+        with self._lock:
+            self.chat_history = []
+            _save_json(CHAT_HISTORY_FILE, self.chat_history)
+
+    def _append_chat_turn(self, user_text, reply_text, model_used, actions=None):
+        now_str = datetime.now().strftime("%H:%M")
+        ts = time.time()
+        with self._lock:
+            self.chat_history.append(
+                {
+                    "id": f"u_{int(ts * 1000)}",
+                    "role": "user",
+                    "text": user_text,
+                    "time": now_str,
+                    "timestamp": ts,
+                }
+            )
+            self.chat_history.append(
+                {
+                    "id": f"a_{int(ts * 1000) + 1}",
+                    "role": "assistant",
+                    "text": reply_text,
+                    "time": now_str,
+                    "timestamp": ts,
+                    "model": model_used,
+                    "actions": actions or [],
+                }
+            )
+            if len(self.chat_history) > 200:
+                self.chat_history = self.chat_history[-200:]
+            _save_json(CHAT_HISTORY_FILE, self.chat_history)
+
+    def get_memories(self):
+        with self._lock:
+            return list(self.memories)
+
+    def add_memory(self, fact_text: str):
+        clean = (fact_text or "").strip()
+        if not clean:
+            return None
+        with self._lock:
+            # Evita duplicati identici
+            for m in self.memories:
+                if m.get("text", "").lower() == clean.lower():
+                    return m
+            entry = {
+                "id": f"mem_{int(time.time() * 1000)}",
+                "text": clean,
+                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            }
+            self.memories.append(entry)
+            _save_json(MEMORY_FILE, self.memories)
+            return entry
+
+    def delete_memory(self, index_or_query):
+        with self._lock:
+            if not self.memories:
+                return False
+            if str(index_or_query).isdigit():
+                idx = int(index_or_query) - 1
+                if 0 <= idx < len(self.memories):
+                    self.memories.pop(idx)
+                    _save_json(MEMORY_FILE, self.memories)
+                    return True
+            q = str(index_or_query).lower().strip()
+            before = len(self.memories)
+            self.memories = [m for m in self.memories if q not in m.get("text", "").lower()]
+            if len(self.memories) < before:
+                _save_json(MEMORY_FILE, self.memories)
+                return True
+        return False
+
+    def clear_memories(self):
+        with self._lock:
+            self.memories = []
+            _save_json(MEMORY_FILE, self.memories)
+
+    # --- To-Do List ---
     def load_todos(self):
-        if os.path.isfile(TODO_FILE):
-            try:
-                with open(TODO_FILE, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                pass
-        return []
+        return _load_json(TODO_FILE, [])
 
     def save_todos(self, items):
-        try:
-            with open(TODO_FILE, "w", encoding="utf-8") as f:
-                json.dump(items, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        _save_json(TODO_FILE, items)
 
     def get_top_processes(self):
         try:
@@ -281,7 +938,7 @@ class OllamaLocalBridge:
                 ["powershell", "-NoProfile", "-Command", cmd],
                 startupinfo=startupinfo,
                 text=True,
-                timeout=3.0
+                timeout=3.0,
             ).strip()
             procs = json.loads(out)
             if isinstance(procs, dict):
@@ -291,6 +948,97 @@ class OllamaLocalBridge:
         except Exception:
             return "📊 Impossibile leggere la lista dettagliata dei processi in questo istante."
 
+    def _parse_natural_date_time(self, text: str):
+        """Estrae data e ora da frasi come 'domani alle 15:30', 'oggi alle 18', '2026-10-28 14:00'."""
+        now = datetime.now()
+        low = text.lower()
+        target_date = now.date()
+
+        m_iso = re.search(r"(\d{4}-\d{2}-\d{2})", low)
+        m_it = re.search(r"\b(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?\b", low)
+        if m_iso:
+            try:
+                target_date = datetime.strptime(m_iso.group(1), "%Y-%m-%d").date()
+            except Exception:
+                pass
+        elif m_it:
+            try:
+                d = int(m_it.group(1))
+                m = int(m_it.group(2))
+                y = int(m_it.group(3)) if m_it.group(3) else now.year
+                if y < 100:
+                    y += 2000
+                target_date = date(y, m, d)
+            except Exception:
+                pass
+        elif "dopodomani" in low:
+            target_date = now.date() + timedelta(days=2)
+        elif "domani" in low:
+            target_date = now.date() + timedelta(days=1)
+
+        hour, minute = 9, 0
+        m_time = re.search(r"(?:alle|ore|\b)(\d{1,2})[:\.](\d{2})\b", low)
+        m_hour_only = re.search(r"\b(?:alle|ore)\s+(\d{1,2})\b", low)
+        if m_time:
+            hour = min(23, max(0, int(m_time.group(1))))
+            minute = min(59, max(0, int(m_time.group(2))))
+        elif m_hour_only:
+            hour = min(23, max(0, int(m_hour_only.group(1))))
+            minute = 0
+
+        # Pulisci il titolo rimuovendo parole temporali
+        clean_title = re.sub(
+            r"\b(oggi|domani|dopodomani|alle\s+\d{1,2}([:\.]\d{2})?|ore\s+\d{1,2}([:\.]\d{2})?|\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}(/\d{2,4})?)\b",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        )
+        clean_title = re.sub(r"\s+", " ", clean_title).strip(" -:,")
+        if not clean_title:
+            clean_title = "Impegno a calendario"
+
+        return datetime(target_date.year, target_date.month, target_date.day, hour, minute), clean_title
+
+    def build_daily_briefing(self, cpu=0, ram=0):
+        now = datetime.now()
+        cal_state = self.calendar.get_summary_state()
+        upcoming = cal_state.get("upcoming_events", [])
+        today_evs = [e for e in upcoming if e.get("is_today")]
+        todos = self.load_todos()
+        mems = self.get_memories()
+
+        parts = [f"☀️ **Briefing di Neko ({now.strftime('%d/%m/%Y %H:%M')})**"]
+
+        if today_evs:
+            ev_strs = [f"• {e['time_label']} — {e['title']}" for e in today_evs[:5]]
+            parts.append("📅 **Impegni di Oggi:** " + " | ".join(ev_strs))
+        elif upcoming:
+            nxt = upcoming[0]
+            parts.append(f"📅 **Oggi nessun impegno.** Prossimo: {nxt['day_label']} {nxt['time_label']} — {nxt['title']}")
+        else:
+            parts.append("📅 **Agenda:** Nessun evento in programma (usa `cal add ...` o collega Google Calendar con `⚙️ CAL`).")
+
+        if todos:
+            td_strs = [f"[{i+1}] {t}" for i, t in enumerate(todos[:5])]
+            parts.append("📝 **To-Do Attivi:** " + " · ".join(td_strs))
+        else:
+            parts.append("📝 **To-Do:** Tutti completati!")
+
+        if mems:
+            parts.append(f"🧠 **Memoria Attiva:** {len(mems)} note salvate (ultima: \"{mems[-1]['text']}\")")
+
+        parts.append(f"💻 **Sistema:** CPU {cpu}% · RAM {ram}% · Modello: {self.active_model or 'Ollama'}")
+        return "\n".join(parts)
+
+    def _finish_reply(self, prompt_text, reply_text, model_name="LOCAL-TOOL", actions=None):
+        self._append_chat_turn(prompt_text, reply_text, model_name, actions=actions)
+        return {
+            "reply": reply_text,
+            "model": model_name,
+            "actions": actions or [],
+            "history": self.get_chat_history(limit=40),
+        }
+
     def handle_chat_or_command(self, prompt_text, requested_model=None, cpu=0, ram=0):
         text = (prompt_text or "").strip()
         if not text:
@@ -298,34 +1046,36 @@ class OllamaLocalBridge:
 
         low = text.lower()
 
-        # 0. Tool Rapido: Stacca/Chiudi il Tema Desktop
+        # 0. Chiudi tema desktop
         if low in ("/stop", "/exit", "esci", "stacca tema", "chiudi tema"):
             def _close_theme_window():
                 time.sleep(0.4)
                 WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
                 def _cb(hwnd, lparam):
                     if user32.IsWindowVisible(hwnd):
                         buf = ctypes.create_unicode_buffer(256)
                         user32.GetWindowTextW(hwnd, buf, 256)
                         if "ASCII AI Companion // Neko Desktop" in buf.value:
-                            user32.PostMessageW(hwnd, 0x0010, 0, 0)  # WM_CLOSE
+                            user32.PostMessageW(hwnd, 0x0010, 0, 0)
                     return True
-                user32.EnumWindows(WNDENUMPROC(_cb), 0)
-            threading.Thread(target=_close_theme_window, daemon=True).start()
-            return {
-                "reply": "👋 Tema Desktop staccato! A presto, miao!",
-                "model": "LOCAL-TOOL"
-            }
 
-        # 1. Tool Rapido: Top CPU/RAM
+                user32.EnumWindows(WNDENUMPROC(_cb), 0)
+
+            threading.Thread(target=_close_theme_window, daemon=True).start()
+            return self._finish_reply(text, "👋 Tema Desktop staccato! A presto, miao!")
+
+        # 1. Briefing del Mattino / Riepilogo Giornata
+        if low in ("/briefing", "briefing", "riepilogo", "buongiorno", "cosa devo fare oggi", "punto della situazione"):
+            rep = self.build_daily_briefing(cpu=cpu, ram=ram)
+            return self._finish_reply(text, rep, "NEKO-BRIEFING")
+
+        # 2. Top CPU/RAM
         if low in ("/sys", "/cpu", "top cpu", "top ram", "status"):
             top_info = self.get_top_processes()
-            return {
-                "reply": f"[SISTEMA: CPU {cpu}% | RAM {ram}%] {top_info}",
-                "model": "LOCAL-TOOL"
-            }
+            return self._finish_reply(text, f"[SISTEMA: CPU {cpu}% | RAM {ram}%] {top_info}")
 
-        # 2. Tool Rapido: Lista To-Do
+        # 3. Gestione To-Do List (/todo, todo: ..., todo done N)
         if low.startswith("/todo") or low.startswith("todo"):
             arg = text[5:].strip() if low.startswith("/todo") else text[4:].strip()
             if arg.startswith(":"):
@@ -333,43 +1083,239 @@ class OllamaLocalBridge:
             todos = self.load_todos()
             if not arg:
                 if not todos:
-                    return {"reply": "📝 La tua lista To-Do è vuota! Scrivi `todo: <cosa da fare>` per aggiungere.", "model": "LOCAL-TOOL"}
+                    return self._finish_reply(
+                        text, "📝 La tua lista To-Do è vuota! Scrivi `todo: <cosa da fare>` per aggiungere."
+                    )
                 formatted = " | ".join([f"[{i+1}] {t}" for i, t in enumerate(todos)])
-                return {"reply": f"📝 To-Do attivi: {formatted} (scrivi `todo clear` per svuotare)", "model": "LOCAL-TOOL"}
+                return self._finish_reply(
+                    text, f"📝 To-Do attivi ({len(todos)}): {formatted} (usa `todo done 1` o `todo clear`)"
+                )
             elif arg.lower() in ("clear", "pulisci", "reset"):
                 self.save_todos([])
-                return {"reply": "🧹 Lista To-Do svuotata con successo!", "model": "LOCAL-TOOL"}
+                return self._finish_reply(text, "🧹 Lista To-Do svuotata con successo!")
+            elif arg.lower().startswith(("done ", "fatto ", "del ", "rm ")):
+                idx_str = arg.split(None, 1)[1].strip()
+                if idx_str.isdigit() and 1 <= int(idx_str) <= len(todos):
+                    removed = todos.pop(int(idx_str) - 1)
+                    self.save_todos(todos)
+                    return self._finish_reply(text, f"✅ Completato e rimosso To-Do: \"{removed}\"")
+                return self._finish_reply(text, "⚠️ Specifica un numero valido (es. `todo done 1`).")
             else:
                 todos.append(arg)
                 self.save_todos(todos)
-                return {"reply": f"✅ Aggiunto alla To-Do list (#{len(todos)}): \"{arg}\"", "model": "LOCAL-TOOL"}
+                return self._finish_reply(text, f"✅ Aggiunto alla To-Do list (#{len(todos)}): \"{arg}\"")
 
-        # 3. Richiesta al Modello LLM Locale (Ollama)
+        # 4. Gestione Memoria a Lungo Termine (/mem, "ricorda che...", "ricordati che...", "nota: ...")
+        if low.startswith(("/mem", "ricorda che ", "ricordati che ", "memorizza ", "nota: ", "salva in memoria")):
+            if low in ("/mem", "/mem list", "memoria"):
+                mems = self.get_memories()
+                if not mems:
+                    return self._finish_reply(
+                        text,
+                        "🧠 Non ho ancora note in memoria! Scrivimi ad esempio: `Ricorda che il cliente Rossi preferisce i file in FBX`.",
+                    )
+                formatted = " | ".join([f"[{i+1}] {m['text']}" for i, m in enumerate(mems)])
+                return self._finish_reply(
+                    text, f"🧠 Memoria di Neko ({len(mems)} note): {formatted} (usa `/mem del 1` per rimuovere)"
+                )
+            if low in ("/mem clear", "/mem reset"):
+                self.clear_memories()
+                return self._finish_reply(text, "🧹 Memoria di lungo termine svuotata!")
+            if low.startswith(("/mem del ", "/mem rm ")):
+                target = text.split(None, 2)[2].strip()
+                if self.delete_memory(target):
+                    return self._finish_reply(text, f"🗑️ Nota rimossa dalla memoria ({target}).")
+                return self._finish_reply(text, "⚠️ Nota non trovata in memoria.")
+
+            # Estrai il fatto da salvare
+            fact = text
+            for prefix in ("/mem add ", "/mem ", "ricorda che ", "ricordati che ", "memorizza ", "nota: ", "salva in memoria: ", "salva in memoria "):
+                if low.startswith(prefix):
+                    fact = text[len(prefix) :].strip()
+                    break
+            entry = self.add_memory(fact)
+            if entry:
+                return self._finish_reply(
+                    text, f"🧠 Miau! Me lo sono segnato in memoria: **\"{entry['text']}\"** (Totale note: {len(self.get_memories())})"
+                )
+
+        # 5. Gestione Calendario & Google Calendar (/cal, "che impegni ho...", "fissa/aggiungi impegno...")
+        if (
+            low.startswith(("/cal", "cal:", "calendario", "agenda"))
+            or any(
+                p in low
+                for p in (
+                    "che impegni ho",
+                    "cosa ho in calendario",
+                    "prossimi appuntamenti",
+                    "prossimi impegni",
+                    "aggiungi impegno",
+                    "aggiungi evento",
+                    "fissa appuntamento",
+                    "fissa call",
+                )
+            )
+        ):
+            if low.startswith("/cal url ") or low.startswith("cal url "):
+                url = text.split(None, 2)[2].strip() if len(text.split(None, 2)) > 2 else ""
+                self.calendar.update_config(ical_url=url)
+                cal_st = self.calendar.get_summary_state()
+                return self._finish_reply(
+                    text,
+                    f"📅 Link Google Calendar iCal salvato! Ho caricato **{cal_st['upcoming_count']}** eventi in agenda.",
+                )
+
+            if low.startswith(("/cal del ", "cal del ")):
+                target = text.split(None, 2)[2].strip()
+                if self.calendar.delete_local_event(target):
+                    return self._finish_reply(text, f"🗑️ Evento locale `{target}` rimosso dall'agenda.")
+                return self._finish_reply(text, "⚠️ Evento locale non trovato.")
+
+            # Creazione nuovo impegno
+            is_add = low.startswith(("/cal add ", "cal add ", "aggiungi impegno", "aggiungi evento", "fissa appuntamento", "fissa call"))
+            if is_add:
+                raw_ev = text
+                for pref in ("/cal add ", "cal add ", "aggiungi impegno:", "aggiungi impegno", "aggiungi evento:", "aggiungi evento", "fissa appuntamento:", "fissa appuntamento", "fissa:"):
+                    if low.startswith(pref):
+                        raw_ev = text[len(prefix) if False else len(pref) :].strip()
+                        break
+                if raw_ev.lower().startswith("fissa "):
+                    raw_ev = raw_ev[6:].strip()
+                dt_start, ev_title = self._parse_natural_date_time(raw_ev)
+                ev = self.calendar.add_event(ev_title, dt_start)
+                g_note = " (sincronizzato anche su Google Calendar API!)" if ev.get("created_on_google") else ""
+                actions = [
+                    {
+                        "label": "📅 + Aggiungi su Google Calendar Web",
+                        "url": ev["gcal_url"],
+                    }
+                ]
+                return self._finish_reply(
+                    text,
+                    f"📅 Impegno salvato in agenda per il **{dt_start.strftime('%d/%m/%Y alle %H:%M')}**: **\"{ev['title']}\"**{g_note}",
+                    "CALENDAR",
+                    actions=actions,
+                )
+
+            # Visualizzazione agenda
+            self.calendar.refresh_remote_events()
+            cal_st = self.calendar.get_summary_state()
+            upcoming = cal_st.get("upcoming_events", [])
+            if not upcoming:
+                hint = (
+                    " (Clicca su `📅 AGENDA` in alto per collegare il link `.ics` di Google Calendar o scrivi `/cal add domani alle 15:00 Call con Marco`!)"
+                    if not cal_st.get("configured")
+                    else ""
+                )
+                return self._finish_reply(text, f"📅 Nessun impegno nei prossimi 7 giorni!{hint}", "CALENDAR")
+
+            lines = [f"• **{e['day_label']} {e['time_label']}**: {e['title']}" for e in upcoming[:8]]
+            return self._finish_reply(
+                text,
+                f"📅 **Prossimi Impegni in Agenda ({len(upcoming)}):**\n" + "\n".join(lines),
+                "CALENDAR",
+            )
+
+        # 6. Avvio Applicazioni e Cartelle sul PC ("apri ...", "/open ...")
+        if low.startswith(("apri ", "avvia ", "lancia ", "/open ")):
+            target = text.split(None, 1)[1].strip() if len(text.split(None, 1)) > 1 else ""
+            ok, msg = WindowsPCActions.open_target(target)
+            return self._finish_reply(text, msg, "PC-CONTROL")
+
+        # 7. Ricerca File sul PC ("cerca file ...", "/find ...")
+        if low.startswith(("cerca file ", "trova file ", "/find ")):
+            query = re.sub(r"^(cerca file|trova file|/find)\s*:?\s*", "", text, flags=re.IGNORECASE).strip()
+            results = WindowsPCActions.search_files(query)
+            if not results:
+                return self._finish_reply(text, f"🔍 Nessun file o cartella trovato con nome **\"{query}\"**.")
+            lines = []
+            actions = []
+            for idx, r in enumerate(results, 1):
+                icon = "📁" if r["is_dir"] else "📄"
+                lines.append(f"[{idx}] {icon} **{r['name']}** (`{r['path']}`)")
+                actions.append(
+                    {
+                        "label": f"📂 Apri {r['name'][:18]}",
+                        "open_path": r["path"] if r["is_dir"] else r["parent"],
+                    }
+                )
+            return self._finish_reply(
+                text,
+                f"🔍 Ho trovato {len(results)} risultati per **\"{query}\"**:\n" + "\n".join(lines),
+                "PC-SEARCH",
+                actions=actions[:4],
+            )
+
+        # 8. Lettura / Riassunto Appunti di Windows ("/clip", "riassumi gli appunti", "spiega gli appunti", "traduci gli appunti")
+        clipboard_context = ""
+        if low in ("/clip", "appunti", "leggi appunti") or "appunti" in low or "copiato" in low:
+            clip_text = WindowsPCActions.read_clipboard()
+            if not clip_text:
+                return self._finish_reply(
+                    text, "📋 Gli appunti di Windows sono vuoti (o non contengono testo)! Copia qualcosa con `Ctrl+C` e riprova."
+                )
+            if low in ("/clip", "leggi appunti"):
+                preview = clip_text[:400] + ("..." if len(clip_text) > 400 else "")
+                return self._finish_reply(text, f"📋 **Testo negli appunti:**\n{preview}", "CLIPBOARD")
+            clipboard_context = f"\n\n[TESTO COPIATO NEGLI APPUNTI DI WINDOWS DALL'UTENTE]:\n{clip_text[:3000]}"
+
+        # 9. Richiesta al Modello LLM Locale (Ollama) con Cronologia Conversazionale + Contesto Memoria & Agenda
         if not self.ollama_online:
             self._fetch_models()
 
         model_to_use = requested_model or self.active_model
         if not model_to_use:
-            return {
-                "reply": "⚠️ Ollama è installato ma non ho trovato modelli scaricati (es. esegui `ollama pull llama3.2` nel terminale). Intanto puoi usare i controlli `/sys` e `todo: ...`!",
-                "model": "OFFLINE"
-            }
+            return self._finish_reply(
+                text,
+                "⚠️ Ollama è installato ma non ho trovato modelli scaricati (esegui `ollama pull llama3.2`). Intanto puoi usare `/briefing`, `/cal`, `todo: ...`, `Ricorda che...` e `Apri <programma>`!",
+                "OFFLINE",
+            )
 
         self.is_generating = True
         try:
+            now_dt = datetime.now()
+            mems = self.get_memories()
+            todos = self.load_todos()
+            upcoming = self.calendar.get_upcoming_events(days_ahead=3)
+
+            context_blocks = [
+                f"Data e ora attuali: {now_dt.strftime('%A %d/%m/%Y, ore %H:%M')}.",
+                f"Stato PC: CPU {cpu}%, RAM {ram}%.",
+            ]
+            if mems:
+                context_blocks.append(
+                    "Fatti e preferenze che ricordi sull'utente (Diego): "
+                    + " | ".join([m["text"] for m in mems[-12:]])
+                )
+            if todos:
+                context_blocks.append("To-Do attivi dell'utente: " + " | ".join(todos[:8]))
+            if upcoming:
+                context_blocks.append(
+                    "Prossimi impegni in calendario: "
+                    + " | ".join([f"{e['day_label']} {e['time_label']} {e['title']}" for e in upcoming[:6]])
+                )
+
+            system_prompt = (
+                "Sei Neko AI, il gatto-assistente personale da scrivania di Diego. "
+                "Vivi sul suo Desktop Windows. Rispondi sempre in italiano in modo naturale, "
+                "intelligente, concreto e conciso (2-4 frasi ben formattate). "
+                "Ricorda il contesto della conversazione e i dati seguenti:\n"
+                + "\n".join(context_blocks)
+            )
+
+            # Includi gli ultimi 10 messaggi della cronologia per avere una vera conversazione continua!
+            recent_turns = self.get_chat_history(limit=10)
+            messages = [{"role": "system", "content": system_prompt}]
+            for turn in recent_turns:
+                r = turn.get("role")
+                if r in ("user", "assistant") and turn.get("text"):
+                    messages.append({"role": r, "content": turn["text"]})
+
+            messages.append({"role": "user", "content": text + clipboard_context})
+
             payload = {
                 "model": model_to_use,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            "Sei Neko AI, un assistente compagno da scrivania intelligente, conciso e simpatico "
-                            "che vive nel terminale del desktop di Diego. Rispondi sempre in italiano in modo "
-                            "molto diretto, utile e compatto (massimo 2-3 frasi brevi)."
-                        ),
-                    },
-                    {"role": "user", "content": text},
-                ],
+                "messages": messages,
                 "stream": False,
             }
             req = urllib.request.Request(
@@ -381,371 +1327,63 @@ class OllamaLocalBridge:
             with urllib.request.urlopen(req, timeout=45.0) as resp:
                 res_data = json.loads(resp.read().decode("utf-8"))
                 msg = res_data.get("message", {}).get("content", "").strip()
-                msg = " ".join(msg.splitlines())
-                return {"reply": msg or "Miao! Fatto!", "model": model_to_use}
+                return self._finish_reply(text, msg or "Miao! Fatto!", model_to_use)
         except Exception as e:
-            return {"reply": f"⚠️ Errore connessione Ollama ({model_to_use}): {str(e)}", "model": model_to_use}
+            return self._finish_reply(
+                text, f"⚠️ Errore connessione Ollama ({model_to_use}): {str(e)}", model_to_use
+            )
         finally:
             self.is_generating = False
 
 
-def is_test_environment() -> bool:
-    """Detects whether running inside a test runner (unittest, pytest)."""
-    return any(mod in sys.modules for mod in ("unittest", "pytest")) or "test" in sys.argv[0].lower()
-
-
-class NekoBotTelemetryAggregator:
-    """
-    Decoupled background aggregator for neko_bot daemon and status telemetry.
-    Polls 127.0.0.1:8766/status asynchronously and falls back to .neko/status.json.
-    Exposes thread-safe, zero-I/O in-memory snapshot for 25-30 FPS companion stream.
-    """
-    DEFAULT_DAEMON_URL = "http://127.0.0.1:8766"
-    POLL_INTERVAL_SEC = 0.5
-    PROBE_TIMEOUT_SEC = 0.25
-    CACHE_TTL_SEC = 0.1
-
-    def __init__(self, status_file_path=None, daemon_url=None, workspace_dir=None, auto_start=True):
-        if daemon_url:
-            self.daemon_url = str(daemon_url).rstrip("/")
-        else:
-            self.daemon_url = os.environ.get("NEKO_DAEMON_URL", self.DEFAULT_DAEMON_URL).rstrip("/")
-        self.custom_status_file = str(status_file_path) if status_file_path else None
-        self.workspace_dir = str(workspace_dir) if workspace_dir else None
-        self._lock = threading.RLock()
-        self._cached_telemetry = self._get_default_telemetry(status="offline")
-        self._daemon_online = False
-        self._last_source = "init"
-        self._last_poll_time = 0.0
-
-        # Decoupled background polling thread
-        self._stop_event = threading.Event()
-        self._thread = None
-
-        if auto_start:
-            self.start()
-
-    def _get_default_telemetry(self, status="offline"):
-        return {
-            "daemon_health": status,
-            "daemon_pid": None,
-            "cloud_sync": {
-                "status": status,
-                "connected": False,
-                "last_sync_time": None,
-                "last_sync": None,
-                "pending_mutations": 0,
-                "pending": 0,
-                "cloud_server_url": "http://127.0.0.1:8767",
-                "server": "http://127.0.0.1:8767",
-            },
-            "memory": {
-                "total_facts": 0,
-                "facts_count": 0,
-                "active_projects": 0,
-                "recent_episodes": 0,
-                "upcoming_deadlines": [],
-            },
-            "skills": {
-                "total_skills": 0,
-                "installed": 0,
-                "active_skills": [],
-                "active_tools": 0,
-                "last_executed_skill": None,
-                "last_execution": None,
-            },
-            "tasks": {
-                "total_active": 0,
-                "completed_today": 0,
-                "top_task": None,
-            },
-            "top_task": None,
-            "notification_queue": [],
-            "alerts": [],
-        }
-
-    def _find_status_file(self):
-        if self.custom_status_file:
-            if os.path.exists(self.custom_status_file):
-                return self.custom_status_file
-            return None
-        if self.workspace_dir:
-            cand = os.path.join(self.workspace_dir, ".neko", "status.json")
-            if os.path.exists(cand):
-                return cand
-            return None
-        env_path = os.environ.get("NEKO_STATUS_FILE")
-        if env_path and os.path.exists(env_path):
-            return env_path
-        candidates = [
-            os.path.join(PROJECT_ROOT, ".neko", "status.json"),
-            os.path.join(PROJECT_ROOT, "neko_bot", ".neko", "status.json"),
-            os.path.join(os.path.dirname(PROJECT_ROOT), ".neko", "status.json"),
-        ]
-        for c in candidates:
-            if os.path.isfile(c):
-                return c
-        return None
-
-    def _normalize_payload(self, raw, source_type="daemon"):
-        if not isinstance(raw, dict):
-            return self._get_default_telemetry(status="error")
-
-        defaults = self._get_default_telemetry(
-            status=raw.get("daemon_health", "running" if source_type == "daemon" else "offline")
-        )
-
-        if "daemon_pid" in raw:
-            defaults["daemon_pid"] = raw["daemon_pid"]
-
-        # Merge cloud_sync
-        cloud = raw.get("cloud_sync")
-        if isinstance(cloud, dict):
-            conn = bool(cloud.get("connected", False))
-            cs_status = cloud.get("status", "synced" if conn else "offline")
-            lst = cloud.get("last_sync_time") or cloud.get("last_sync")
-            pm = cloud.get("pending_mutations") if "pending_mutations" in cloud else cloud.get("pending", 0)
-            url = cloud.get("cloud_server_url") or cloud.get("server", "http://127.0.0.1:8767")
-            defaults["cloud_sync"] = {
-                "status": cs_status,
-                "connected": conn,
-                "last_sync_time": lst,
-                "last_sync": lst,
-                "pending_mutations": pm,
-                "pending": pm,
-                "cloud_server_url": url,
-                "server": url,
-            }
-
-        # Merge memory
-        mem = raw.get("memory")
-        if isinstance(mem, dict):
-            tf = mem.get("total_facts") if "total_facts" in mem else mem.get("facts_count", 0)
-            ap = mem.get("active_projects", 0)
-            re = mem.get("recent_episodes", 0)
-            deadlines = mem.get("upcoming_deadlines", [])
-            norm_deadlines = []
-            if isinstance(deadlines, list):
-                for d in deadlines:
-                    if isinstance(d, dict):
-                        pname = d.get("project") or d.get("name", "Untitled")
-                        due = d.get("due") or d.get("deadline_utc")
-                        norm_deadlines.append({
-                            "project": pname,
-                            "name": pname,
-                            "milestone": d.get("milestone", ""),
-                            "due": due,
-                            "deadline_utc": d.get("deadline_utc") or due,
-                            "risk": d.get("risk", "medium"),
-                            "overdue": d.get("overdue", False),
-                        })
-            defaults["memory"] = {
-                "total_facts": tf,
-                "facts_count": tf,
-                "active_projects": ap,
-                "recent_episodes": re,
-                "upcoming_deadlines": norm_deadlines,
-            }
-
-        # Merge skills
-        sk = raw.get("skills")
-        if isinstance(sk, dict):
-            act = sk.get("active_skills", [])
-            if not isinstance(act, list):
-                act = []
-            tot = sk.get("total_skills") if "total_skills" in sk else sk.get("installed", len(act))
-            active_tools_count = sk.get("active_tools", len(act))
-            last_s = sk.get("last_executed_skill") or sk.get("last_execution")
-            defaults["skills"] = {
-                "total_skills": tot,
-                "installed": tot,
-                "active_skills": act,
-                "active_tools": active_tools_count,
-                "last_executed_skill": last_s,
-                "last_execution": last_s,
-            }
-            if "workflows" in sk:
-                defaults["skills"]["workflows"] = sk["workflows"]
-
-        # Merge tasks and top_task
-        if "tasks" in raw and isinstance(raw["tasks"], dict):
-            defaults["tasks"].update(raw["tasks"])
-        if "top_task" in raw:
-            defaults["top_task"] = raw["top_task"]
-            if defaults["tasks"].get("top_task") is None:
-                defaults["tasks"]["top_task"] = raw["top_task"]
-
-        # Merge notifications & alerts
-        if "notification_queue" in raw and isinstance(raw["notification_queue"], list):
-            defaults["notification_queue"] = raw["notification_queue"]
-        if "alerts" in raw and isinstance(raw["alerts"], list):
-            defaults["alerts"] = raw["alerts"]
-
-        return defaults
-
-    def _poll_once(self, force=False):
-        if self._stop_event.is_set():
-            return
-        now = time.time()
-        if not force and (now - self._last_poll_time) < self.CACHE_TTL_SEC:
-            return
-
-        # Stage 1: Active HTTP probe to daemon
-        if self.daemon_url and not self._stop_event.is_set():
-            try:
-                req = urllib.request.Request(f"{self.daemon_url}/status", headers={"Accept": "application/json"})
-                with urllib.request.urlopen(req, timeout=self.PROBE_TIMEOUT_SEC) as resp:
-                    if self._stop_event.is_set():
-                        return
-                    if resp.status == 200:
-                        data = json.loads(resp.read().decode("utf-8"))
-                        norm = self._normalize_payload(data, source_type="daemon")
-                        with self._lock:
-                            self._cached_telemetry = norm
-                            self._daemon_online = True
-                            self._last_source = "http"
-                            self._last_poll_time = time.time()
-                        return
-            except Exception:
-                pass
-
-        # Stage 2: Fallback to .neko/status.json file
-        s_file = self._find_status_file()
-        if s_file and not self._stop_event.is_set():
-            for attempt in range(3):
-                try:
-                    if os.path.getsize(s_file) == 0:
-                        norm = self._get_default_telemetry(status="offline")
-                        with self._lock:
-                            self._cached_telemetry = norm
-                            self._daemon_online = False
-                            self._last_source = "empty_file"
-                            self._last_poll_time = time.time()
-                        return
-                    with open(s_file, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                    norm = self._normalize_payload(data, source_type="file")
-                    with self._lock:
-                        self._cached_telemetry = norm
-                        self._daemon_online = False
-                        self._last_source = "file"
-                        self._last_poll_time = time.time()
-                    return
-                except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
-                    norm = self._get_default_telemetry(status="error")
-                    norm["cloud_sync"]["status"] = "error"
-                    with self._lock:
-                        self._cached_telemetry = norm
-                        self._daemon_online = False
-                        self._last_source = "corrupt_file"
-                        self._last_poll_time = time.time()
-                    return
-                except PermissionError:
-                    time.sleep(0.01 * (attempt + 1))
-                except Exception:
-                    break
-
-        # Stage 3: Offline Default Fallback
-        with self._lock:
-            self._cached_telemetry = self._get_default_telemetry(status="offline")
-            self._daemon_online = False
-            self._last_source = "default"
-            self._last_poll_time = time.time()
-
-    def start(self):
-        """Starts the background polling thread and runs initial probe if not running."""
-        with self._lock:
-            if self._thread is not None and self._thread.is_alive():
-                return
-            self._stop_event.clear()
-            self._poll_once(force=True)
-            self._thread = threading.Thread(target=self._poll_loop, daemon=True, name="NekoTelemetryAggregator")
-            self._thread.start()
-
-    def poll(self, force=False):
-        """Public poll trigger with TTL support."""
-        self._poll_once(force=force)
-
-    def _poll_loop(self):
-        while not self._stop_event.is_set():
-            try:
-                self._poll_once(force=False)
-            except Exception:
-                pass
-            if self._stop_event.wait(self.POLL_INTERVAL_SEC):
-                break
-
-    def get_telemetry(self):
-        """Thread-safe zero-I/O snapshot (< 0.05ms) for 25-30 FPS SSE streaming."""
-        with self._lock:
-            return dict(self._cached_telemetry)
-
-    def stop(self, timeout=1.0):
-        """Signals the background thread to stop immediately and joins with timeout."""
-        self._stop_event.set()
-        t = self._thread
-        if t is not None and t.is_alive() and t != threading.current_thread():
-            t.join(timeout=timeout)
-        self._thread = None
-
-    def close(self):
-        self.stop()
-
-
 class SystemStateMonitor:
-    def __init__(self, audio_capture, ollama_bridge, telemetry=None):
-        self.audio = audio_capture
-        self.ollama = ollama_bridge
-        if telemetry is not None:
-            self.telemetry = telemetry
-        else:
-            self.telemetry = NekoBotTelemetryAggregator(auto_start=not is_test_environment())
-        self.cpu_percent = 15.0
-        self.ram_percent = 40.0
+    def __init__(self, audio: WindowsAudioCapture, ollama: OllamaLocalBridge, calendar: CalendarManager):
+        self.audio = audio
+        self.ollama = ollama
+        self.calendar = calendar
+        self.cpu_percent = 12.0
+        self.ram_percent = 38.0
         self.ai_working = False
         self.ai_source = "IDLE"
         self.ai_detail = ""
         self.code_version = 0.0
-        self.shared_cat = {
-            "worldCol": 60,
-            "row": 24,
-            "facing": 1,
-            "isWalking": False,
-            "walkPhase": 0,
-            "emotion": "neutral",
-            "idleState": "sit",
-            "toy": None,
-            "remoteCommand": None,
-            "cmdId": 0
-        }
-        self._active_clients = {}
+
         self._last_idle = 0
         self._last_kernel = 0
         self._last_user = 0
-        self._lock = threading.Lock()
 
-        self._init_cpu_times()
+        self._active_clients = {}
+        self.shared_cat = {
+            "worldCol": 60.0,
+            "row": 22.0,
+            "facing": 1,
+            "isWalking": False,
+            "walkPhase": 0.0,
+            "emotion": "normal",
+            "idleState": "stand",
+            "toy": None,
+            "remoteCommand": None,
+            "cmdId": 0,
+        }
+
+        self._lock = threading.Lock()
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
-
-    def _init_cpu_times(self):
-        idle, kernel, user = FILETIME(), FILETIME(), FILETIME()
-        if ctypes.windll.kernel32.GetSystemTimes(byref(idle), byref(kernel), byref(user)):
-            self._last_idle = _filetime_to_int(idle)
-            self._last_kernel = _filetime_to_int(kernel)
-            self._last_user = _filetime_to_int(user)
 
     def _read_cpu_and_ram(self):
         mem = MEMORYSTATUSEX()
         mem.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
-        ram = float(mem.dwMemoryLoad) if ctypes.windll.kernel32.GlobalMemoryStatusEx(byref(mem)) else self.ram_percent
+        ctypes.windll.kernel32.GlobalMemoryStatusEx(byref(mem))
+        ram = float(mem.dwMemoryLoad)
 
-        idle, kernel, user = FILETIME(), FILETIME(), FILETIME()
+        idle_ft = FILETIME()
+        kernel_ft = FILETIME()
+        user_ft = FILETIME()
         cpu = self.cpu_percent
-        if ctypes.windll.kernel32.GetSystemTimes(byref(idle), byref(kernel), byref(user)):
-            i_now = _filetime_to_int(idle)
-            k_now = _filetime_to_int(kernel)
-            u_now = _filetime_to_int(user)
+        if ctypes.windll.kernel32.GetSystemTimes(byref(idle_ft), byref(kernel_ft), byref(user_ft)):
+            i_now = _filetime_to_int(idle_ft)
+            k_now = _filetime_to_int(kernel_ft)
+            u_now = _filetime_to_int(user_ft)
 
             total = (k_now - self._last_kernel) + (u_now - self._last_user)
             i_diff = i_now - self._last_idle
@@ -824,7 +1462,7 @@ class SystemStateMonitor:
             user32.GetClassNameW(hwnd, cls_buf, 128)
             cls_name = cls_buf.value
 
-            root_hwnd = user32.GetAncestor(hwnd, 2)  # GA_ROOT = 2
+            root_hwnd = user32.GetAncestor(hwnd, 2)
             root_cls_buf = ctypes.create_unicode_buffer(128)
             title_buf = ctypes.create_unicode_buffer(256)
             if root_hwnd:
@@ -833,21 +1471,11 @@ class SystemStateMonitor:
             root_cls = root_cls_buf.value
             win_title = title_buf.value
 
-            desktop_classes = {
-                "Progman",
-                "WorkerW",
-                "SysListView32",
-                "SHELLDLL_DefView",
-                "CefSharpBrowserWindow",
-                "Chrome_RenderWidgetHostHWND",
-            }
-            # Se la finestra principale è il Desktop (Progman/WorkerW) o la nostra app "ASCII AI Companion"
             if root_cls in ("Progman", "WorkerW") or cls_name in ("SysListView32", "SHELLDLL_DefView"):
                 is_desktop = True
             elif "ASCII AI Companion" in win_title or "AsciiNeko" in win_title:
                 is_desktop = True
             else:
-                # È una normale applicazione aperta (es. Chrome, VS Code, Esplora Risorse)
                 is_desktop = False
 
         return cx, cy, screen_idx, screen_w, is_desktop
@@ -895,6 +1523,10 @@ class SystemStateMonitor:
     def get_snapshot(self, client_id=None):
         cx, cy, c_screen, screen_w, is_desktop = self._read_cursor_and_desktop_focus()
         assigned_slot = self.register_client_slot(client_id) if client_id else 0
+        cal_summary = self.calendar.get_summary_state()
+        mems = self.ollama.get_memories()
+        todos = self.ollama.load_todos()
+
         with self._lock:
             snap = {
                 "cpu": self.cpu_percent,
@@ -912,54 +1544,24 @@ class SystemStateMonitor:
                 "shared_cat": dict(self.shared_cat),
                 "ollama_models": list(self.ollama.models),
                 "ollama_active": self.ollama.active_model,
+                "memory_count": len(mems),
+                "todo_count": len(todos),
+                "calendar": cal_summary,
                 "timestamp": time.time(),
             }
         snap.update(self.audio.get_audio_state())
-        if self.telemetry:
-            snap.update(self.telemetry.get_telemetry())
         return snap
-
-    def stop(self):
-        if self.telemetry:
-            self.telemetry.stop()
 
 
 audio_capture = WindowsAudioCapture()
-ollama_bridge = OllamaLocalBridge()
-telemetry_aggregator = NekoBotTelemetryAggregator(auto_start=not is_test_environment())
-monitor = SystemStateMonitor(audio_capture, ollama_bridge, telemetry=telemetry_aggregator)
-
-
-def stop_telemetry(timeout: float = 1.0):
-    """Explicitly terminates background telemetry aggregator thread for clean test teardown."""
-    global telemetry_aggregator, monitor
-    if telemetry_aggregator is not None:
-        telemetry_aggregator.stop(timeout=timeout)
-    if monitor is not None and getattr(monitor, "telemetry", None) is not None:
-        monitor.telemetry.stop(timeout=timeout)
-
-
-def start_telemetry():
-    """Starts module-level telemetry aggregator if not already running."""
-    global telemetry_aggregator
-    if telemetry_aggregator is not None:
-        telemetry_aggregator.start()
+calendar_manager = CalendarManager()
+ollama_bridge = OllamaLocalBridge(calendar_manager)
+monitor = SystemStateMonitor(audio_capture, ollama_bridge, calendar_manager)
 
 
 class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
-    monitor = None
-    ollama_bridge = None
-
     def __init__(self, *args, directory=None, **kwargs):
         super().__init__(*args, directory=directory or PROJECT_ROOT, **kwargs)
-
-    @property
-    def current_monitor(self):
-        return self.monitor if self.monitor is not None else monitor
-
-    @property
-    def current_ollama(self):
-        return self.ollama_bridge if self.ollama_bridge is not None else ollama_bridge
 
     def log_message(self, format, *args):
         pass
@@ -970,6 +1572,14 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
         super().end_headers()
+
+    def _send_json(self, payload, status=200):
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def do_OPTIONS(self):
         self.send_response(200)
@@ -985,28 +1595,37 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
                 pass
 
         if self.path.startswith("/cat_sync"):
-            self.current_monitor.update_shared_cat(body)
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b'{"ok":true}')
-            return
+            monitor.update_shared_cat(body)
+            return self._send_json({"ok": True})
 
         if self.path.startswith("/ai_chat"):
             prompt = body.get("prompt", "")
             model = body.get("model", "")
-            result = self.current_ollama.handle_chat_or_command(
+            result = ollama_bridge.handle_chat_or_command(
                 prompt,
                 requested_model=model,
-                cpu=self.current_monitor.cpu_percent,
-                ram=self.current_monitor.ram_percent,
+                cpu=monitor.cpu_percent,
+                ram=monitor.ram_percent,
             )
-            data = json.dumps(result, ensure_ascii=False).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
-            return
+            return self._send_json(result)
+
+        if self.path.startswith("/chat_clear"):
+            ollama_bridge.clear_chat_history()
+            return self._send_json({"ok": True, "history": []})
+
+        if self.path.startswith("/calendar_config"):
+            ical_url = body.get("ical_url")
+            token = body.get("google_access_token")
+            clear_urls = bool(body.get("clear_urls", False))
+            cfg = calendar_manager.update_config(
+                ical_url=ical_url, google_access_token=token, clear_urls=clear_urls
+            )
+            return self._send_json({"ok": True, "config": cfg, "calendar": calendar_manager.get_summary_state()})
+
+        if self.path.startswith("/pc_action"):
+            target = body.get("open_path") or body.get("target") or ""
+            ok, msg = WindowsPCActions.open_target(target)
+            return self._send_json({"ok": ok, "message": msg})
 
         self.send_response(404)
         self.end_headers()
@@ -1028,7 +1647,7 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(b"retry: 3000\n\n")
                 self.wfile.flush()
                 while True:
-                    payload = json.dumps(self.current_monitor.get_snapshot(client_id), ensure_ascii=False)
+                    payload = json.dumps(monitor.get_snapshot(client_id), ensure_ascii=False)
                     self.wfile.write(f"data: {payload}\n\n".encode("utf-8"))
                     self.wfile.flush()
                     time.sleep(0.04)
@@ -1036,22 +1655,25 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
         if self.path.startswith("/status"):
-            data = json.dumps(self.current_monitor.get_snapshot(client_id), ensure_ascii=False).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
-            return
+            return self._send_json(monitor.get_snapshot(client_id))
+
+        if self.path.startswith("/chat_history"):
+            return self._send_json(
+                {
+                    "history": ollama_bridge.get_chat_history(limit=60),
+                    "memories": ollama_bridge.get_memories(),
+                    "todos": ollama_bridge.load_todos(),
+                    "calendar": calendar_manager.get_summary_state(),
+                }
+            )
 
         return super().do_GET()
 
 
 if __name__ == "__main__":
-    start_telemetry()
     server = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), CompanionRequestHandler)
     print("==========================================================")
-    print("  ASCII NEKO COMPANION // OLLAMA + MULTI-SCREEN BRIDGE")
+    print("  ASCII NEKO COMPANION // LOCAL AI + CALENDAR + PC BRIDGE")
     print(f"  - Stream Live 25fps : http://127.0.0.1:{PORT}/stream")
     print(f"  - Chat AI Locale    : http://127.0.0.1:{PORT}/ai_chat")
     print("==========================================================")
@@ -1061,4 +1683,3 @@ if __name__ == "__main__":
         pass
     finally:
         server.server_close()
-        stop_telemetry()

@@ -1,5 +1,6 @@
 /**
- * HudTerminal - Gestisce la Top Bar minimale e il Terminale AI Locale (Ollama) in basso.
+ * HudTerminal - Gestisce la Top Bar minimale e il Terminale Assistente Locale (Ollama, Cronologia Chat,
+ * Google Calendar, Memoria e Controllo PC) in basso.
  */
 class HudTerminal {
   constructor(state, actions) {
@@ -12,6 +13,7 @@ class HudTerminal {
     this.elAiDot = document.getElementById('ai-dot');
 
     this.elDialogue = document.getElementById('companion-dialogue');
+    this.elActionButtons = document.getElementById('ai-action-buttons');
     this.elAffection = document.getElementById('companion-affection');
     this.elClock = document.getElementById('clock-display');
     this.elTimerBadge = document.getElementById('session-timer-badge');
@@ -23,29 +25,61 @@ class HudTerminal {
     this.elAiForm = document.getElementById('ai-input-form');
     this.elAiInput = document.getElementById('ai-input-field');
 
-    this.elCloudBadge = document.getElementById('cloud-sync-badge');
+    this.elAgendaPill = document.getElementById('agenda-pill');
     this.elMemPill = document.getElementById('mem-pill');
-    this.elSkillsPill = document.getElementById('skills-pill');
     this.elDeadlineToast = document.getElementById('hud-deadline-toast');
     this.elDeadlineContent = document.getElementById('deadline-toast-content');
     this.elBtnDismissDeadline = document.getElementById('btn-dismiss-deadline');
 
+    this.elBtnToggleHistory = document.getElementById('btn-toggle-history');
+    this.elHistoryPanel = document.getElementById('chat-history-panel');
+    this.elHistoryList = document.getElementById('chat-history-list');
+    this.elBtnClearHistory = document.getElementById('btn-clear-history');
+
+    this.elBtnCalSettings = document.getElementById('btn-cal-settings');
+    this.elCalDrawer = document.getElementById('cal-config-drawer');
+    this.elCalInput = document.getElementById('cal-ical-input');
+    this.elBtnSaveIcal = document.getElementById('btn-save-ical');
+    this.elBtnOpenGcalWeb = document.getElementById('btn-open-gcal-web');
+
     // Dirty-checking cache for 60 FPS zero-allocation updates
-    this._lastCloudStatus = null;
+    this._lastAgendaKey = null;
     this._lastMemKey = null;
-    this._lastSkillsKey = null;
-    this._lastDeadlineHash = null;
-    this._deadlineDismissedFor = null;
+    this._lastImminentHash = null;
+    this._imminentDismissedFor = null;
 
     this.currentMessage = '';
     this.targetMessage = '';
     this.charIndex = 0;
     this.typeTimer = 0;
-
-    // Timer Pomodoro opzionale (conto alla rovescia)
     this.countdownRemaining = 0;
 
+    // Cronologia comandi digitati (Freccia Su / Giù)
+    this.sentCommands = [];
+    this.cmdCursor = -1;
+
     this.bindEvents();
+    this.loadInitialHistory();
+  }
+
+  async loadInitialHistory() {
+    if (!this.actions.fetchChatHistory) return;
+    const data = await this.actions.fetchChatHistory();
+    if (data && Array.isArray(data.history) && data.history.length > 0) {
+      this.renderHistoryList(data.history);
+      const lastAssistant = [...data.history].reverse().find((t) => t.role === 'assistant');
+      if (lastAssistant && lastAssistant.text) {
+        this.say(lastAssistant.text, lastAssistant.actions || []);
+      }
+      this.sentCommands = data.history
+        .filter((t) => t.role === 'user' && t.text)
+        .map((t) => t.text)
+        .slice(-30);
+      this.cmdCursor = this.sentCommands.length;
+    }
+    if (data && data.calendar && Array.isArray(data.calendar.ical_urls) && data.calendar.ical_urls[0] && this.elCalInput) {
+      this.elCalInput.value = data.calendar.ical_urls[0];
+    }
   }
 
   bindEvents() {
@@ -123,36 +157,98 @@ class HudTerminal {
     if (this.elBtnDismissDeadline) {
       this.elBtnDismissDeadline.addEventListener('click', (e) => {
         e.stopPropagation();
-        this._deadlineDismissedFor = this._lastDeadlineHash;
+        this._imminentDismissedFor = this._lastImminentHash;
         if (this.elDeadlineToast) {
           this.elDeadlineToast.style.display = 'none';
         }
       });
     }
 
+    if (this.elAgendaPill) {
+      this.elAgendaPill.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.submitAiCommand('/cal');
+      });
+    }
+
     if (this.elMemPill) {
       this.elMemPill.addEventListener('click', (e) => {
         e.stopPropagation();
-        const mem = (this.state.system && this.state.system.memory) || { totalFacts: 0, activeProjects: 0, recentEpisodes: 0 };
-        this.say(`🧠 Memoria Neko: ${mem.totalFacts} fatti memorizzati, ${mem.activeProjects} progetti attivi, ${mem.recentEpisodes} sessioni.`);
+        this.submitAiCommand('/mem');
       });
     }
 
-    if (this.elSkillsPill) {
-      this.elSkillsPill.addEventListener('click', (e) => {
+    // Toggle Cronologia Chat (📜 STORICO)
+    if (this.elBtnToggleHistory && this.elHistoryPanel) {
+      this.elBtnToggleHistory.addEventListener('click', async (e) => {
         e.stopPropagation();
-        const sk = (this.state.system && this.state.system.skills) || { totalSkills: 0, activeSkills: [], lastExecutedSkill: null };
-        const listStr = sk.activeSkills && sk.activeSkills.length ? sk.activeSkills.slice(0, 4).join(', ') : 'nessuna';
-        this.say(`⚡ Skills Neko: ${sk.totalSkills} attive [${listStr}]. Ultima: ${sk.lastExecutedSkill || 'nessuna'}`);
+        const isHidden = this.elHistoryPanel.style.display === 'none';
+        this.elHistoryPanel.style.display = isHidden ? 'flex' : 'none';
+        this.elBtnToggleHistory.classList.toggle('active', isHidden);
+        if (isHidden && this.actions.fetchChatHistory) {
+          const data = await this.actions.fetchChatHistory();
+          if (data && Array.isArray(data.history)) {
+            this.renderHistoryList(data.history);
+          }
+        }
       });
     }
 
-    if (this.elCloudBadge) {
-      this.elCloudBadge.addEventListener('click', (e) => {
+    // Pulisci Cronologia Chat
+    if (this.elBtnClearHistory) {
+      this.elBtnClearHistory.addEventListener('click', async (e) => {
         e.stopPropagation();
-        const cs = (this.state.system && this.state.system.cloudSync) || { status: 'offline', cloudServerUrl: '127.0.0.1:8767', pendingMutations: 0, lastSyncTime: null };
-        const lastSync = cs.lastSyncTime ? new Date(cs.lastSyncTime).toLocaleTimeString('it-IT') : 'mai';
-        this.say(`☁️ Cloud Sync [${(cs.status || 'OFFLINE').toUpperCase()}]: server ${cs.cloudServerUrl || '127.0.0.1:8767'}, mutazioni pendenti: ${cs.pendingMutations || 0}, ultimo sync: ${lastSync}`);
+        if (this.actions.clearChatHistory) {
+          await this.actions.clearChatHistory();
+        }
+        this.renderHistoryList([]);
+        this.say('🧹 Cronologia chat pulita! (Le tue note in 🧠 Memoria e l\'Agenda restano salve).');
+      });
+    }
+
+    // Toggle Pannello Impostazioni Google Calendar (⚙️ CAL)
+    if (this.elBtnCalSettings && this.elCalDrawer) {
+      this.elBtnCalSettings.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isHidden = this.elCalDrawer.style.display === 'none';
+        this.elCalDrawer.style.display = isHidden ? 'flex' : 'none';
+        this.elBtnCalSettings.classList.toggle('active', isHidden);
+        const cal = this.state.system && this.state.system.calendar;
+        if (isHidden && cal && Array.isArray(cal.ical_urls) && cal.ical_urls[0] && this.elCalInput && !this.elCalInput.value) {
+          this.elCalInput.value = cal.ical_urls[0];
+        }
+      });
+    }
+
+    if (this.elBtnSaveIcal && this.elCalInput) {
+      this.elBtnSaveIcal.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const url = this.elCalInput.value.trim();
+        this.say('⏳ Collegamento a Google Calendar in corso...');
+        if (this.actions.saveCalendarConfig) {
+          const res = await this.actions.saveCalendarConfig(url);
+          if (res && res.ok) {
+            const count = res.calendar ? res.calendar.upcoming_count : 0;
+            this.say(
+              url
+                ? `📅 Google Calendar collegato! Ho trovato ${count} appuntamenti nei prossimi 7 giorni.`
+                : '📅 Link Google Calendar rimosso (restano attivi gli impegni locali).'
+            );
+            if (this.elCalDrawer) this.elCalDrawer.style.display = 'none';
+            if (this.elBtnCalSettings) this.elBtnCalSettings.classList.remove('active');
+          }
+        }
+      });
+    }
+
+    if (this.elBtnOpenGcalWeb) {
+      this.elBtnOpenGcalWeb.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (this.actions.triggerPcAction) {
+          this.actions.triggerPcAction('https://calendar.google.com');
+        } else {
+          window.open('https://calendar.google.com', '_blank');
+        }
       });
     }
 
@@ -181,38 +277,108 @@ class HudTerminal {
       });
     });
 
-    // Invio da tastiera nel Terminale AI
+    // Invio da tastiera nel Terminale AI + Frecce Su/Giù per richiamare comandi
     if (this.elAiForm && this.elAiInput) {
+      this.elAiInput.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowUp' && this.sentCommands.length > 0) {
+          e.preventDefault();
+          this.cmdCursor = Math.max(0, this.cmdCursor - 1);
+          this.elAiInput.value = this.sentCommands[this.cmdCursor] || '';
+        } else if (e.key === 'ArrowDown' && this.sentCommands.length > 0) {
+          e.preventDefault();
+          this.cmdCursor = Math.min(this.sentCommands.length, this.cmdCursor + 1);
+          this.elAiInput.value = this.sentCommands[this.cmdCursor] || '';
+        }
+      });
+
       this.elAiForm.addEventListener('submit', (e) => {
         e.preventDefault();
         e.stopPropagation();
         const text = this.elAiInput.value.trim();
         if (!text) return;
+        this.sentCommands.push(text);
+        this.cmdCursor = this.sentCommands.length;
         this.elAiInput.value = '';
         this.submitAiCommand(text);
       });
     }
   }
 
+  renderHistoryList(historyArray) {
+    if (!this.elHistoryList) return;
+    if (!historyArray || historyArray.length === 0) {
+      this.elHistoryList.innerHTML =
+        '<div class="chat-turn"><span style="color:var(--text-muted)">Nessun messaggio in cronologia.</span></div>';
+      return;
+    }
+
+    let html = '';
+    for (const item of historyArray) {
+      const isUser = item.role === 'user';
+      const cls = isUser ? 'turn-user' : 'turn-assistant';
+      const who = isUser ? 'TU' : `NEKO (${this.escapeHtml(item.model || 'AI')})`;
+      const timeStr = this.escapeHtml(item.time || '');
+      html += `<div class="chat-turn ${cls}">
+        <div class="chat-turn-meta"><strong>${who}</strong><span>${timeStr}</span></div>
+        <div class="chat-turn-text">${this.escapeHtml(item.text || '')}</div>
+      </div>`;
+    }
+    this.elHistoryList.innerHTML = html;
+    this.elHistoryList.scrollTop = this.elHistoryList.scrollHeight;
+  }
+
+  renderActionButtons(actions) {
+    if (!this.elActionButtons) return;
+    if (!Array.isArray(actions) || actions.length === 0) {
+      this.elActionButtons.style.display = 'none';
+      this.elActionButtons.innerHTML = '';
+      return;
+    }
+
+    this.elActionButtons.innerHTML = '';
+    for (const act of actions) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'ai-action-btn';
+      btn.textContent = act.label || 'Apri';
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (act.url) {
+          if (this.actions.triggerPcAction) {
+            this.actions.triggerPcAction(act.url);
+          } else {
+            window.open(act.url, '_blank');
+          }
+        } else if (act.open_path && this.actions.triggerPcAction) {
+          this.actions.triggerPcAction(act.open_path);
+        }
+      });
+      this.elActionButtons.appendChild(btn);
+    }
+    this.elActionButtons.style.display = 'flex';
+  }
+
   async submitAiCommand(text) {
-    this.say(`⏳ Elaborazione: "${text}"...`);
+    this.say(`⏳ Elaborazione: "${text}"...`, []);
     if (this.actions.sendAiPrompt) {
       const res = await this.actions.sendAiPrompt(text);
       if (res && res.reply) {
-        this.say(res.reply);
+        this.say(res.reply, res.actions || []);
+      }
+      if (res && Array.isArray(res.history)) {
+        this.renderHistoryList(res.history);
       }
     }
   }
 
-  say(text) {
+  say(text, actions = []) {
     this.targetMessage = text;
     this.currentMessage = '';
     this.charIndex = 0;
+    this.renderActionButtons(actions);
   }
 
-  triggerCompanionReaction(eventType) {
-    // Non sovrascrivere il terminale AI con inutili messaggi di log automatici!
-  }
+  triggerCompanionReaction(eventType) {}
 
   updateModeUI(mode) {
     document.querySelectorAll('[data-mode-btn]').forEach((btn) => {
@@ -236,17 +402,16 @@ class HudTerminal {
   }
 
   update(dt) {
-    // Nascondi il terminale AI sullo Schermo 2 (Secondario) per mantenerlo ultra-pulito
     if (this.elAiDock) {
       this.elAiDock.style.display = this.state.screenIndex === 0 ? '' : 'none';
     }
 
-    // Typewriter nel terminale AI
+    // Typewriter fluido nel terminale AI
     if (this.charIndex < this.targetMessage.length) {
       this.typeTimer += dt;
-      while (this.typeTimer > 0.012 && this.charIndex < this.targetMessage.length) {
-        this.typeTimer -= 0.012;
-        this.charIndex++;
+      while (this.typeTimer > 0.008 && this.charIndex < this.targetMessage.length) {
+        this.typeTimer -= 0.008;
+        this.charIndex += 2;
         this.currentMessage = this.targetMessage.slice(0, this.charIndex);
         if (this.elDialogue) {
           this.elDialogue.textContent = this.currentMessage;
@@ -297,66 +462,49 @@ class HudTerminal {
       this.elTimerValue.textContent = this.formatDuration(secToShow);
     }
 
-    // --- Dirty-Checked Ecosystem Telemetry Updates (< 0.1ms per frame for 60 FPS) ---
-    // 1. Cloud Sync Badge
-    const cs = this.state.system ? this.state.system.cloudSync : null;
-    const rawStatus = (cs && cs.status) ? cs.status.toLowerCase() : 'offline';
-    const pending = (cs && cs.pendingMutations) ? cs.pendingMutations : 0;
-    const statusMap = {
-      synced: { text: '[CLOUD: SYNCED]', cls: 'cloud-synced' },
-      syncing: { text: '[CLOUD: SYNCING]', cls: 'cloud-syncing' },
-      offline: { text: pending > 0 ? `[CLOUD: OFFLINE (Q: ${pending})]` : '[CLOUD: OFFLINE]', cls: 'cloud-offline' },
-      error: { text: '[CLOUD: ERROR]', cls: 'cloud-error' }
-    };
-    const targetStatus = statusMap[rawStatus] || statusMap['offline'];
-    const cloudKey = `${rawStatus}:${pending}`;
-    if (this.elCloudBadge && this._lastCloudStatus !== cloudKey) {
-      this._lastCloudStatus = cloudKey;
-      this.elCloudBadge.textContent = targetStatus.text;
-      this.elCloudBadge.className = `hud-badge hud-badge-cloud ${targetStatus.cls}`;
-      const syncInfo = cs && cs.lastSyncTime ? `Ultimo sync: ${cs.lastSyncTime}` : 'Nessun sync completato';
-      this.elCloudBadge.title = `Cloud Sync: ${rawStatus.toUpperCase()} (${syncInfo}, Pendenti: ${pending})`;
+    // --- Dirty-Checked Top Bar Pills (Agenda Google Calendar & Memoria) ---
+    const cal = this.state.system ? this.state.system.calendar : null;
+    const nxt = cal && cal.next_event ? cal.next_event : null;
+    const todayCount = cal ? cal.today_count || 0 : 0;
+    const agendaKey = nxt ? `${nxt.day_label}:${nxt.time_label}:${nxt.title}:${todayCount}` : `none:${todayCount}`;
+
+    if (this.elAgendaPill && this._lastAgendaKey !== agendaKey) {
+      this._lastAgendaKey = agendaKey;
+      if (nxt && nxt.is_today) {
+        const shortTitle = nxt.title.length > 18 ? nxt.title.slice(0, 17) + '…' : nxt.title;
+        this.elAgendaPill.textContent = `📅 ${nxt.time_label} ${shortTitle}`;
+        this.elAgendaPill.classList.add('has-upcoming');
+        this.elAgendaPill.title = `Prossimo impegno oggi: ${nxt.time_label} — ${nxt.title} (${todayCount} oggi)`;
+      } else {
+        this.elAgendaPill.textContent = `📅 AGENDA: ${todayCount} oggi`;
+        this.elAgendaPill.classList.toggle('has-upcoming', todayCount > 0);
+        this.elAgendaPill.title = nxt
+          ? `Prossimo impegno: ${nxt.day_label} ${nxt.time_label} — ${nxt.title}`
+          : 'Clicca per vedere l\'Agenda o usa ⚙️ CAL per collegare Google Calendar';
+      }
     }
 
-    // 2. Memory Pill: [MEM: 12f/3p]
-    const mem = this.state.system ? this.state.system.memory : null;
-    const memKey = mem ? `${mem.totalFacts || 0}f/${mem.activeProjects || 0}p` : '0f/0p';
-    if (this.elMemPill && this._lastMemKey !== memKey) {
-      this._lastMemKey = memKey;
-      this.elMemPill.textContent = `[MEM: ${memKey}]`;
-      this.elMemPill.title = `Memoria Persistente: ${mem ? mem.totalFacts || 0 : 0} Fatti, ${mem ? mem.activeProjects || 0 : 0} Progetti, ${mem ? mem.recentEpisodes || 0 : 0} Episodi`;
+    const memCount = this.state.system ? this.state.system.memoryCount || 0 : 0;
+    if (this.elMemPill && this._lastMemKey !== memCount) {
+      this._lastMemKey = memCount;
+      this.elMemPill.textContent = `🧠 MEM: ${memCount}`;
+      this.elMemPill.title = `Neko ricorda ${memCount} fatti/preferenze su di te (clicca per vederli)`;
     }
 
-    // 3. Skills Pill: [SKILLS: 5 active]
-    const sk = this.state.system ? this.state.system.skills : null;
-    const skillsKey = sk ? `${sk.totalSkills || 0}` : '0';
-    if (this.elSkillsPill && this._lastSkillsKey !== skillsKey) {
-      this._lastSkillsKey = skillsKey;
-      this.elSkillsPill.textContent = `[SKILLS: ${skillsKey} active]`;
-      const lastSk = sk && sk.lastExecutedSkill ? ` (Ultima: ${sk.lastExecutedSkill})` : '';
-      this.elSkillsPill.title = `Abilità Autonome: ${skillsKey} registrate${lastSk}`;
-    }
-
-    // 4. Upcoming Deadline Warning Banner / Toast
-    if (this.elDeadlineToast) {
-      const deadlines = mem && Array.isArray(mem.upcomingDeadlines) ? mem.upcomingDeadlines : [];
-      const urgentOrHigh = deadlines.filter(d => {
-        const risk = (d.risk || '').toLowerCase();
-        return d.overdue === true || risk === 'urgent' || risk === 'high' || risk === 'critical';
-      });
-
-      if (urgentOrHigh.length > 0) {
-        const deadlineHash = urgentOrHigh.map(d => `${d.project || d.name}:${d.milestone}:${d.risk}:${d.due || d.deadline_utc}:${d.overdue}`).join('|');
-        if (this._lastDeadlineHash !== deadlineHash) {
-          this._lastDeadlineHash = deadlineHash;
-          if (this._deadlineDismissedFor !== deadlineHash) {
+    // Promemoria automatico sul desktop quando un evento inizia entro 15 minuti
+    if (this.elDeadlineToast && cal) {
+      const imminent = Array.isArray(cal.imminent_events) ? cal.imminent_events : [];
+      if (imminent.length > 0) {
+        const hash = imminent.map((e) => `${e.id}:${e.title}:${e.time_label}`).join('|');
+        if (this._lastImminentHash !== hash) {
+          this._lastImminentHash = hash;
+          if (this._imminentDismissedFor !== hash) {
             let html = '';
-            for (const item of urgentOrHigh.slice(0, 3)) {
-              const overdueLabel = item.overdue ? '<strong style="color:#ef4444;">[SCADUTO!]</strong> ' : '';
-              const dueStr = item.due ? String(item.due).split('T')[0] : (item.deadline_utc ? String(item.deadline_utc).split('T')[0] : 'N/D');
-              const riskStr = (item.risk || 'URGENTE').toUpperCase();
-              const projName = item.project || item.name || 'Progetto';
-              html += `<div class="deadline-toast-item">${overdueLabel}<strong>${this.escapeHtml(projName)}</strong> (${this.escapeHtml(item.milestone || 'Milestone')}): Entro ${dueStr} [${riskStr}]</div>`;
+            for (const ev of imminent.slice(0, 3)) {
+              const mins = ev.minutes_until;
+              const whenLabel =
+                mins > 0 ? `tra ${mins} min (${ev.time_label})` : `IN CORSO (${ev.time_label})`;
+              html += `<div>⏰ <strong>${this.escapeHtml(ev.title)}</strong> — ${this.escapeHtml(whenLabel)}</div>`;
             }
             if (this.elDeadlineContent) {
               this.elDeadlineContent.innerHTML = html;
@@ -364,12 +512,10 @@ class HudTerminal {
             this.elDeadlineToast.style.display = 'block';
           }
         }
-      } else {
-        if (this._lastDeadlineHash !== null) {
-          this.elDeadlineToast.style.display = 'none';
-          this._lastDeadlineHash = null;
-          this._deadlineDismissedFor = null;
-        }
+      } else if (this._lastImminentHash !== null) {
+        this.elDeadlineToast.style.display = 'none';
+        this._lastImminentHash = null;
+        this._imminentDismissedFor = null;
       }
     }
   }

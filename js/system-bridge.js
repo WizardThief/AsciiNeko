@@ -1,6 +1,6 @@
 /**
- * SystemBridge - Gestisce il collegamento real-time (25-30 FPS) e la sincronizzazione Multi-Monitor
- * così esiste UN SOLO Neko che vive principalmente sullo Schermo 1 ma può attraversare lo Schermo 2!
+ * SystemBridge - Gestisce il collegamento real-time (25-30 FPS), la sincronizzazione Multi-Monitor
+ * e la comunicazione con il bridge locale (Ollama, Cronologia Chat, Google Calendar, Azioni PC).
  */
 class SystemBridge {
   constructor(state, onAiStateChange, onRemoteCommand) {
@@ -24,23 +24,16 @@ class SystemBridge {
     this.rollingAvg = 0.05;
 
     if (!this.state.system) this.state.system = {};
-    this.state.system.cloudSync = {
-      status: 'offline',
-      connected: false,
-      lastSyncTime: null,
-      pendingMutations: 0,
-      cloudServerUrl: ''
-    };
-    this.state.system.memory = {
-      totalFacts: 0,
-      activeProjects: 0,
-      recentEpisodes: 0,
-      upcomingDeadlines: []
-    };
-    this.state.system.skills = {
-      totalSkills: 0,
-      activeSkills: [],
-      lastExecutedSkill: null
+    this.state.system.memoryCount = 0;
+    this.state.system.todoCount = 0;
+    this.state.system.calendar = {
+      configured: false,
+      ical_urls: [],
+      today_count: 0,
+      upcoming_count: 0,
+      next_event: null,
+      imminent_events: [],
+      upcoming_events: []
     };
 
     // Canale Broadcast istantaneo se i due monitor condividono il processo browser
@@ -122,9 +115,6 @@ class SystemBridge {
     this.state.audioBeat = peak > 0.05 ? Math.min(0.7, Math.max(0, diff * 2.0)) : 0;
   }
 
-  /**
-   * Pubblica la posizione globale del Neko dallo Schermo 1 (Master) verso lo Schermo 2
-   */
   publishCatState(catPayload) {
     if (this.bc) {
       try {
@@ -142,9 +132,6 @@ class SystemBridge {
     }
   }
 
-  /**
-   * Invia un comando (es. click gomitolo o pescetto) dallo Schermo 2 allo Schermo 1
-   */
   sendRemoteCommand(cmd) {
     if (this.bc) {
       try {
@@ -158,9 +145,6 @@ class SystemBridge {
     }).catch(() => {});
   }
 
-  /**
-   * Invia una domanda o comando al Terminale AI Locale (Ollama / Tool rapidi)
-   */
   async sendAiPrompt(promptText) {
     try {
       const res = await fetch('http://127.0.0.1:8765/ai_chat', {
@@ -177,8 +161,51 @@ class SystemBridge {
     } catch (e) {}
     return {
       reply: '⚠️ Il bridge Python non è raggiungibile su 127.0.0.1:8765. Avvia start_companion.bat!',
-      model: 'OFFLINE'
+      model: 'OFFLINE',
+      actions: []
     };
+  }
+
+  async fetchChatHistory() {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/chat_history');
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {}
+    return { history: [], memories: [], todos: [], calendar: null };
+  }
+
+  async clearChatHistory() {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/chat_clear', { method: 'POST' });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return { ok: false };
+  }
+
+  async saveCalendarConfig(icalUrl) {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/calendar_config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ical_url: icalUrl })
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return { ok: false };
+  }
+
+  async triggerPcAction(openPath) {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/pc_action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ open_path: openPath })
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return { ok: false };
   }
 
   applyBridgeData(data) {
@@ -200,45 +227,16 @@ class SystemBridge {
       this.state.system.ollamaModels = data.ollama_models;
     }
 
-    // Ingest Cloud Sync Telemetry
-    if (data.cloud_sync) {
-      const cs = data.cloud_sync;
-      this.state.system.cloudSync = {
-        status: (cs.status || (cs.connected ? 'synced' : 'offline')).toLowerCase(),
-        connected: Boolean(cs.connected),
-        lastSyncTime: cs.last_sync_time || cs.last_sync || null,
-        pendingMutations: cs.pending_mutations ?? cs.pending ?? 0,
-        cloudServerUrl: cs.cloud_server_url || cs.server || ''
-      };
-    } else if (!this.bridgeConnected) {
-      this.state.system.cloudSync.status = 'offline';
-      this.state.system.cloudSync.connected = false;
+    if (typeof data.memory_count === 'number') {
+      this.state.system.memoryCount = data.memory_count;
+    }
+    if (typeof data.todo_count === 'number') {
+      this.state.system.todoCount = data.todo_count;
+    }
+    if (data.calendar) {
+      this.state.system.calendar = data.calendar;
     }
 
-    // Ingest Persistent Memory Telemetry
-    if (data.memory) {
-      const mem = data.memory;
-      this.state.system.memory = {
-        totalFacts: mem.total_facts ?? mem.facts_count ?? 0,
-        activeProjects: mem.active_projects ?? 0,
-        recentEpisodes: mem.recent_episodes ?? 0,
-        upcomingDeadlines: Array.isArray(mem.upcoming_deadlines) ? mem.upcoming_deadlines : []
-      };
-    }
-
-    // Ingest Hybrid Skills Telemetry
-    if (data.skills) {
-      const sk = data.skills;
-      this.state.system.skills = {
-        totalSkills: sk.total_skills ?? (Array.isArray(sk.active_skills) ? sk.active_skills.length : 0),
-        activeSkills: Array.isArray(sk.active_skills) ? sk.active_skills : [],
-        lastExecutedSkill: sk.last_executed_skill || sk.last_execution || null
-      };
-    }
-
-    // Calibrazione automatica dello Schermo (Schermo 0 = Principale, Schermo 1 = Secondario):
-    // 1. Se questa finestra ha appena ricevuto un evento mousemove (< 120ms fa),
-    //    allora sappiamo con certezza assoluta su quale monitor fisico si trova grazie a data.cursor_screen!
     if (!this.state.screenManualOverride) {
       const msSinceLocalMove = performance.now() - (this.state.mouse.lastMoveTime || 0);
       if (msSinceLocalMove < 140 && typeof data.cursor_screen === 'number') {
@@ -253,7 +251,6 @@ class SystemBridge {
       }
     }
 
-    // Posizione globale del cursore per permettere al Neko sullo Schermo 1 di guardare il mouse anche quando è sullo Schermo 2!
     if (typeof data.cursor_x === 'number' && typeof data.screen_w === 'number') {
       this.state.globalMouse = {
         x: data.cursor_x,
@@ -263,7 +260,6 @@ class SystemBridge {
       };
     }
 
-    // Sincronizzazione stato del Neko tra i monitor
     if (data.shared_cat) {
       if (this.state.screenIndex !== 0) {
         this.state.sharedCat = data.shared_cat;
@@ -277,7 +273,6 @@ class SystemBridge {
       }
     }
 
-    // Hot-Reload Automatico
     if (typeof data.code_version === 'number' && data.code_version > 0) {
       if (this.lastCodeVersion && data.code_version > this.lastCodeVersion) {
         window.location.reload();
@@ -324,10 +319,6 @@ class SystemBridge {
           this.sseActive = false;
           this.bridgeConnected = false;
           this.state.system.bridgeOnline = false;
-          if (this.state.system.cloudSync) {
-            this.state.system.cloudSync.status = 'offline';
-            this.state.system.cloudSync.connected = false;
-          }
           setTimeout(connectSSE, 2000);
         };
       } catch (e) {
@@ -352,10 +343,6 @@ class SystemBridge {
       } catch (err) {
         this.bridgeConnected = false;
         this.state.system.bridgeOnline = false;
-        if (this.state.system.cloudSync) {
-          this.state.system.cloudSync.status = 'offline';
-          this.state.system.cloudSync.connected = false;
-        }
       }
     }, 800);
   }
@@ -398,17 +385,6 @@ class SystemBridge {
         this.state.audioBeat = 0;
       }
     }
-  }
-
-  getAsciiSpectrum() {
-    const blocks = '▁▂▃▄▅▆▇█';
-    let out = '';
-    for (let i = 0; i < 24; i++) {
-      const v = Math.min(1, Math.max(0, this.spectrum[i]));
-      const idx = Math.min(blocks.length - 1, Math.floor(v * blocks.length));
-      out += blocks[idx];
-    }
-    return out;
   }
 }
 

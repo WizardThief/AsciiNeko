@@ -1,44 +1,46 @@
-# ASCII AI Terminal Companion // Interactive Wallpaper
+# ASCII AI Neko Companion // Assistente Locale Desktop (60 FPS)
 
-Un wallpaper interattivo in stile **Terminale Moderno Monocromatico (60 FPS)** progettato per **Lively Wallpaper**, **Wallpaper Engine** e Browser, con un **Companion AI in ASCII Art** che ti tiene compagnia sul desktop.
-
----
-
-## 🚀 Avvio Rapido (Test Immediato + Bridge AI)
-
-Fai doppio click su:
-- **[`start_companion.bat`](file:///C:/Users/AMD04/EPO/AsciiArt/start_companion.bat)**: avvia il micro-server locale (`ai_monitor.py` su porta `8765`) che rileva quando **Antigravity / Claude / Ollama** stanno lavorando + legge CPU/RAM reali di Windows, e apre subito il wallpaper nel browser.
-- Oppure apri direttamente **[`index.html`](file:///C:/Users/AMD04/EPO/AsciiArt/index.html)** nel browser.
+Un wallpaper e assistente personale interattivo in stile **Terminale Moderno Monocromatico (60 FPS)** progettato per **Windows**, **Lively Wallpaper**, **Wallpaper Engine** e Browser, con un **Neko AI in ASCII Art** alimentato da **Ollama locale**, **Cronologia Chat & Memoria**, **Google Calendar** e **Controllo PC**.
 
 ---
 
-## 🖥️ Come impostarlo come Sfondo Animato su Windows
+## 🚀 Avvio con 1 Click
 
-### Opzione A: Lively Wallpaper (Consigliato, Gratuito & Open Source)
-1. Apri **Lively Wallpaper** e clicca su **Aggiungi Sfondo (`+`)**.
-2. Trascina la cartella `C:\Users\AMD04\EPO\AsciiArt` (o il file `C:\Users\AMD04\EPO\AsciiArt\index.html`) dentro Lively.
-3. Grazie al file [`LivelyInfo.json`](file:///C:/Users/AMD04/EPO/AsciiArt/LivelyInfo.json) già configurato, Lively passerà in automatico i movimenti/click del mouse, lo spettro audio del PC e i dati di sistema!
-4. Per avere anche il **rilevamento automatico di quando lavora l'AI** in background senza finestre aperte, avvia [`bridge/start_bridge_hidden.vbs`](file:///C:/Users/AMD04/EPO/AsciiArt/bridge/start_bridge_hidden.vbs) (puoi anche metterne un collegamento nella cartella `Esecuzione automatica` di Windows premendo `Win + R` -> `shell:startup`).
-
-### Opzione B: Wallpaper Engine
-1. Apri l'editor di **Wallpaper Engine** o scegli **Apri da file**.
-2. Seleziona [`project.json`](file:///C:/Users/AMD04/EPO/AsciiArt/project.json) (o `index.html`) nella cartella `C:\Users\AMD04\EPO\AsciiArt`.
+Fai semplicemente doppio click su:
+- **[`start_companion.bat`](file:///C:/Users/lodir/WizardThief/AsciiNeko/start_companion.bat)**: avvia l'unico micro-server locale ([`bridge/ai_monitor.py`](file:///C:/Users/lodir/WizardThief/AsciiNeko/bridge/ai_monitor.py) su porta `8765`) e apre subito il Neko nel browser (o aggiorna lo sfondo su Lively Wallpaper).
+- Per chiudere il bridge in background: fai doppio click su **[`stop_companion.bat`](file:///C:/Users/lodir/WizardThief/AsciiNeko/stop_companion.bat)**.
 
 ---
 
-## 🎮 Interazioni & Stati del Companion
+## ✨ Cosa può fare Neko nel Terminale in Basso
 
-### Interazioni col Mouse
-- **Sguardo & Parallasse 3D**: Muovi il mouse ovunque sullo schermo; il visore, gli occhi e le antenne del Companion ti seguono con fisica a molla 3D, mentre il campo fluido di sfondo si deforma al passaggio del cursore.
-- **Carezza sulla Testa (`^ ‿ ^`)**: Muovi lentamente il mouse avanti e indietro sopra la parte alta della testa del Companion per fargli chiudere gli occhi felice, emettere scintille/cuori ASCII e aumentare il livello `SYNC LVL`.
-- **Click / Poke (`O _ O`)**: Clicca sul Companion per farlo rimbalzare o clicca in qualsiasi punto dello schermo per generare un'**onda d'urto circolare in ASCII**.
-- **Scuotimento Rapido (`@ _ @`)**: Muovi molto velocemente il mouse davanti ai suoi occhi per farlo andare temporaneamente in tilt ("dizzy").
+### 1. 💬 Chat Continua con Cronologia (`📜 STORICO`) e Memoria (`🧠 MEM`)
+- **Cronologia Conversazioni**: Clicca su **`📜 STORICO`** nel terminale per aprire il pannello scorrevole con tutte le tue domande e le risposte di Neko (salvate in `bridge/chat_history.json`, così rimangono anche dopo il riavvio del PC).
+- **Memoria Conversazionale**: Ollama riceve automaticamente gli ultimi messaggi della chat, le tue note salvate, i tuoi To-Do e i tuoi prossimi appuntamenti.
+- **Insegnare cose a Neko**: Scrivi semplicemente:
+  - `Ricorda che il cliente Rossi preferisce i render in formato EXR 16-bit`
+  - `Nota: la password del server di test è nella cartella Progetti`
+  - `/mem` (per vedere tutte le note salvate) o `/mem del 1` (per cancellarne una).
 
-### Toggle di Stato (Cliccabili sull'HUD o da Tastiera)
-- **`[1]` `● COMPANION`**: Modalità standard; ti segue con lo sguardo, respira, sbatte le palpebre e commenta nel terminale.
-- **`[2]` / `[A]` `⚡ AI WORK`**: Si attiva **in automatico** quando il bridge rileva che Antigravity, Claude o Ollama stanno lavorando (oppure manualmente). Il visore diventa uno scanner neurale ad alta frequenza e flussi di codice/token convergono verso il nucleo.
-- **`[3]` / `[C]` `☕ PAUSA CAFFÈ`**: Il Companion si rilassa, compare una **tazzina di caffè fumante in ASCII** e parte il timer della pausa.
-- **`[4]` `🌙 AFK / OUT`**: Attivabile con un click (o in automatico dopo 3 minuti senza muovere il mouse). Il Companion dorme (`zZz`), il campo rallenta al minimo e si risveglia appena muovi il mouse.
-- **`[5]` / `[F]` `🎯 FOCUS`**: Griglia geometrica minimale e visore tattico senza distrazioni con timer sessione.
-- **`[♪ AUDIO: PULSE]`**: Attiva un sintetizzatore ritmico di test per vedere la bocca/waveform del Companion e il campo ASCII pulsare a tempo (su Lively e Wallpaper Engine reagisce automaticamente alla musica/voce del PC).
-- **`[◈ STYLE: BOT / 3D MASK]`**: Cambia in tempo reale il corpo del Companion tra **AI Terminal Bot** e **Maschera Neurale 3D Scolpita (SDF)**.
+### 2. 📅 Google Calendar & Agenda Scadenze (`📅 AGENDA` / `⚙️ CAL`)
+- **Collegare Google Calendar in 10 secondi (Zero configurazione Cloud)**:
+  1. Clicca su **`⚙️ CAL`** nel terminale di Neko.
+  2. Su Google Calendar Web vai in *Impostazioni ⚙️ → Clicca sul tuo calendario a sinistra → "Indirizzo segreto in formato iCal"* e copia il link `.ics`.
+  3. Incollalo nella barra di Neko e clicca **SALVA LINK**.
+- **Creare nuovi impegni da chat**:
+  - Scrivi `Fissa call con Marco domani alle 15:00` oppure `/cal add 2026-10-28 10:30 Revisione 3D`.
+  - Neko salva l'impegno nell'agenda locale (con **promemoria automatico sul desktop 15 minuti prima**) e ti mostra anche il pulsante **`[📅 + Aggiungi su Google Calendar Web]`** per salvarlo con 1 click sul tuo Google Calendar!
+
+### 3. 🖥️ Controllo Applicazioni, File e Appunti del PC
+Direttamente dalla chat di Neko puoi scrivere:
+- **Avviare programmi o cartelle**:
+  - `Apri Blender`, `Apri Unreal`, `Apri Photoshop`, `Apri VS Code`, `Apri Spotify`, `Apri Calcolatrice` *(cerca automaticamente in tutti i programmi del Menu Start di Windows!)*.
+  - `Apri Download`, `Apri Documenti`, `Apri Desktop`, `Apri Google Calendar`, `Apri YouTube`.
+- **Cercare file sul PC**:
+  - `Cerca file: preventivo` oppure `/find modello` → trova i file nelle tue cartelle principali e ti mostra il pulsante **`[📂 Apri Cartella]`**.
+- **Leggere / Riassumere gli Appunti di Windows (`📋 APPUNTI`)**:
+  - Copia qualsiasi testo o email con `Ctrl+C` e clicca su **`📋 APPUNTI`** (o scrivi `Riassumi gli appunti` / `Traduci gli appunti` in chat).
+
+### 4. ☀️ Briefing del Mattino & To-Do List
+- Clicca su **`☀️ BRIEFING`** (o scrivi `/briefing` / `buongiorno`) per avere in un colpo solo: **Impegni di oggi + To-Do attivi + Note in Memoria + Stato CPU/RAM**.
+- Usa `todo: <cosa da fare>` per aggiungere un To-Do, `/todo` per vederli e `todo done 1` per completarlo.

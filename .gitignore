@@ -4,9 +4,11 @@ __pycache__/
 *$py.class
 bridge/.desktop_layer_profile/
 bridge/todo.json
+bridge/chat_history.json
+bridge/memory.json
+bridge/calendar_config.json
+bridge/events.json
 .agents/
-neko_bot/.agents/
-neko_bot/.neko/
 
 # OS & Editor files
 .DS_Store

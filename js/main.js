@@ -1,5 +1,5 @@
 /**
- * main.js - Orchestratore principale del Neko Desktop Companion Multi-Schermo + Terminale AI Locale
+ * main.js - Orchestratore principale del Neko Desktop Companion Multi-Schermo + Assistente AI Locale
  */
 (function () {
   const canvas = document.getElementById('ascii-canvas');
@@ -39,7 +39,10 @@
       bridgeOnline: false,
       isDesktopFocus: true,
       ollamaActive: '',
-      ollamaModels: []
+      ollamaModels: [],
+      memoryCount: 0,
+      todoCount: 0,
+      calendar: null
     }
   };
 
@@ -100,7 +103,11 @@
     toggleRoamMode: () => companion.toggleRoamMode(),
     setDensity: (preset) => renderer.setDensity(preset),
     spawnFish: () => companion.spawnFishSnack(renderer, undefined, undefined, state, systemBridge),
-    sendAiPrompt: (text) => systemBridge.sendAiPrompt(text)
+    sendAiPrompt: (text) => systemBridge.sendAiPrompt(text),
+    fetchChatHistory: () => systemBridge.fetchChatHistory(),
+    clearChatHistory: () => systemBridge.clearChatHistory(),
+    saveCalendarConfig: (url) => systemBridge.saveCalendarConfig(url),
+    triggerPcAction: (path) => systemBridge.triggerPcAction(path)
   });
 
   window.addEventListener('resize', () => {
@@ -165,7 +172,6 @@
   });
 
   window.addEventListener('keydown', (e) => {
-    // Non intercettare scorciatoie se l'utente sta scrivendo nel Terminale AI!
     if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
 
     if (e.key === '1') setMode('companion', true);

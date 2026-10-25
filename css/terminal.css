@@ -1,6 +1,6 @@
 :root {
   --bg-deep: #060608;
-  --bg-panel: rgba(10, 10, 14, 0.84);
+  --bg-panel: rgba(10, 10, 14, 0.86);
   --bg-panel-hover: rgba(22, 22, 30, 0.94);
   --border-dim: #22222c;
   --border-mid: #3c3c4c;
@@ -133,6 +133,38 @@ html, body {
   color: var(--text-muted);
 }
 
+/* Pills Assistente Locale in Top Bar */
+.hud-pill {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-dim);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.hud-pill:hover {
+  border-color: var(--border-bright);
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-bright);
+}
+
+.hud-pill-agenda.has-upcoming {
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.45);
+  background: rgba(14, 165, 233, 0.1);
+}
+
+.hud-pill-mem {
+  color: #a78bfa;
+  border-color: rgba(139, 92, 246, 0.35);
+  background: rgba(139, 92, 246, 0.08);
+}
+
 .mode-buttons {
   display: flex;
   align-items: center;
@@ -224,15 +256,15 @@ html, body {
   border-color: var(--border-bright);
 }
 
-/* BOTTOM AI TERMINAL DOCK (Ollama Locale) */
+/* BOTTOM AI TERMINAL DOCK */
 .ai-terminal-dock {
   pointer-events: auto;
   align-self: center;
-  width: min(740px, 92vw);
+  width: min(820px, 94vw);
   background: var(--bg-panel);
   border: 1px solid var(--border-dim);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   padding: 8px 12px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.65);
   transition: all 0.25s ease;
@@ -243,15 +275,17 @@ html, body {
   border-color: var(--border-mid);
 }
 
-.ai-terminal-dock.term-collapsed .ai-term-body {
-  display: none;
+.ai-terminal-dock.term-collapsed .ai-term-body,
+.ai-terminal-dock.term-collapsed .chat-history-panel,
+.ai-terminal-dock.term-collapsed .cal-config-drawer {
+  display: none !important;
 }
 
 .ai-term-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
@@ -260,7 +294,7 @@ html, body {
   align-items: center;
   gap: 6px;
   font-size: 10px;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   color: var(--text-secondary);
 }
 
@@ -274,7 +308,7 @@ html, body {
 .ai-quick-chips {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   flex-wrap: wrap;
 }
 
@@ -289,10 +323,116 @@ html, body {
   transition: all 0.15s ease;
 }
 
-.ai-chip:hover {
+.ai-chip:hover,
+.ai-chip.active {
   border-color: var(--border-bright);
   color: var(--text-bright);
   background: var(--bg-panel-hover);
+}
+
+/* Pannello Configurazione Google Calendar (.ics) */
+.cal-config-drawer {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: rgba(14, 165, 233, 0.06);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cal-config-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cal-config-label {
+  color: #38bdf8;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.cal-input {
+  background: rgba(0, 0, 0, 0.45) !important;
+  border: 1px solid var(--border-mid) !important;
+  padding: 3px 7px !important;
+  min-width: 240px;
+}
+
+.cal-config-hint {
+  font-size: 9.5px;
+  color: var(--text-secondary);
+  line-height: 1.35;
+}
+
+/* Pannello Cronologia Chat Scorrevole */
+.chat-history-panel {
+  margin-top: 8px;
+  border: 1px solid var(--border-dim);
+  background: rgba(4, 4, 7, 0.72);
+  display: flex;
+  flex-direction: column;
+  max-height: 230px;
+}
+
+.chat-history-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--border-dim);
+  font-size: 9.5px;
+  color: var(--text-secondary);
+  letter-spacing: 0.06em;
+}
+
+.chat-history-list {
+  padding: 6px 8px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 190px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.chat-turn {
+  padding: 4px 7px;
+  border-left: 2px solid var(--border-mid);
+  background: rgba(255, 255, 255, 0.015);
+  font-size: 10.5px;
+  line-height: 1.4;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.chat-turn.turn-user {
+  border-left-color: #38bdf8;
+}
+
+.chat-turn.turn-assistant {
+  border-left-color: #a78bfa;
+  background: rgba(167, 139, 250, 0.04);
+}
+
+.chat-turn-meta {
+  font-size: 9px;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.chat-turn-text {
+  color: var(--text-bright);
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .ai-term-body {
@@ -308,8 +448,9 @@ html, body {
   font-size: 11px;
   color: var(--text-bright);
   line-height: 1.45;
-  max-height: 54px;
+  max-height: 82px;
   overflow-y: auto;
+  white-space: pre-wrap;
   user-select: text;
   -webkit-user-select: text;
 }
@@ -317,6 +458,30 @@ html, body {
 .ai-prefix {
   color: var(--text-muted);
   margin-right: 6px;
+}
+
+.ai-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ai-action-btn {
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.5);
+  color: #38bdf8;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.ai-action-btn:hover {
+  background: rgba(56, 189, 248, 0.25);
+  color: var(--text-bright);
 }
 
 .ai-input-row {
@@ -353,140 +518,47 @@ html, body {
   color: var(--text-muted);
 }
 
-/* --- ECOSYSTEM TELEMETRY HUD PILLS & BADGES --- */
-.hud-badge {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  padding: 2px 7px;
-  border-radius: 2px;
-  cursor: default;
-  transition: all 0.2s ease;
-  user-select: none;
-  white-space: nowrap;
-}
-
-/* Cloud Sync Status Variants */
-.hud-badge-cloud.cloud-synced {
-  color: #34d399;
-  background: rgba(16, 185, 129, 0.12);
-  border: 1px solid rgba(52, 211, 153, 0.45);
-  box-shadow: 0 0 6px rgba(52, 211, 153, 0.2);
-}
-
-.hud-badge-cloud.cloud-syncing {
-  color: #38bdf8;
-  background: rgba(14, 165, 233, 0.14);
-  border: 1px solid rgba(56, 189, 248, 0.55);
-  box-shadow: 0 0 8px rgba(56, 189, 248, 0.25);
-  animation: pulse-sync 1.4s ease-in-out infinite alternate;
-}
-
-@keyframes pulse-sync {
-  0% { opacity: 0.75; border-color: rgba(56, 189, 248, 0.35); }
-  100% { opacity: 1.0; border-color: rgba(56, 189, 248, 0.9); }
-}
-
-.hud-badge-cloud.cloud-offline {
-  color: #fbbf24;
-  background: rgba(245, 158, 11, 0.10);
-  border: 1px solid rgba(251, 191, 36, 0.38);
-}
-
-.hud-badge-cloud.cloud-error {
-  color: #f87171;
-  background: rgba(239, 68, 68, 0.16);
-  border: 1px solid rgba(248, 113, 113, 0.6);
-  box-shadow: 0 0 8px rgba(239, 68, 68, 0.3);
-}
-
-/* Memory & Skills Pills */
-.hud-pill {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 2px;
-  cursor: pointer;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-  transition: all 0.15s ease;
-  user-select: none;
-}
-
-.hud-pill-mem {
-  color: #c084fc;
-  background: rgba(192, 132, 252, 0.08);
-  border: 1px solid rgba(192, 132, 252, 0.3);
-}
-
-.hud-pill-mem:hover {
-  background: rgba(192, 132, 252, 0.18);
-  border-color: rgba(192, 132, 252, 0.6);
-  color: #e9d5ff;
-}
-
-.hud-pill-skills {
-  color: #60a5fa;
-  background: rgba(96, 165, 250, 0.08);
-  border: 1px solid rgba(96, 165, 250, 0.3);
-}
-
-.hud-pill-skills:hover {
-  background: rgba(96, 165, 250, 0.18);
-  border-color: rgba(96, 165, 250, 0.6);
-  color: #bfdbfe;
-}
-
-/* Deadline Toast Alert */
+/* Deadline / Calendar Reminder Toast */
 .hud-deadline-toast {
   pointer-events: auto;
-  margin-top: 8px;
-  max-width: 380px;
-  background: rgba(16, 12, 16, 0.94);
-  border: 1px solid #ef4444;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  padding: 8px 12px;
-  box-shadow: 0 6px 20px rgba(239, 68, 68, 0.25);
-  font-family: var(--font-mono);
-  animation: slide-toast 0.3s ease-out;
-}
-
-@keyframes slide-toast {
-  from { opacity: 0; transform: translateY(-8px); }
-  to { opacity: 1; transform: translateY(0); }
+  position: fixed;
+  top: 52px;
+  right: 20px;
+  z-index: 25;
+  width: min(380px, 88vw);
+  background: rgba(16, 12, 18, 0.94);
+  border: 1px solid rgba(56, 189, 248, 0.65);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  padding: 8px 11px;
 }
 
 .deadline-toast-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
   margin-bottom: 4px;
-}
-
-.deadline-toast-icon {
-  font-size: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 3px;
 }
 
 .deadline-toast-title {
   font-size: 10px;
   font-weight: 700;
+  color: #38bdf8;
   letter-spacing: 0.08em;
-  color: #f87171;
   flex: 1;
 }
 
 .deadline-toast-close {
   background: transparent;
   border: none;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
+  color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
-  line-height: 1;
-  padding: 0 2px;
+  padding: 0 4px;
 }
 
 .deadline-toast-close:hover {
@@ -494,14 +566,9 @@ html, body {
 }
 
 .deadline-toast-body {
-  font-size: 10px;
-  color: #fca5a5;
-  line-height: 1.4;
-}
-
-.deadline-toast-item {
-  margin-bottom: 3px;
-}
-.deadline-toast-item:last-child {
-  margin-bottom: 0;
+  font-size: 10.5px;
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }

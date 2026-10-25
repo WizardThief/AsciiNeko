@@ -26,11 +26,14 @@
 
       <div class="top-bar-divider hud-collapsible">│</div>
 
-      <!-- Ecosystem Telemetry Section (Cloud Sync, Memory, Skills) -->
-      <div class="top-bar-section hud-collapsible" id="hud-ecosystem-section">
-        <span class="hud-badge hud-badge-cloud cloud-offline" id="cloud-sync-badge" title="Stato Cloud Sync">[CLOUD: OFFLINE]</span>
-        <span class="hud-pill hud-pill-mem" id="mem-pill" title="Memoria Persistente">[MEM: 0f/0p]</span>
-        <span class="hud-pill hud-pill-skills" id="skills-pill" title="Abilità Autonome">[SKILLS: 0 active]</span>
+      <!-- Sezione Assistente Locale: Agenda Google Calendar & Memoria -->
+      <div class="top-bar-section hud-collapsible" id="hud-assistant-section">
+        <button class="hud-pill hud-pill-agenda" id="agenda-pill" title="Clicca per vedere i prossimi impegni in Agenda">
+          📅 AGENDA: 0
+        </button>
+        <button class="hud-pill hud-pill-mem" id="mem-pill" title="Clicca per vedere cosa ricorda Neko su di te">
+          🧠 MEM: 0
+        </button>
       </div>
 
       <div class="top-bar-divider hud-collapsible">│</div>
@@ -76,16 +79,14 @@
       </div>
     </div>
 
-    <!-- Deadline Alert Toast (Visibile solo se ci sono scadenze ad alto rischio o urgenti) -->
+    <!-- Banner Promemoria Impegni / Google Calendar (Visibile quando un impegno inizia entro 15 min) -->
     <div class="hud-deadline-toast" id="hud-deadline-toast" style="display: none;">
       <div class="deadline-toast-header">
-        <span class="deadline-toast-icon">⚠️</span>
-        <span class="deadline-toast-title">SCADENZA IMMINENTE</span>
+        <span class="deadline-toast-icon">🔔</span>
+        <span class="deadline-toast-title">PROMEMORIA AGENDA</span>
         <button class="deadline-toast-close" id="btn-dismiss-deadline" title="Nascondi notifica">×</button>
       </div>
-      <div class="deadline-toast-body" id="deadline-toast-content">
-        <!-- Rendered dynamically -->
-      </div>
+      <div class="deadline-toast-body" id="deadline-toast-content"></div>
     </div>
 
     <!-- Pulsante flottante di ripristino quando l'HUD è in modalità ZEN -->
@@ -93,23 +94,38 @@
       [ 👁 HUD ]
     </button>
 
-    <!-- BOTTOM TERMINAL: Terminale AI Locale (Ollama) + Tool Rapidi -->
+    <!-- BOTTOM TERMINAL: Assistente Locale Neko (Ollama + Cronologia Chat + Google Calendar + Controllo PC) -->
     <div class="ai-terminal-dock hud-collapsible" id="ai-terminal-dock">
       <div class="ai-term-header">
         <div class="ai-term-title">
-          <span>&gt;_ NEKO LOCAL AI //</span>
+          <span>&gt;_ NEKO ASSISTANT //</span>
           <span class="ai-model-badge" id="ai-model-badge">OLLAMA</span>
         </div>
 
         <div class="ai-quick-chips">
-          <button class="ai-chip" data-ai-cmd="/sys" title="Mostra i processi che consumano più RAM e stato CPU">
-            📊 TOP CPU/RAM
+          <button class="ai-chip" data-ai-cmd="/briefing" title="Riepilogo di oggi: Impegni, To-Do, Memoria e Stato PC">
+            ☀️ BRIEFING
           </button>
-          <button class="ai-chip" data-ai-cmd="__timer25__" title="Avvia un timer Focus di 25 minuti">
-            ⏱ TIMER 25m
+          <button class="ai-chip" data-ai-cmd="/cal" title="Mostra i prossimi appuntamenti del tuo Calendario">
+            📅 AGENDA
           </button>
           <button class="ai-chip" data-ai-cmd="/todo" title="Mostra la tua lista To-Do locale">
-            📝 TO-DO LIST
+            📝 TO-DO
+          </button>
+          <button class="ai-chip" data-ai-cmd="Riassumi gli appunti" title="Legge e riassume ciò che hai appena copiato con Ctrl+C">
+            📋 APPUNTI
+          </button>
+          <button class="ai-chip" data-ai-cmd="/sys" title="Mostra i processi che consumano più RAM e stato CPU">
+            📊 CPU/RAM
+          </button>
+          <button class="ai-chip" data-ai-cmd="__timer25__" title="Avvia un timer Focus di 25 minuti">
+            ⏱ 25m
+          </button>
+          <button class="ai-chip" id="btn-toggle-history" title="Apri/Chiudi la cronologia completa delle chat">
+            📜 STORICO
+          </button>
+          <button class="ai-chip" id="btn-cal-settings" title="Collega Google Calendar (.ics) o aggiungi un evento rapido">
+            ⚙️ CAL
           </button>
           <button class="ai-chip" id="btn-min-term" title="Riduci/Espandi il terminale AI">
             [▼]
@@ -117,11 +133,43 @@
         </div>
       </div>
 
+      <!-- Pannello Configurazione Rapida Google Calendar (nascosto di default) -->
+      <div class="cal-config-drawer" id="cal-config-drawer" style="display: none;">
+        <div class="cal-config-row">
+          <span class="cal-config-label">🔗 Link iCal privato Google Calendar (.ics):</span>
+          <input
+            type="text"
+            id="cal-ical-input"
+            class="ai-input-field cal-input"
+            placeholder="Incolla qui l'Indirizzo segreto in formato iCal dalle Impostazioni di Google Calendar..."
+          />
+          <button type="button" class="term-btn term-btn-sm" id="btn-save-ical">SALVA LINK</button>
+          <button type="button" class="term-btn term-btn-sm" id="btn-open-gcal-web" title="Apri Google Calendar nel browser">🌐 APRI GCAL</button>
+        </div>
+        <div class="cal-config-hint">
+          💡 <em>Su Google Calendar Web: Impostazioni ⚙️ → Clicca sul tuo calendario a sinistra → "Indirizzo segreto in formato iCal" → Copia e incolla qui. Per creare eventi da chat scrivi: <code>Fissa call domani alle 15:00</code>.</em>
+        </div>
+      </div>
+
+      <!-- Pannello Cronologia Chat Scorrevole (visibile cliccando su 📜 STORICO) -->
+      <div class="chat-history-panel" id="chat-history-panel" style="display: none;">
+        <div class="chat-history-toolbar">
+          <span>📜 CRONOLOGIA CONVERSAZIONI CON NEKO</span>
+          <button type="button" class="term-btn term-btn-sm" id="btn-clear-history" title="Svuota la cronologia chat (mantiene i ricordi in Memoria)">
+            🧹 PULISCI CHAT
+          </button>
+        </div>
+        <div class="chat-history-list" id="chat-history-list">
+          <!-- Popolato dinamicamente -->
+        </div>
+      </div>
+
       <div class="ai-term-body" id="ai-term-body">
         <div class="ai-output-line" id="ai-output-line">
           <span class="ai-prefix">neko@local:~$</span>
-          <span id="companion-dialogue">Pronto. Usa i controlli rapidi qui sopra (`📊 TOP CPU/RAM`, `⏱ TIMER 25m`, `📝 TO-DO LIST`) o chiedi a Ollama.</span>
+          <span id="companion-dialogue">Pronto! Scrivimi in chat (es. "Ricorda che...", "Apri Blender", "Fissa call domani alle 15:00") o usa i pulsanti rapidi qui sopra.</span>
         </div>
+        <div class="ai-action-buttons" id="ai-action-buttons" style="display: none;"></div>
 
         <form class="ai-input-row" id="ai-input-form" autocomplete="off">
           <span class="ai-prompt-char">$</span>
@@ -129,7 +177,7 @@
             type="text"
             id="ai-input-field"
             class="ai-input-field"
-            placeholder="Chiedi a Ollama locale o usa i comandi '/sys' e 'todo: ...'"
+            placeholder="Parla con Neko, oppure scrivi 'Ricorda che...', 'Apri <app>', 'Fissa call domani alle 15:00'..."
           />
           <button type="submit" class="term-btn term-btn-sm">INVIA ↵</button>
         </form>
