@@ -18,6 +18,7 @@ import json
 import math
 import os
 import subprocess
+import sys
 import threading
 import time
 import urllib.request
@@ -388,10 +389,317 @@ class OllamaLocalBridge:
             self.is_generating = False
 
 
+def is_test_environment() -> bool:
+    """Detects whether running inside a test runner (unittest, pytest)."""
+    return any(mod in sys.modules for mod in ("unittest", "pytest")) or "test" in sys.argv[0].lower()
+
+
+class NekoBotTelemetryAggregator:
+    """
+    Decoupled background aggregator for neko_bot daemon and status telemetry.
+    Polls 127.0.0.1:8766/status asynchronously and falls back to .neko/status.json.
+    Exposes thread-safe, zero-I/O in-memory snapshot for 25-30 FPS companion stream.
+    """
+    DEFAULT_DAEMON_URL = "http://127.0.0.1:8766"
+    POLL_INTERVAL_SEC = 0.5
+    PROBE_TIMEOUT_SEC = 0.25
+    CACHE_TTL_SEC = 0.1
+
+    def __init__(self, status_file_path=None, daemon_url=None, workspace_dir=None, auto_start=True):
+        if daemon_url:
+            self.daemon_url = str(daemon_url).rstrip("/")
+        else:
+            self.daemon_url = os.environ.get("NEKO_DAEMON_URL", self.DEFAULT_DAEMON_URL).rstrip("/")
+        self.custom_status_file = str(status_file_path) if status_file_path else None
+        self.workspace_dir = str(workspace_dir) if workspace_dir else None
+        self._lock = threading.RLock()
+        self._cached_telemetry = self._get_default_telemetry(status="offline")
+        self._daemon_online = False
+        self._last_source = "init"
+        self._last_poll_time = 0.0
+
+        # Decoupled background polling thread
+        self._stop_event = threading.Event()
+        self._thread = None
+
+        if auto_start:
+            self.start()
+
+    def _get_default_telemetry(self, status="offline"):
+        return {
+            "daemon_health": status,
+            "daemon_pid": None,
+            "cloud_sync": {
+                "status": status,
+                "connected": False,
+                "last_sync_time": None,
+                "last_sync": None,
+                "pending_mutations": 0,
+                "pending": 0,
+                "cloud_server_url": "http://127.0.0.1:8767",
+                "server": "http://127.0.0.1:8767",
+            },
+            "memory": {
+                "total_facts": 0,
+                "facts_count": 0,
+                "active_projects": 0,
+                "recent_episodes": 0,
+                "upcoming_deadlines": [],
+            },
+            "skills": {
+                "total_skills": 0,
+                "installed": 0,
+                "active_skills": [],
+                "active_tools": 0,
+                "last_executed_skill": None,
+                "last_execution": None,
+            },
+            "tasks": {
+                "total_active": 0,
+                "completed_today": 0,
+                "top_task": None,
+            },
+            "top_task": None,
+            "notification_queue": [],
+            "alerts": [],
+        }
+
+    def _find_status_file(self):
+        if self.custom_status_file:
+            if os.path.exists(self.custom_status_file):
+                return self.custom_status_file
+            return None
+        if self.workspace_dir:
+            cand = os.path.join(self.workspace_dir, ".neko", "status.json")
+            if os.path.exists(cand):
+                return cand
+            return None
+        env_path = os.environ.get("NEKO_STATUS_FILE")
+        if env_path and os.path.exists(env_path):
+            return env_path
+        candidates = [
+            os.path.join(PROJECT_ROOT, ".neko", "status.json"),
+            os.path.join(PROJECT_ROOT, "neko_bot", ".neko", "status.json"),
+            os.path.join(os.path.dirname(PROJECT_ROOT), ".neko", "status.json"),
+        ]
+        for c in candidates:
+            if os.path.isfile(c):
+                return c
+        return None
+
+    def _normalize_payload(self, raw, source_type="daemon"):
+        if not isinstance(raw, dict):
+            return self._get_default_telemetry(status="error")
+
+        defaults = self._get_default_telemetry(
+            status=raw.get("daemon_health", "running" if source_type == "daemon" else "offline")
+        )
+
+        if "daemon_pid" in raw:
+            defaults["daemon_pid"] = raw["daemon_pid"]
+
+        # Merge cloud_sync
+        cloud = raw.get("cloud_sync")
+        if isinstance(cloud, dict):
+            conn = bool(cloud.get("connected", False))
+            cs_status = cloud.get("status", "synced" if conn else "offline")
+            lst = cloud.get("last_sync_time") or cloud.get("last_sync")
+            pm = cloud.get("pending_mutations") if "pending_mutations" in cloud else cloud.get("pending", 0)
+            url = cloud.get("cloud_server_url") or cloud.get("server", "http://127.0.0.1:8767")
+            defaults["cloud_sync"] = {
+                "status": cs_status,
+                "connected": conn,
+                "last_sync_time": lst,
+                "last_sync": lst,
+                "pending_mutations": pm,
+                "pending": pm,
+                "cloud_server_url": url,
+                "server": url,
+            }
+
+        # Merge memory
+        mem = raw.get("memory")
+        if isinstance(mem, dict):
+            tf = mem.get("total_facts") if "total_facts" in mem else mem.get("facts_count", 0)
+            ap = mem.get("active_projects", 0)
+            re = mem.get("recent_episodes", 0)
+            deadlines = mem.get("upcoming_deadlines", [])
+            norm_deadlines = []
+            if isinstance(deadlines, list):
+                for d in deadlines:
+                    if isinstance(d, dict):
+                        pname = d.get("project") or d.get("name", "Untitled")
+                        due = d.get("due") or d.get("deadline_utc")
+                        norm_deadlines.append({
+                            "project": pname,
+                            "name": pname,
+                            "milestone": d.get("milestone", ""),
+                            "due": due,
+                            "deadline_utc": d.get("deadline_utc") or due,
+                            "risk": d.get("risk", "medium"),
+                            "overdue": d.get("overdue", False),
+                        })
+            defaults["memory"] = {
+                "total_facts": tf,
+                "facts_count": tf,
+                "active_projects": ap,
+                "recent_episodes": re,
+                "upcoming_deadlines": norm_deadlines,
+            }
+
+        # Merge skills
+        sk = raw.get("skills")
+        if isinstance(sk, dict):
+            act = sk.get("active_skills", [])
+            if not isinstance(act, list):
+                act = []
+            tot = sk.get("total_skills") if "total_skills" in sk else sk.get("installed", len(act))
+            active_tools_count = sk.get("active_tools", len(act))
+            last_s = sk.get("last_executed_skill") or sk.get("last_execution")
+            defaults["skills"] = {
+                "total_skills": tot,
+                "installed": tot,
+                "active_skills": act,
+                "active_tools": active_tools_count,
+                "last_executed_skill": last_s,
+                "last_execution": last_s,
+            }
+            if "workflows" in sk:
+                defaults["skills"]["workflows"] = sk["workflows"]
+
+        # Merge tasks and top_task
+        if "tasks" in raw and isinstance(raw["tasks"], dict):
+            defaults["tasks"].update(raw["tasks"])
+        if "top_task" in raw:
+            defaults["top_task"] = raw["top_task"]
+            if defaults["tasks"].get("top_task") is None:
+                defaults["tasks"]["top_task"] = raw["top_task"]
+
+        # Merge notifications & alerts
+        if "notification_queue" in raw and isinstance(raw["notification_queue"], list):
+            defaults["notification_queue"] = raw["notification_queue"]
+        if "alerts" in raw and isinstance(raw["alerts"], list):
+            defaults["alerts"] = raw["alerts"]
+
+        return defaults
+
+    def _poll_once(self, force=False):
+        if self._stop_event.is_set():
+            return
+        now = time.time()
+        if not force and (now - self._last_poll_time) < self.CACHE_TTL_SEC:
+            return
+
+        # Stage 1: Active HTTP probe to daemon
+        if self.daemon_url and not self._stop_event.is_set():
+            try:
+                req = urllib.request.Request(f"{self.daemon_url}/status", headers={"Accept": "application/json"})
+                with urllib.request.urlopen(req, timeout=self.PROBE_TIMEOUT_SEC) as resp:
+                    if self._stop_event.is_set():
+                        return
+                    if resp.status == 200:
+                        data = json.loads(resp.read().decode("utf-8"))
+                        norm = self._normalize_payload(data, source_type="daemon")
+                        with self._lock:
+                            self._cached_telemetry = norm
+                            self._daemon_online = True
+                            self._last_source = "http"
+                            self._last_poll_time = time.time()
+                        return
+            except Exception:
+                pass
+
+        # Stage 2: Fallback to .neko/status.json file
+        s_file = self._find_status_file()
+        if s_file and not self._stop_event.is_set():
+            for attempt in range(3):
+                try:
+                    if os.path.getsize(s_file) == 0:
+                        norm = self._get_default_telemetry(status="offline")
+                        with self._lock:
+                            self._cached_telemetry = norm
+                            self._daemon_online = False
+                            self._last_source = "empty_file"
+                            self._last_poll_time = time.time()
+                        return
+                    with open(s_file, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    norm = self._normalize_payload(data, source_type="file")
+                    with self._lock:
+                        self._cached_telemetry = norm
+                        self._daemon_online = False
+                        self._last_source = "file"
+                        self._last_poll_time = time.time()
+                    return
+                except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
+                    norm = self._get_default_telemetry(status="error")
+                    norm["cloud_sync"]["status"] = "error"
+                    with self._lock:
+                        self._cached_telemetry = norm
+                        self._daemon_online = False
+                        self._last_source = "corrupt_file"
+                        self._last_poll_time = time.time()
+                    return
+                except PermissionError:
+                    time.sleep(0.01 * (attempt + 1))
+                except Exception:
+                    break
+
+        # Stage 3: Offline Default Fallback
+        with self._lock:
+            self._cached_telemetry = self._get_default_telemetry(status="offline")
+            self._daemon_online = False
+            self._last_source = "default"
+            self._last_poll_time = time.time()
+
+    def start(self):
+        """Starts the background polling thread and runs initial probe if not running."""
+        with self._lock:
+            if self._thread is not None and self._thread.is_alive():
+                return
+            self._stop_event.clear()
+            self._poll_once(force=True)
+            self._thread = threading.Thread(target=self._poll_loop, daemon=True, name="NekoTelemetryAggregator")
+            self._thread.start()
+
+    def poll(self, force=False):
+        """Public poll trigger with TTL support."""
+        self._poll_once(force=force)
+
+    def _poll_loop(self):
+        while not self._stop_event.is_set():
+            try:
+                self._poll_once(force=False)
+            except Exception:
+                pass
+            if self._stop_event.wait(self.POLL_INTERVAL_SEC):
+                break
+
+    def get_telemetry(self):
+        """Thread-safe zero-I/O snapshot (< 0.05ms) for 25-30 FPS SSE streaming."""
+        with self._lock:
+            return dict(self._cached_telemetry)
+
+    def stop(self, timeout=1.0):
+        """Signals the background thread to stop immediately and joins with timeout."""
+        self._stop_event.set()
+        t = self._thread
+        if t is not None and t.is_alive() and t != threading.current_thread():
+            t.join(timeout=timeout)
+        self._thread = None
+
+    def close(self):
+        self.stop()
+
+
 class SystemStateMonitor:
-    def __init__(self, audio_capture, ollama_bridge):
+    def __init__(self, audio_capture, ollama_bridge, telemetry=None):
         self.audio = audio_capture
         self.ollama = ollama_bridge
+        if telemetry is not None:
+            self.telemetry = telemetry
+        else:
+            self.telemetry = NekoBotTelemetryAggregator(auto_start=not is_test_environment())
         self.cpu_percent = 15.0
         self.ram_percent = 40.0
         self.ai_working = False
@@ -607,17 +915,51 @@ class SystemStateMonitor:
                 "timestamp": time.time(),
             }
         snap.update(self.audio.get_audio_state())
+        if self.telemetry:
+            snap.update(self.telemetry.get_telemetry())
         return snap
+
+    def stop(self):
+        if self.telemetry:
+            self.telemetry.stop()
 
 
 audio_capture = WindowsAudioCapture()
 ollama_bridge = OllamaLocalBridge()
-monitor = SystemStateMonitor(audio_capture, ollama_bridge)
+telemetry_aggregator = NekoBotTelemetryAggregator(auto_start=not is_test_environment())
+monitor = SystemStateMonitor(audio_capture, ollama_bridge, telemetry=telemetry_aggregator)
+
+
+def stop_telemetry(timeout: float = 1.0):
+    """Explicitly terminates background telemetry aggregator thread for clean test teardown."""
+    global telemetry_aggregator, monitor
+    if telemetry_aggregator is not None:
+        telemetry_aggregator.stop(timeout=timeout)
+    if monitor is not None and getattr(monitor, "telemetry", None) is not None:
+        monitor.telemetry.stop(timeout=timeout)
+
+
+def start_telemetry():
+    """Starts module-level telemetry aggregator if not already running."""
+    global telemetry_aggregator
+    if telemetry_aggregator is not None:
+        telemetry_aggregator.start()
 
 
 class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory=PROJECT_ROOT, **kwargs)
+    monitor = None
+    ollama_bridge = None
+
+    def __init__(self, *args, directory=None, **kwargs):
+        super().__init__(*args, directory=directory or PROJECT_ROOT, **kwargs)
+
+    @property
+    def current_monitor(self):
+        return self.monitor if self.monitor is not None else monitor
+
+    @property
+    def current_ollama(self):
+        return self.ollama_bridge if self.ollama_bridge is not None else ollama_bridge
 
     def log_message(self, format, *args):
         pass
@@ -643,7 +985,7 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
                 pass
 
         if self.path.startswith("/cat_sync"):
-            monitor.update_shared_cat(body)
+            self.current_monitor.update_shared_cat(body)
             self.send_response(200)
             self.end_headers()
             self.wfile.write(b'{"ok":true}')
@@ -652,11 +994,11 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
         if self.path.startswith("/ai_chat"):
             prompt = body.get("prompt", "")
             model = body.get("model", "")
-            result = ollama_bridge.handle_chat_or_command(
+            result = self.current_ollama.handle_chat_or_command(
                 prompt,
                 requested_model=model,
-                cpu=monitor.cpu_percent,
-                ram=monitor.ram_percent,
+                cpu=self.current_monitor.cpu_percent,
+                ram=self.current_monitor.ram_percent,
             )
             data = json.dumps(result, ensure_ascii=False).encode("utf-8")
             self.send_response(200)
@@ -680,10 +1022,13 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")
             self.send_header("Connection", "keep-alive")
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
             self.end_headers()
             try:
+                self.wfile.write(b"retry: 3000\n\n")
+                self.wfile.flush()
                 while True:
-                    payload = json.dumps(monitor.get_snapshot(client_id))
+                    payload = json.dumps(self.current_monitor.get_snapshot(client_id), ensure_ascii=False)
                     self.wfile.write(f"data: {payload}\n\n".encode("utf-8"))
                     self.wfile.flush()
                     time.sleep(0.04)
@@ -691,7 +1036,7 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
         if self.path.startswith("/status"):
-            data = json.dumps(monitor.get_snapshot(client_id)).encode("utf-8")
+            data = json.dumps(self.current_monitor.get_snapshot(client_id), ensure_ascii=False).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(data)))
@@ -703,6 +1048,7 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    start_telemetry()
     server = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), CompanionRequestHandler)
     print("==========================================================")
     print("  ASCII NEKO COMPANION // OLLAMA + MULTI-SCREEN BRIDGE")
@@ -712,4 +1058,7 @@ if __name__ == "__main__":
     try:
         server.serve_forever()
     except KeyboardInterrupt:
+        pass
+    finally:
         server.server_close()
+        stop_telemetry()

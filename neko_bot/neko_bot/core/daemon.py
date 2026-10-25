@@ -61,6 +61,27 @@ class DaemonStatusManager:
             "idle_seconds": 0,
             "top_task": None,
             "notification_queue": [],
+            "memory": {
+                "total_facts": 0,
+                "active_projects": 0,
+                "recent_episodes": 0,
+                "upcoming_deadlines": [],
+            },
+            "skills": {
+                "total_skills": 0,
+                "active_skills": [],
+                "last_executed_skill": None,
+            },
+            "cloud_sync": {
+                "status": "offline",
+                "connected": False,
+                "last_sync_time": None,
+                "last_sync": None,
+                "pending_mutations": 0,
+                "pending": 0,
+                "cloud_server_url": getattr(self.config, "cloud_url", "http://127.0.0.1:8767"),
+                "server": getattr(self.config, "cloud_url", "http://127.0.0.1:8767"),
+            },
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -230,6 +251,127 @@ class DaemonRequestHandler(http.server.BaseHTTPRequestHandler):
                 self._send_json(200, {"success": res.success, "result": res.to_dict()})
                 return
 
+            if action in ("cloud_sync", "sync_cloud"):
+                if getattr(self.server.daemon_server, "cloud_sync_manager", None):
+                    res = self.server.daemon_server.cloud_sync_manager.reconcile()
+                    self._send_json(200, {"success": res.get("status") == "synced", "result": res})
+                else:
+                    self._send_json(503, {"success": False, "error": "CloudSyncManager not initialized"})
+                return
+
+            if action in ("cloud_status", "status_cloud"):
+                c_status = self.server.daemon_server.status_manager.get_status().get("cloud_sync", {})
+                self._send_json(200, {"success": True, "cloud_sync": c_status})
+                return
+
+            if action == "memory_stats":
+                stats = self.server.daemon_server.memory_store.get_stats()
+                self._send_json(200, {"success": True, "stats": stats})
+                return
+
+            if action == "memory_add_fact":
+                content = body.get("content", "")
+                cat = body.get("category", "fact")
+                tags = body.get("tags")
+                imp = body.get("importance", 3)
+                conf = body.get("confidence", 1.0)
+                fact = self.server.daemon_server.memory_store.add_fact(
+                    content=content, category=cat, tags=tags, importance=imp, confidence=conf
+                )
+                self._send_json(200, {"success": True, "fact": fact})
+                return
+
+            if action == "memory_add_project":
+                pname = body.get("project_name", "")
+                milestone = body.get("milestone", "")
+                due = body.get("deadline_utc")
+                risk = body.get("risk_level", "medium")
+                deps = body.get("dependencies")
+                proj = self.server.daemon_server.memory_store.add_project(
+                    project_name=pname, milestone=milestone, deadline_utc=due,
+                    risk_level=risk, dependencies=deps
+                )
+                self._send_json(200, {"success": True, "project": proj})
+                return
+
+            if action == "memory_search":
+                query = body.get("query", "")
+                level = body.get("level", "all")
+                limit = body.get("limit", 5)
+                res = self.server.daemon_server.memory_store.search(query, level=level, limit=limit)
+                self._send_json(200, {"success": True, "results": res})
+                return
+
+            if action == "memory_list":
+                level = body.get("level", "semantic")
+                project = body.get("project")
+                res = self.server.daemon_server.memory_store.list_entries(level=level, project=project)
+                self._send_json(200, {"success": True, "entries": res})
+                return
+
+            if action == "memory_get":
+                eid = body.get("entry_id", "")
+                entry = self.server.daemon_server.memory_store.get_entry(eid)
+                if entry:
+                    self._send_json(200, {"success": True, "entry": entry})
+                else:
+                    self._send_json(404, {"error": f"Entry not found: {eid}"})
+                return
+
+            if action == "memory_delete":
+                eid = body.get("entry_id", "")
+                hard = bool(body.get("hard", False))
+                deleted = self.server.daemon_server.memory_store.delete_entry(eid, hard=hard)
+                self._send_json(200, {"success": deleted, "deleted": deleted})
+                return
+
+            if action == "skill_list":
+                inc_del = bool(body.get("include_deleted", False))
+                skills = self.server.daemon_server.skill_registry.list_skills(include_deleted=inc_del)
+                self._send_json(200, {"success": True, "skills": skills})
+                return
+
+            if action == "skill_get":
+                sid = body.get("skill_id", "")
+                skill = self.server.daemon_server.skill_registry.get_skill(sid)
+                if skill:
+                    self._send_json(200, {"success": True, "skill": skill})
+                else:
+                    self._send_json(404, {"error": f"Skill not found: {sid}"})
+                return
+
+            if action == "skill_run":
+                sid = body.get("skill_id", "")
+                inp = body.get("inputs", {})
+                ctx = body.get("context")
+                from neko_bot.skills.executor import SkillExecutor
+                executor = SkillExecutor(
+                    self.server.daemon_server.skill_registry,
+                    self.server.daemon_server.skill_sandbox,
+                    memory_store=self.server.daemon_server.memory_store,
+                    config=self.server.daemon_server.config,
+                )
+                res = executor.execute(sid, inputs=inp, context=ctx, session_id="ipc_skill_run")
+                self._send_json(200, res)
+                return
+
+            if action == "skill_test":
+                sid = body.get("skill_id", "")
+                skill = self.server.daemon_server.skill_registry.get_skill(sid)
+                if not skill:
+                    self._send_json(404, {"error": f"Skill not found: {sid}"})
+                    return
+                ok, msg = self.server.daemon_server.skill_sandbox.verify_skill(skill)
+                self._send_json(200, {"success": ok, "message": msg, "skill_id": sid})
+                return
+
+            if action == "skill_delete":
+                sid = body.get("skill_id", "")
+                hard = bool(body.get("hard", False))
+                deleted = self.server.daemon_server.skill_registry.delete_skill(sid, hard=hard)
+                self._send_json(200, {"success": deleted, "deleted": deleted, "skill_id": sid})
+                return
+
             self._send_json(400, {"error": f"Unknown action: {action}"})
             return
 
@@ -302,14 +444,91 @@ class DaemonServer:
         self._last_sync_time = 0.0
         self._sync_in_progress = False
 
+        # Multi-Level Persistent Memory Subsystem (Milestone 2)
+        from neko_bot.memory.store import MemoryStore
+        self.memory_store = MemoryStore(self.config.workspace_dir, config=self.config)
+
+        # Task Management Subsystem (Milestone 1)
+        from neko_bot.task.store import TaskStore
+        self.task_store = TaskStore(self.config.tasks_file, self.config.tasks_md_file, config=self.config)
+
+        # Autonomous Hybrid Skill Subsystem (Milestone 3)
+        from neko_bot.skills.sandbox import SkillSandbox
+        from neko_bot.skills.registry import SkillRegistry
+        self.skill_sandbox = SkillSandbox()
+        self.skill_registry = SkillRegistry(self.config.workspace_dir, self.skill_sandbox, config=self.config)
+
+        # Cloud-First Offline Sync Subsystem (Milestone 4)
+        try:
+            from neko_bot.cloud.sync_manager import CloudSyncManager
+            dev_id = getattr(self.config, "cloud_device_id", None) or os.environ.get("NEKO_DEVICE_ID", "default_device")
+            tok = getattr(self.config, "cloud_auth_token", None) or os.environ.get("NEKO_CLOUD_TOKEN", "")
+            self.cloud_sync_manager = CloudSyncManager(
+                self.config.workspace_dir,
+                server_url=getattr(self.config, "cloud_url", "http://127.0.0.1:8767"),
+                device_id=dev_id,
+                token=tok,
+                task_store=self.task_store,
+                memory_store=self.memory_store,
+                skill_registry=self.skill_registry,
+                config=self.config,
+            )
+        except Exception as e:
+            logger.debug("CloudSyncManager initialization skipped: %s", e)
+            self.cloud_sync_manager = None
+
+        self._last_cloud_sync_time = 0.0
+        self._cloud_sync_in_progress = False
+        self._last_successful_sync_time: Optional[str] = None
+
     def trigger_stop(self) -> None:
         """Sets stop event with slight delay allowing in-flight HTTP responses to finish."""
         time.sleep(0.05)
         self.stop_event.set()
 
     def handle_route_prompt(self, prompt: str) -> Dict[str, Any]:
-        """Routes a natural language prompt via the OllamaRouter."""
+        """Routes a natural language prompt via Skill Subsystem or OllamaRouter."""
         try:
+            # 1. Match existing installed skill
+            matched = self.skill_registry.match_skill(prompt)
+            if matched:
+                from neko_bot.skills.executor import SkillExecutor
+                executor = SkillExecutor(
+                    self.skill_registry,
+                    self.skill_sandbox,
+                    memory_store=self.memory_store,
+                    config=self.config,
+                )
+                res = executor.execute(
+                    matched["id"],
+                    inputs={"text": prompt, "prompt": prompt},
+                    session_id="daemon_do",
+                    log_episode=True,
+                    event_type="skill_reused",
+                )
+                return {"success": True, "source": "skill_reused", "data": res.get("result"), "skill": matched}
+
+            # 2. Autonomous discovery & synthesis
+            from neko_bot.skills.synthesizer import SkillSynthesizer
+            synthesizer = SkillSynthesizer(self.skill_sandbox, self.skill_registry, self.config)
+            ok, new_skill, diag = synthesizer.synthesize_and_register(prompt)
+            if ok and new_skill:
+                from neko_bot.skills.executor import SkillExecutor
+                executor = SkillExecutor(
+                    self.skill_registry,
+                    self.skill_sandbox,
+                    memory_store=self.memory_store,
+                    config=self.config,
+                )
+                res = executor.execute(
+                    new_skill["id"],
+                    inputs={"text": prompt, "prompt": prompt},
+                    session_id="daemon_do",
+                    log_episode=True,
+                    event_type="skill_discovered_and_executed",
+                )
+                return {"success": True, "source": "skill_synthesized", "data": res.get("result"), "skill": new_skill}
+
             from neko_bot.core.router import get_default_router
             router = get_default_router(self.config)
             return router.route_prompt(prompt)
@@ -444,6 +663,37 @@ class DaemonServer:
 
             active_notifs = [item.to_dict() for item in self.notification_queue.peek(unread_only=True)]
 
+            # Query memory store statistics
+            mem_stats = {
+                "total_facts": 0,
+                "active_projects": 0,
+                "recent_episodes": 0,
+                "upcoming_deadlines": [],
+            }
+            if hasattr(self, "memory_store") and self.memory_store:
+                try:
+                    mem_stats = self.memory_store.get_stats()
+                except Exception:
+                    pass
+
+            # Query skill registry statistics
+            skills_stats = {
+                "total_skills": 0,
+                "active_skills": [],
+                "last_executed_skill": None,
+            }
+            if hasattr(self, "skill_registry") and self.skill_registry:
+                try:
+                    skills = self.skill_registry.list_skills()
+                    skills_stats["total_skills"] = len(skills)
+                    skills_stats["active_skills"] = [s.get("name") or s.get("id") for s in skills]
+                    executed = [s for s in skills if s.get("last_executed_at")]
+                    if executed:
+                        executed.sort(key=lambda s: s.get("last_executed_at", ""), reverse=True)
+                        skills_stats["last_executed_skill"] = executed[0].get("id") or executed[0].get("name")
+                except Exception:
+                    pass
+
             self.status_manager.update(
                 resource_mode=res_mode,
                 top_task=top_task,
@@ -455,6 +705,8 @@ class DaemonServer:
                 is_afk=self.afk_manager.is_afk,
                 idle_seconds=int(round(idle_sec)),
                 notification_queue=active_notifs,
+                memory=mem_stats,
+                skills=skills_stats,
             )
             self.status_manager.flush()
 
@@ -465,6 +717,14 @@ class DaemonServer:
                 self._last_sync_time = now_sync
                 if not self._sync_in_progress:
                     threading.Thread(target=self._run_background_sync, daemon=True).start()
+
+            # 7. Periodic Background Cloud Auto-Sync (Milestone 4)
+            now_cloud = time.time()
+            cloud_sync_interval = getattr(self.config, "cloud_sync_interval", 15)
+            if (now_cloud - self._last_cloud_sync_time) >= cloud_sync_interval:
+                self._last_cloud_sync_time = now_cloud
+                if not self._cloud_sync_in_progress and getattr(self, "cloud_sync_manager", None) is not None:
+                    threading.Thread(target=self._run_background_cloud_sync, daemon=True).start()
 
         except Exception as e:
             logger.debug("Daemon tick error: %s", e)
@@ -486,6 +746,53 @@ class DaemonServer:
             logger.error("Background git sync failed: %s", e)
         finally:
             self._sync_in_progress = False
+
+    def _run_background_cloud_sync(self) -> None:
+        """Executes cloud sync in background thread without stalling daemon tick loop."""
+        if self._cloud_sync_in_progress or not getattr(self, "cloud_sync_manager", None):
+            return
+        self._cloud_sync_in_progress = True
+        try:
+            res = self.cloud_sync_manager.reconcile()
+            connected = (res.get("status") == "synced")
+            now_iso = datetime.now(timezone.utc).isoformat()
+            if connected:
+                self._last_successful_sync_time = now_iso
+
+            pending_count = res.get("pending_mutations", res.get("pending", 0))
+            cloud_payload = {
+                "status": res.get("status", "synced" if connected else "offline"),
+                "connected": connected,
+                "last_sync_time": self._last_successful_sync_time,
+                "last_sync": self._last_successful_sync_time,
+                "pending_mutations": pending_count,
+                "pending": pending_count,
+                "cloud_server_url": self.cloud_sync_manager.server_url,
+                "server": self.cloud_sync_manager.server_url,
+            }
+            self.status_manager.update(cloud_sync=cloud_payload)
+            self.status_manager.flush()
+        except Exception as e:
+            logger.debug("Background cloud sync error: %s", e)
+            q_count = 0
+            try:
+                q_count = self.cloud_sync_manager.get_queue_stats().get("pending_mutations", 0)
+            except Exception:
+                pass
+            cloud_payload = {
+                "status": "offline",
+                "connected": False,
+                "last_sync_time": self._last_successful_sync_time,
+                "last_sync": self._last_successful_sync_time,
+                "pending_mutations": q_count,
+                "pending": q_count,
+                "cloud_server_url": getattr(self.config, "cloud_url", "http://127.0.0.1:8767"),
+                "server": getattr(self.config, "cloud_url", "http://127.0.0.1:8767"),
+            }
+            self.status_manager.update(cloud_sync=cloud_payload)
+            self.status_manager.flush()
+        finally:
+            self._cloud_sync_in_progress = False
 
     def _cleanup(self) -> None:
         """Performs clean shutdown: flushes active tracking session, stops HTTP server, unlinks PID file."""
@@ -770,6 +1077,73 @@ class DaemonController:
             except Exception:
                 pass
 
+        mem_stats = cached.get("memory")
+        if not mem_stats:
+            try:
+                from neko_bot.memory.store import MemoryStore
+                mstore = MemoryStore(self.config.workspace_dir, config=self.config)
+                stats = mstore.get_stats()
+                if stats["total_facts"] == 0 and stats["active_projects"] == 0:
+                    root_mem = self.config.project_root / "memory"
+                    if root_mem.exists():
+                        mstore_root = MemoryStore(root_mem, config=self.config)
+                        stats = mstore_root.get_stats()
+                mem_stats = stats
+            except Exception:
+                mem_stats = {
+                    "total_facts": 0,
+                    "active_projects": 0,
+                    "recent_episodes": 0,
+                    "upcoming_deadlines": [],
+                }
+
+        skills_stats = cached.get("skills")
+        if not skills_stats:
+            try:
+                from neko_bot.skills.registry import SkillRegistry
+                sreg = SkillRegistry(self.config.workspace_dir, config=self.config)
+                skills = sreg.list_skills()
+                executed = [s for s in skills if s.get("last_executed_at")]
+                last_exec = None
+                if executed:
+                    executed.sort(key=lambda s: s.get("last_executed_at", ""), reverse=True)
+                    last_exec = executed[0].get("id") or executed[0].get("name")
+                skills_stats = {
+                    "total_skills": len(skills),
+                    "active_skills": [s.get("name") or s.get("id") for s in skills],
+                    "last_executed_skill": last_exec,
+                }
+            except Exception:
+                skills_stats = {
+                    "total_skills": 0,
+                    "active_skills": [],
+                    "last_executed_skill": None,
+                }
+
+        cloud_sync = cached.get("cloud_sync")
+        if not cloud_sync:
+            q_file = getattr(self.config, "cloud_mutations_file", self.config.neko_dir / "cloud_mutations.json")
+            pending_count = 0
+            if q_file.exists():
+                try:
+                    with open(q_file, "r", encoding="utf-8") as f:
+                        q_data = json.load(f)
+                        if isinstance(q_data, list):
+                            pending_count = len(q_data)
+                except Exception:
+                    pass
+            cloud_url = getattr(self.config, "cloud_url", "http://127.0.0.1:8767")
+            cloud_sync = {
+                "status": "offline",
+                "connected": False,
+                "last_sync_time": None,
+                "last_sync": None,
+                "pending_mutations": pending_count,
+                "pending": pending_count,
+                "cloud_server_url": cloud_url,
+                "server": cloud_url,
+            }
+
         active_app = cached.get("active_application", None)
         return {
             "daemon_health": "stopped",
@@ -784,6 +1158,9 @@ class DaemonController:
             "idle_seconds": int(cached.get("idle_seconds", 0)),
             "top_task": top_task,
             "notification_queue": notifications if isinstance(notifications, list) else [],
+            "memory": mem_stats,
+            "skills": skills_stats,
+            "cloud_sync": cloud_sync,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
 

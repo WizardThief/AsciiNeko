@@ -79,6 +79,13 @@ class Config:
     git_remote: str = "origin"
     git_branch: str = "main"
 
+    # Cloud-First Ecosystem Sync (Milestone 4)
+    cloud_url: str = "http://127.0.0.1:8767"
+    cloud_sync_interval: int = 15  # seconds between daemon background sync ticks
+    cloud_device_id: Optional[str] = None
+    cloud_device_name: Optional[str] = None
+    cloud_auth_token: Optional[str] = None
+
     # Logging
     log_level: str = "INFO"
 
@@ -89,6 +96,10 @@ class Config:
     @property
     def status_file(self) -> Path:
         return self.neko_dir / "status.json"
+
+    @property
+    def cloud_mutations_file(self) -> Path:
+        return self.neko_dir / "cloud_mutations.json"
 
     @property
     def notifications_file(self) -> Path:

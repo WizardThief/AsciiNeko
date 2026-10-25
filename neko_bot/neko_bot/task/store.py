@@ -237,6 +237,10 @@ class TaskStore:
             self._reload_if_modified()
             return self._tasks.get(task_id)
 
+    def get_task(self, task_id_or_prefix: str) -> Optional[Task]:
+        """Convenience alias for get() / find_by_prefix()."""
+        return self.get(task_id_or_prefix) or self.find_by_prefix(task_id_or_prefix, include_deleted=True)
+
     def find_by_prefix(self, prefix: str, include_deleted: bool = False) -> Optional[Task]:
         """
         Finds a single task matching prefix case-insensitively.
@@ -331,6 +335,10 @@ class TaskStore:
     def delete_task(self, task_id_or_prefix: str, hard: bool = False) -> bool:
         """Alias for delete()."""
         return self.delete(task_id_or_prefix, hard=hard)
+
+    def mark_deleted(self, task_id_or_prefix: str) -> bool:
+        """Convenience alias for delete(task_id_or_prefix, hard=False) (CRDT tombstone)."""
+        return self.delete(task_id_or_prefix, hard=False)
 
     def list(
         self,
@@ -481,8 +489,8 @@ class TaskStore:
             return cand_del  # Tombstone wins tie-break
 
         # Canonical JSON string comparison
-        json_cand = json.dumps(candidate, sort_keys=True)
-        json_curr = json.dumps(current, sort_keys=True)
+        json_cand = json.dumps(candidate, sort_keys=True, ensure_ascii=True, separators=(',', ':'))
+        json_curr = json.dumps(current, sort_keys=True, ensure_ascii=True, separators=(',', ':'))
         return json_cand > json_curr
 
     # =========================================================================
@@ -573,3 +581,54 @@ class TaskStore:
             if to_remove:
                 self.save()
             return len(to_remove)
+
+    # =========================================================================
+    # Cloud CRDT LWW Synchronization Interface (Milestone 4)
+    # =========================================================================
+
+    def export_crdt_entities(self) -> List[Dict[str, Any]]:
+        """Exports all tasks as uniform CRDT entities ready for cloud sync."""
+        with self._lock:
+            self._reload_if_modified()
+            entities = []
+            for t in self._tasks.values():
+                d = t.to_dict()
+                entities.append({
+                    "entity_type": "task",
+                    "id": t.id,
+                    "entity_id": t.id,
+                    "version": getattr(t, "version", 1),
+                    "updated_at": t.updated_at,
+                    "deleted": t.deleted,
+                    "payload": d,
+                    "data": d,
+                })
+            return entities
+
+    def apply_crdt_mutation(self, mutation: Dict[str, Any]) -> bool:
+        """Applies a remote CRDT task mutation using 3-level LWW rules."""
+        if not isinstance(mutation, dict):
+            return False
+
+        with self._lock:
+            self._reload_if_modified()
+            raw_payload = mutation.get("payload")
+            if raw_payload is None:
+                raw_payload = mutation.get("data")
+            payload = dict(raw_payload) if isinstance(raw_payload, dict) else dict(mutation)
+            tid = mutation.get("entity_id") or payload.get("id") or mutation.get("id")
+            if not tid:
+                return False
+
+            payload["id"] = tid
+            if "updated_at" in mutation and "updated_at" not in payload:
+                payload["updated_at"] = mutation["updated_at"]
+            if "deleted" in mutation and "deleted" not in payload:
+                payload["deleted"] = mutation["deleted"]
+
+            local_task = self._tasks.get(tid)
+            if local_task is None or self._should_win(payload, local_task.to_dict()):
+                self._tasks[tid] = Task.from_dict(payload)
+                self.save()
+                return True
+            return False

@@ -72,6 +72,10 @@ html, body {
   transform: translateY(-6px);
 }
 
+.hud-layer.hud-hidden .hud-deadline-toast {
+  display: none !important;
+}
+
 /* TOP BAR: Singola barra orizzontale minimale in alto a destra */
 .hud-top-bar {
   pointer-events: auto;
@@ -347,4 +351,157 @@ html, body {
 
 .ai-input-field::placeholder {
   color: var(--text-muted);
+}
+
+/* --- ECOSYSTEM TELEMETRY HUD PILLS & BADGES --- */
+.hud-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 2px 7px;
+  border-radius: 2px;
+  cursor: default;
+  transition: all 0.2s ease;
+  user-select: none;
+  white-space: nowrap;
+}
+
+/* Cloud Sync Status Variants */
+.hud-badge-cloud.cloud-synced {
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(52, 211, 153, 0.45);
+  box-shadow: 0 0 6px rgba(52, 211, 153, 0.2);
+}
+
+.hud-badge-cloud.cloud-syncing {
+  color: #38bdf8;
+  background: rgba(14, 165, 233, 0.14);
+  border: 1px solid rgba(56, 189, 248, 0.55);
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.25);
+  animation: pulse-sync 1.4s ease-in-out infinite alternate;
+}
+
+@keyframes pulse-sync {
+  0% { opacity: 0.75; border-color: rgba(56, 189, 248, 0.35); }
+  100% { opacity: 1.0; border-color: rgba(56, 189, 248, 0.9); }
+}
+
+.hud-badge-cloud.cloud-offline {
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.10);
+  border: 1px solid rgba(251, 191, 36, 0.38);
+}
+
+.hud-badge-cloud.cloud-error {
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.16);
+  border: 1px solid rgba(248, 113, 113, 0.6);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.3);
+}
+
+/* Memory & Skills Pills */
+.hud-pill {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 2px;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.hud-pill-mem {
+  color: #c084fc;
+  background: rgba(192, 132, 252, 0.08);
+  border: 1px solid rgba(192, 132, 252, 0.3);
+}
+
+.hud-pill-mem:hover {
+  background: rgba(192, 132, 252, 0.18);
+  border-color: rgba(192, 132, 252, 0.6);
+  color: #e9d5ff;
+}
+
+.hud-pill-skills {
+  color: #60a5fa;
+  background: rgba(96, 165, 250, 0.08);
+  border: 1px solid rgba(96, 165, 250, 0.3);
+}
+
+.hud-pill-skills:hover {
+  background: rgba(96, 165, 250, 0.18);
+  border-color: rgba(96, 165, 250, 0.6);
+  color: #bfdbfe;
+}
+
+/* Deadline Toast Alert */
+.hud-deadline-toast {
+  pointer-events: auto;
+  margin-top: 8px;
+  max-width: 380px;
+  background: rgba(16, 12, 16, 0.94);
+  border: 1px solid #ef4444;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  padding: 8px 12px;
+  box-shadow: 0 6px 20px rgba(239, 68, 68, 0.25);
+  font-family: var(--font-mono);
+  animation: slide-toast 0.3s ease-out;
+}
+
+@keyframes slide-toast {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.deadline-toast-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.deadline-toast-icon {
+  font-size: 12px;
+}
+
+.deadline-toast-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #f87171;
+  flex: 1;
+}
+
+.deadline-toast-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.deadline-toast-close:hover {
+  color: var(--text-bright);
+}
+
+.deadline-toast-body {
+  font-size: 10px;
+  color: #fca5a5;
+  line-height: 1.4;
+}
+
+.deadline-toast-item {
+  margin-bottom: 3px;
+}
+.deadline-toast-item:last-child {
+  margin-bottom: 0;
 }

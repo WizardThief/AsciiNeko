@@ -1,0 +1,51 @@
+"""
+neko_bot.memory - Multi-Level Persistent Memory Subsystem.
+
+Provides:
+- SemanticFact, ProjectDeadline, Episode data models
+- MemoryStore with CRDT LWW-Element-Set persistence
+- MemorySearchEngine with BM25/TF-IDF token scoring and recency decay
+- format_memory_context and prompt augmentation utilities
+"""
+
+from neko_bot.memory.models import (
+    Episode,
+    ProjectDeadline,
+    SemanticFact,
+    generate_memory_id,
+    now_utc_iso,
+)
+from neko_bot.memory.router_context import (
+    build_memory_augmented_prompt,
+    format_memory_context,
+    format_memory_entry,
+    get_active_memory_context,
+)
+from neko_bot.memory.search import (
+    MemorySearchEngine,
+    compute_recency_score,
+    extract_document_text,
+    tokenize,
+)
+from neko_bot.memory.store import (
+    AmbiguousMemoryPrefixError,
+    MemoryStore,
+)
+
+__all__ = [
+    "AmbiguousMemoryPrefixError",
+    "Episode",
+    "MemorySearchEngine",
+    "MemoryStore",
+    "ProjectDeadline",
+    "SemanticFact",
+    "build_memory_augmented_prompt",
+    "compute_recency_score",
+    "extract_document_text",
+    "format_memory_context",
+    "format_memory_entry",
+    "generate_memory_id",
+    "get_active_memory_context",
+    "now_utc_iso",
+    "tokenize",
+]

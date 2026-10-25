@@ -26,6 +26,15 @@
 
       <div class="top-bar-divider hud-collapsible">│</div>
 
+      <!-- Ecosystem Telemetry Section (Cloud Sync, Memory, Skills) -->
+      <div class="top-bar-section hud-collapsible" id="hud-ecosystem-section">
+        <span class="hud-badge hud-badge-cloud cloud-offline" id="cloud-sync-badge" title="Stato Cloud Sync">[CLOUD: OFFLINE]</span>
+        <span class="hud-pill hud-pill-mem" id="mem-pill" title="Memoria Persistente">[MEM: 0f/0p]</span>
+        <span class="hud-pill hud-pill-skills" id="skills-pill" title="Abilità Autonome">[SKILLS: 0 active]</span>
+      </div>
+
+      <div class="top-bar-divider hud-collapsible">│</div>
+
       <!-- Stati del Neko -->
       <div class="mode-buttons">
         <button class="term-btn active" data-mode-btn="companion" title="Modalità Neko Companion">● NEKO</button>
@@ -64,6 +73,18 @@
         <button class="term-btn term-btn-sm" id="btn-toggle-hud" title="Cambia visibilità HUD: Completa / Compatta / Zen">
           👁
         </button>
+      </div>
+    </div>
+
+    <!-- Deadline Alert Toast (Visibile solo se ci sono scadenze ad alto rischio o urgenti) -->
+    <div class="hud-deadline-toast" id="hud-deadline-toast" style="display: none;">
+      <div class="deadline-toast-header">
+        <span class="deadline-toast-icon">⚠️</span>
+        <span class="deadline-toast-title">SCADENZA IMMINENTE</span>
+        <button class="deadline-toast-close" id="btn-dismiss-deadline" title="Nascondi notifica">×</button>
+      </div>
+      <div class="deadline-toast-body" id="deadline-toast-content">
+        <!-- Rendered dynamically -->
       </div>
     </div>
 

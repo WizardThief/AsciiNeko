@@ -23,6 +23,26 @@ class SystemBridge {
     this.state.spectrum = this.spectrum;
     this.rollingAvg = 0.05;
 
+    if (!this.state.system) this.state.system = {};
+    this.state.system.cloudSync = {
+      status: 'offline',
+      connected: false,
+      lastSyncTime: null,
+      pendingMutations: 0,
+      cloudServerUrl: ''
+    };
+    this.state.system.memory = {
+      totalFacts: 0,
+      activeProjects: 0,
+      recentEpisodes: 0,
+      upcomingDeadlines: []
+    };
+    this.state.system.skills = {
+      totalSkills: 0,
+      activeSkills: [],
+      lastExecutedSkill: null
+    };
+
     // Canale Broadcast istantaneo se i due monitor condividono il processo browser
     try {
       this.bc = new BroadcastChannel('neko_multi_screen_v1');
@@ -180,6 +200,42 @@ class SystemBridge {
       this.state.system.ollamaModels = data.ollama_models;
     }
 
+    // Ingest Cloud Sync Telemetry
+    if (data.cloud_sync) {
+      const cs = data.cloud_sync;
+      this.state.system.cloudSync = {
+        status: (cs.status || (cs.connected ? 'synced' : 'offline')).toLowerCase(),
+        connected: Boolean(cs.connected),
+        lastSyncTime: cs.last_sync_time || cs.last_sync || null,
+        pendingMutations: cs.pending_mutations ?? cs.pending ?? 0,
+        cloudServerUrl: cs.cloud_server_url || cs.server || ''
+      };
+    } else if (!this.bridgeConnected) {
+      this.state.system.cloudSync.status = 'offline';
+      this.state.system.cloudSync.connected = false;
+    }
+
+    // Ingest Persistent Memory Telemetry
+    if (data.memory) {
+      const mem = data.memory;
+      this.state.system.memory = {
+        totalFacts: mem.total_facts ?? mem.facts_count ?? 0,
+        activeProjects: mem.active_projects ?? 0,
+        recentEpisodes: mem.recent_episodes ?? 0,
+        upcomingDeadlines: Array.isArray(mem.upcoming_deadlines) ? mem.upcoming_deadlines : []
+      };
+    }
+
+    // Ingest Hybrid Skills Telemetry
+    if (data.skills) {
+      const sk = data.skills;
+      this.state.system.skills = {
+        totalSkills: sk.total_skills ?? (Array.isArray(sk.active_skills) ? sk.active_skills.length : 0),
+        activeSkills: Array.isArray(sk.active_skills) ? sk.active_skills : [],
+        lastExecutedSkill: sk.last_executed_skill || sk.last_execution || null
+      };
+    }
+
     // Calibrazione automatica dello Schermo (Schermo 0 = Principale, Schermo 1 = Secondario):
     // 1. Se questa finestra ha appena ricevuto un evento mousemove (< 120ms fa),
     //    allora sappiamo con certezza assoluta su quale monitor fisico si trova grazie a data.cursor_screen!
@@ -268,6 +324,10 @@ class SystemBridge {
           this.sseActive = false;
           this.bridgeConnected = false;
           this.state.system.bridgeOnline = false;
+          if (this.state.system.cloudSync) {
+            this.state.system.cloudSync.status = 'offline';
+            this.state.system.cloudSync.connected = false;
+          }
           setTimeout(connectSSE, 2000);
         };
       } catch (e) {
@@ -292,6 +352,10 @@ class SystemBridge {
       } catch (err) {
         this.bridgeConnected = false;
         this.state.system.bridgeOnline = false;
+        if (this.state.system.cloudSync) {
+          this.state.system.cloudSync.status = 'offline';
+          this.state.system.cloudSync.connected = false;
+        }
       }
     }, 800);
   }

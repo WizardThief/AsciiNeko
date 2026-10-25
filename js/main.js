@@ -135,7 +135,8 @@
     if (
       e.target.closest('#status-matrix-panel') ||
       e.target.closest('#ai-terminal-dock') ||
-      e.target.closest('.hud-restore-pill')
+      e.target.closest('.hud-restore-pill') ||
+      e.target.closest('#hud-deadline-toast')
     ) {
       return;
     }
@@ -155,7 +156,11 @@
   });
 
   window.addEventListener('contextmenu', (e) => {
-    if (e.target.closest('#ai-terminal-dock') || e.target.closest('#status-matrix-panel')) return;
+    if (
+      e.target.closest('#ai-terminal-dock') ||
+      e.target.closest('#status-matrix-panel') ||
+      e.target.closest('#hud-deadline-toast')
+    ) return;
     e.preventDefault();
   });
 

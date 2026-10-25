@@ -23,6 +23,20 @@ class HudTerminal {
     this.elAiForm = document.getElementById('ai-input-form');
     this.elAiInput = document.getElementById('ai-input-field');
 
+    this.elCloudBadge = document.getElementById('cloud-sync-badge');
+    this.elMemPill = document.getElementById('mem-pill');
+    this.elSkillsPill = document.getElementById('skills-pill');
+    this.elDeadlineToast = document.getElementById('hud-deadline-toast');
+    this.elDeadlineContent = document.getElementById('deadline-toast-content');
+    this.elBtnDismissDeadline = document.getElementById('btn-dismiss-deadline');
+
+    // Dirty-checking cache for 60 FPS zero-allocation updates
+    this._lastCloudStatus = null;
+    this._lastMemKey = null;
+    this._lastSkillsKey = null;
+    this._lastDeadlineHash = null;
+    this._deadlineDismissedFor = null;
+
     this.currentMessage = '';
     this.targetMessage = '';
     this.charIndex = 0;
@@ -103,6 +117,42 @@ class HudTerminal {
         e.stopPropagation();
         this.hudState = 'full';
         layer.classList.remove('hud-minimal', 'hud-hidden');
+      });
+    }
+
+    if (this.elBtnDismissDeadline) {
+      this.elBtnDismissDeadline.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._deadlineDismissedFor = this._lastDeadlineHash;
+        if (this.elDeadlineToast) {
+          this.elDeadlineToast.style.display = 'none';
+        }
+      });
+    }
+
+    if (this.elMemPill) {
+      this.elMemPill.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const mem = (this.state.system && this.state.system.memory) || { totalFacts: 0, activeProjects: 0, recentEpisodes: 0 };
+        this.say(`🧠 Memoria Neko: ${mem.totalFacts} fatti memorizzati, ${mem.activeProjects} progetti attivi, ${mem.recentEpisodes} sessioni.`);
+      });
+    }
+
+    if (this.elSkillsPill) {
+      this.elSkillsPill.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const sk = (this.state.system && this.state.system.skills) || { totalSkills: 0, activeSkills: [], lastExecutedSkill: null };
+        const listStr = sk.activeSkills && sk.activeSkills.length ? sk.activeSkills.slice(0, 4).join(', ') : 'nessuna';
+        this.say(`⚡ Skills Neko: ${sk.totalSkills} attive [${listStr}]. Ultima: ${sk.lastExecutedSkill || 'nessuna'}`);
+      });
+    }
+
+    if (this.elCloudBadge) {
+      this.elCloudBadge.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const cs = (this.state.system && this.state.system.cloudSync) || { status: 'offline', cloudServerUrl: '127.0.0.1:8767', pendingMutations: 0, lastSyncTime: null };
+        const lastSync = cs.lastSyncTime ? new Date(cs.lastSyncTime).toLocaleTimeString('it-IT') : 'mai';
+        this.say(`☁️ Cloud Sync [${(cs.status || 'OFFLINE').toUpperCase()}]: server ${cs.cloudServerUrl || '127.0.0.1:8767'}, mutazioni pendenti: ${cs.pendingMutations || 0}, ultimo sync: ${lastSync}`);
       });
     }
 
@@ -246,6 +296,91 @@ class HudTerminal {
         this.countdownRemaining > 0 ? this.countdownRemaining : this.state.modeElapsedSeconds || 0;
       this.elTimerValue.textContent = this.formatDuration(secToShow);
     }
+
+    // --- Dirty-Checked Ecosystem Telemetry Updates (< 0.1ms per frame for 60 FPS) ---
+    // 1. Cloud Sync Badge
+    const cs = this.state.system ? this.state.system.cloudSync : null;
+    const rawStatus = (cs && cs.status) ? cs.status.toLowerCase() : 'offline';
+    const pending = (cs && cs.pendingMutations) ? cs.pendingMutations : 0;
+    const statusMap = {
+      synced: { text: '[CLOUD: SYNCED]', cls: 'cloud-synced' },
+      syncing: { text: '[CLOUD: SYNCING]', cls: 'cloud-syncing' },
+      offline: { text: pending > 0 ? `[CLOUD: OFFLINE (Q: ${pending})]` : '[CLOUD: OFFLINE]', cls: 'cloud-offline' },
+      error: { text: '[CLOUD: ERROR]', cls: 'cloud-error' }
+    };
+    const targetStatus = statusMap[rawStatus] || statusMap['offline'];
+    const cloudKey = `${rawStatus}:${pending}`;
+    if (this.elCloudBadge && this._lastCloudStatus !== cloudKey) {
+      this._lastCloudStatus = cloudKey;
+      this.elCloudBadge.textContent = targetStatus.text;
+      this.elCloudBadge.className = `hud-badge hud-badge-cloud ${targetStatus.cls}`;
+      const syncInfo = cs && cs.lastSyncTime ? `Ultimo sync: ${cs.lastSyncTime}` : 'Nessun sync completato';
+      this.elCloudBadge.title = `Cloud Sync: ${rawStatus.toUpperCase()} (${syncInfo}, Pendenti: ${pending})`;
+    }
+
+    // 2. Memory Pill: [MEM: 12f/3p]
+    const mem = this.state.system ? this.state.system.memory : null;
+    const memKey = mem ? `${mem.totalFacts || 0}f/${mem.activeProjects || 0}p` : '0f/0p';
+    if (this.elMemPill && this._lastMemKey !== memKey) {
+      this._lastMemKey = memKey;
+      this.elMemPill.textContent = `[MEM: ${memKey}]`;
+      this.elMemPill.title = `Memoria Persistente: ${mem ? mem.totalFacts || 0 : 0} Fatti, ${mem ? mem.activeProjects || 0 : 0} Progetti, ${mem ? mem.recentEpisodes || 0 : 0} Episodi`;
+    }
+
+    // 3. Skills Pill: [SKILLS: 5 active]
+    const sk = this.state.system ? this.state.system.skills : null;
+    const skillsKey = sk ? `${sk.totalSkills || 0}` : '0';
+    if (this.elSkillsPill && this._lastSkillsKey !== skillsKey) {
+      this._lastSkillsKey = skillsKey;
+      this.elSkillsPill.textContent = `[SKILLS: ${skillsKey} active]`;
+      const lastSk = sk && sk.lastExecutedSkill ? ` (Ultima: ${sk.lastExecutedSkill})` : '';
+      this.elSkillsPill.title = `Abilità Autonome: ${skillsKey} registrate${lastSk}`;
+    }
+
+    // 4. Upcoming Deadline Warning Banner / Toast
+    if (this.elDeadlineToast) {
+      const deadlines = mem && Array.isArray(mem.upcomingDeadlines) ? mem.upcomingDeadlines : [];
+      const urgentOrHigh = deadlines.filter(d => {
+        const risk = (d.risk || '').toLowerCase();
+        return d.overdue === true || risk === 'urgent' || risk === 'high' || risk === 'critical';
+      });
+
+      if (urgentOrHigh.length > 0) {
+        const deadlineHash = urgentOrHigh.map(d => `${d.project || d.name}:${d.milestone}:${d.risk}:${d.due || d.deadline_utc}:${d.overdue}`).join('|');
+        if (this._lastDeadlineHash !== deadlineHash) {
+          this._lastDeadlineHash = deadlineHash;
+          if (this._deadlineDismissedFor !== deadlineHash) {
+            let html = '';
+            for (const item of urgentOrHigh.slice(0, 3)) {
+              const overdueLabel = item.overdue ? '<strong style="color:#ef4444;">[SCADUTO!]</strong> ' : '';
+              const dueStr = item.due ? String(item.due).split('T')[0] : (item.deadline_utc ? String(item.deadline_utc).split('T')[0] : 'N/D');
+              const riskStr = (item.risk || 'URGENTE').toUpperCase();
+              const projName = item.project || item.name || 'Progetto';
+              html += `<div class="deadline-toast-item">${overdueLabel}<strong>${this.escapeHtml(projName)}</strong> (${this.escapeHtml(item.milestone || 'Milestone')}): Entro ${dueStr} [${riskStr}]</div>`;
+            }
+            if (this.elDeadlineContent) {
+              this.elDeadlineContent.innerHTML = html;
+            }
+            this.elDeadlineToast.style.display = 'block';
+          }
+        }
+      } else {
+        if (this._lastDeadlineHash !== null) {
+          this.elDeadlineToast.style.display = 'none';
+          this._lastDeadlineHash = null;
+          this._deadlineDismissedFor = null;
+        }
+      }
+    }
+  }
+
+  escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 }
 
