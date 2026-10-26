@@ -5,6 +5,7 @@
 class SystemBridge {
   constructor(state, onAiStateChange, onRemoteCommand) {
     this.state = state;
+    window.systemBridge = this;
     this.onAiStateChange = onAiStateChange || (() => {});
     this.onRemoteCommand = onRemoteCommand || (() => {});
 
@@ -288,12 +289,96 @@ class SystemBridge {
     return { ok: false };
   }
 
+  async toggleColorSafe(enabled) {
+    try {
+      const body = typeof enabled === 'boolean' ? { enabled } : {};
+      const res = await fetch('http://127.0.0.1:8765/api/colorsafe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok && typeof data.color_safe_mode === 'boolean') {
+          this.state.system.colorSafeMode = data.color_safe_mode;
+        }
+        return data;
+      }
+    } catch (e) {}
+    return { ok: false };
+  }
+
+  async pinProfileTrait(traitId, pinned = true) {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/profile/pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trait_id: traitId, pinned: Boolean(pinned) })
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return { ok: false };
+  }
+
+  async editProfileTrait(traitId, text) {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/profile/edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trait_id: traitId, text })
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return { ok: false };
+  }
+
+  async deleteProfileTrait(traitId) {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/profile/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trait_id: traitId })
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return { ok: false };
+  }
+
+  async fetchProfileData() {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/profile', { cache: 'no-store' });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return { ok: false, traits: [] };
+  }
+
+  async fetchSkills() {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/skills', { cache: 'no-store' });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return { ok: false, skills: [] };
+  }
+
   applyBridgeData(data) {
     this.bridgeConnected = true;
     this.state.system.bridgeOnline = true;
 
     if (typeof data.cpu === 'number') this.state.system.cpu = Math.round(data.cpu);
     if (typeof data.ram === 'number') this.state.system.ram = Math.round(data.ram);
+    if (typeof data.gpu === 'number' || typeof data.gpu_percent === 'number') {
+      this.state.system.gpu = Math.round(typeof data.gpu_percent === 'number' ? data.gpu_percent : data.gpu);
+    }
+    if (typeof data.vram_used_gb === 'number') this.state.system.vram_used_gb = data.vram_used_gb;
+    if (typeof data.vram_total_gb === 'number') this.state.system.vram_total_gb = data.vram_total_gb;
+    if (typeof data.vram_percent === 'number') this.state.system.vram_percent = data.vram_percent;
+
+    if (data.active_window) this.state.system.active_window = data.active_window;
+    if (typeof data.is_afk === 'boolean') this.state.system.is_afk = data.is_afk;
+    if (data.afk) this.state.system.afk = data.afk;
+    if (typeof data.afk_idle_seconds === 'number') this.state.system.afk_idle_seconds = data.afk_idle_seconds;
+    if (typeof data.color_safe_mode === 'boolean') this.state.system.colorSafeMode = data.color_safe_mode;
+
     this.state.system.aiWorking = Boolean(data.ai_working);
     this.state.system.aiSource = data.ai_source || 'IDLE';
     this.state.system.aiDetail = data.ai_detail || '';

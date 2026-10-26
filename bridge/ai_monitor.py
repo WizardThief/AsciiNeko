@@ -32,8 +32,60 @@ import time
 import urllib.parse
 import urllib.request
 import urllib.error
+from typing import Any, Dict, List, Optional, Tuple
 
 import shutil
+import logging
+
+from bridge.storage_manager import (
+    StorageManager,
+    StorageError,
+    StorageLockError,
+    StorageCorruptError,
+    get_storage_manager,
+)
+from bridge.retrieval import (
+    TokenBudgetManager,
+    build_ollama_payload,
+    inject_ollama_options,
+)
+from bridge.telemetry import (
+    TelemetryService,
+    get_telemetry_service,
+    parse_window_title,
+)
+from bridge.task_engine import TaskEngine
+from bridge.skill_registry import SkillRegistry
+
+logger = logging.getLogger("neko.ai_monitor")
+
+CJK_REGEX = re.compile(r"[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u30ff]")
+
+
+def sanitize_anti_cjk(text: str) -> str:
+    """
+    Rimuove tutti i caratteri ideografici CJK (cinese, giapponese, coreano)
+    per eliminare fughe di token e allucinazioni linguistiche dei modelli 7B.
+    """
+    if not text:
+        return ""
+    return CJK_REGEX.sub("", str(text)).strip()
+
+
+DCC_HOTKEY_BLACKLIST = {
+    "Alt+Q": "3ds Max: Isolate Selection",
+    "Alt+Z": "Blender: X-Ray Toggle / 3ds Max: Zoom",
+    "Ctrl+Space": "IDE IntelliSense / Blender: Maximize",
+}
+
+
+def validate_dcc_hotkey(hotkey: str) -> tuple:
+    clean = (hotkey or "").replace(" ", "")
+    for blacklisted, desc in DCC_HOTKEY_BLACKLIST.items():
+        if clean.lower() == blacklisted.replace(" ", "").lower():
+            return False, f"Scorciatoia non consentita: {desc}"
+    return True, "OK"
+
 
 PORT = 8765
 OLLAMA_BASE = "http://127.0.0.1:11434"
@@ -120,35 +172,73 @@ def _apply_data_dir(custom_dir: str = "", migrate_from: str = ""):
     ARCHIVE_FILE = os.path.join(DATA_DIR, "archive.json")
     CALENDAR_CONFIG_FILE = os.path.join(DATA_DIR, "calendar_config.json")
     EVENTS_FILE = os.path.join(DATA_DIR, "events.json")
+
+    # Initialize StorageManager & run non-destructive migration
+    try:
+        sm = get_storage_manager(data_dir=DATA_DIR)
+        sm.migrate_legacy_data(DATA_DIR)
+    except Exception as e:
+        logger.warning(f"Storage migration warning: {e}")
+
+    global _task_engine_instance, _skill_registry_instance
+    _task_engine_instance = None
+    _skill_registry_instance = None
+
     return DATA_DIR
+
+
+_task_engine_instance: Optional[TaskEngine] = None
+_skill_registry_instance: Optional[SkillRegistry] = None
+
+
+def get_task_engine() -> TaskEngine:
+    global _task_engine_instance
+    if _task_engine_instance is None:
+        sm = get_storage_manager(data_dir=DATA_DIR)
+        _task_engine_instance = TaskEngine(storage_manager=sm)
+    return _task_engine_instance
+
+
+def get_skill_registry() -> SkillRegistry:
+    global _skill_registry_instance
+    if _skill_registry_instance is None:
+        sm = get_storage_manager(data_dir=DATA_DIR)
+        skills_path = os.path.join(DATA_DIR, "skills")
+        _skill_registry_instance = SkillRegistry(skills_dir=skills_path, storage_manager=sm)
+    return _skill_registry_instance
 
 
 _apply_data_dir()
 
 
-# --- Helpers JSON su disco ---
+# --- Helpers JSON su disco (Delegated to Transactional StorageManager) ---
 def _load_json(path, default):
-    if os.path.isfile(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return default
+    """
+    Safely loads JSON using StorageManager atomic reader.
+    Handles Windows file contention and preserves corrupt files to .corrupt.bak.
+    """
+    try:
+        sm = get_storage_manager()
+        return sm.atomic_load_json(path, default=default)
+    except StorageCorruptError as ce:
+        logger.error(f"CORRUPT DATA DETECTED: {ce}")
+        return default
+    except Exception as e:
+        logger.warning(f"Error loading {path}: {e}")
+        return default
 
 
 def _save_json(path, data):
+    """
+    Atomically writes JSON using uuid4 tmp file, msvcrt OS locking, and exponential backoff.
+    Completely eliminates VULN-01 (WinError 32 lost updates).
+    """
     try:
-        tmp = path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, path)
-    except Exception:
-        try:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        sm = get_storage_manager()
+        return sm.atomic_save_json(path, data)
+    except Exception as e:
+        logger.error(f"Failed atomic save to {path}: {e}")
+        return False
 
 
 # --- Strutture ctypes Windows ---
@@ -1001,14 +1091,14 @@ class MemoryAndProjectsManager:
         traits = []
         q_map = {q["id"]: q for q in self.ONBOARDING_QUESTIONS}
         for qid, ans_obj in self.profile.get("answers", {}).items():
-            ai_summary = (ans_obj.get("ai_trait") or "").strip()
+            ai_summary = sanitize_anti_cjk((ans_obj.get("ai_trait") or "").strip())
             if ai_summary:
                 traits.append(ai_summary)
                 continue
-            ans_text = (ans_obj.get("answer") or "").strip()
+            ans_text = sanitize_anti_cjk((ans_obj.get("answer") or "").strip())
             if not ans_text:
                 continue
-            prefix = q_map[qid]["trait_prefix"] if qid in q_map else ans_obj.get("trait_prefix") or ans_obj.get("category", "Profilo")
+            prefix = sanitize_anti_cjk(q_map[qid]["trait_prefix"] if qid in q_map else ans_obj.get("trait_prefix") or ans_obj.get("category", "Profilo"))
             traits.append(f"{prefix}: {ans_text}")
         self.profile["traits"] = traits
 
@@ -1067,12 +1157,13 @@ class MemoryAndProjectsManager:
                 "}"
             )
 
-            payload = {
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "format": "json",
-                "stream": False,
-            }
+            payload = build_ollama_payload(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                format="json",
+                stream=False,
+                num_ctx=8192,
+            )
             req = urllib.request.Request(
                 f"{OLLAMA_BASE}/api/chat",
                 data=json.dumps(payload).encode("utf-8"),
@@ -1081,7 +1172,11 @@ class MemoryAndProjectsManager:
             )
             with urllib.request.urlopen(req, timeout=12.0) as resp:
                 raw = json.loads(resp.read().decode("utf-8")).get("message", {}).get("content", "").strip()
-                parsed = json.loads(raw)
+                clean_raw = sanitize_anti_cjk(raw)
+                try:
+                    parsed = json.loads(clean_raw)
+                except Exception:
+                    parsed = json.loads(raw)
                 if isinstance(parsed, dict) and parsed.get("question"):
                     opts = parsed.get("options")
                     if not isinstance(opts, list) or len(opts) < 2:
@@ -1091,14 +1186,19 @@ class MemoryAndProjectsManager:
                             "Preferisco gestire questo aspetto in modo flessibile",
                             "Ti spiego meglio a parole mie qui sotto",
                         ]
+                    clean_trait = sanitize_anti_cjk(parsed.get("extracted_trait") or "")
+                    clean_q = sanitize_anti_cjk(parsed["question"])
+                    clean_opts = [sanitize_anti_cjk(str(o)) for o in opts[:4] if sanitize_anti_cjk(str(o))]
+                    clean_prefix = sanitize_anti_cjk(parsed.get("trait_prefix") or "Profilo")
+                    clean_cat = sanitize_anti_cjk(parsed.get("category") or category_hint or "Profilo Su Misura AI")
                     return {
-                        "extracted_trait": (parsed.get("extracted_trait") or "").strip(),
+                        "extracted_trait": clean_trait,
                         "next_question": {
                             "id": f"q_ai_{int(time.time() * 1000)}",
-                            "category": (parsed.get("category") or category_hint or "Profilo Su Misura AI").strip(),
-                            "question": parsed["question"].strip(),
-                            "options": [str(o).strip() for o in opts[:4] if str(o).strip()],
-                            "trait_prefix": (parsed.get("trait_prefix") or "Profilo").strip(),
+                            "category": clean_cat,
+                            "question": clean_q,
+                            "options": clean_opts,
+                            "trait_prefix": clean_prefix,
                             "ai_generated": True,
                         },
                     }
@@ -1238,17 +1338,96 @@ class MemoryAndProjectsManager:
             return self.get_onboarding_state()
 
     def set_hotkey(self, hotkey: str):
+        clean_input = (hotkey or "Ctrl+Alt+N").strip()
+        ok, reason = validate_dcc_hotkey(clean_input)
+        if not ok:
+            logger.warning(f"Rejected blacklisted hotkey '{clean_input}': {reason}")
+            return self.profile.get("hotkey", "Ctrl+Alt+N")
         hk_map = {
+            "ctrl+alt+n": "Ctrl+Alt+N",
             "alt+n": "Alt+N",
-            "alt+q": "Alt+Q",
-            "ctrl+space": "Ctrl+Space",
-            "alt+z": "Alt+Z",
         }
-        clean_hk = hk_map.get((hotkey or "Alt+N").strip().lower(), "Alt+N")
+        clean_hk = hk_map.get(clean_input.lower(), "Ctrl+Alt+N")
         with self._lock:
             self.profile["hotkey"] = clean_hk
             self._save_profile()
             return clean_hk
+
+    def pin_profile_trait(self, trait_id: str, pinned: bool = True):
+        with self._lock:
+            if "pinned_traits" not in self.profile or not isinstance(self.profile["pinned_traits"], list):
+                self.profile["pinned_traits"] = []
+            sm = get_storage_manager()
+            # Try to pin in SQLite by ID
+            sm.pin_memory(trait_id, pinned=pinned)
+            # Also update SQLite by matching text
+            with sm.transaction() as conn:
+                conn.execute(
+                    "UPDATE memories SET pinned = ?, updated_at = ? WHERE id = ? OR text = ?",
+                    (1 if pinned else 0, time.time(), trait_id, trait_id),
+                )
+            target_text = trait_id
+            for t in self.profile.get("traits", []):
+                if t == trait_id or f"trait_{abs(hash(t)) % 1000000}" == trait_id:
+                    target_text = t
+                    break
+            if pinned:
+                if target_text not in self.profile["pinned_traits"]:
+                    self.profile["pinned_traits"].append(target_text)
+            else:
+                if target_text in self.profile["pinned_traits"]:
+                    self.profile["pinned_traits"].remove(target_text)
+            self._save_profile()
+            return True
+
+    def edit_profile_trait(self, trait_id: str, new_text: str):
+        clean_text = sanitize_anti_cjk((new_text or "").strip())
+        if not clean_text:
+            return False
+        with self._lock:
+            sm = get_storage_manager()
+            with sm.transaction() as conn:
+                conn.execute(
+                    "UPDATE memories SET text = ?, updated_at = ? WHERE id = ? OR text = ?",
+                    (clean_text, time.time(), trait_id, trait_id),
+                )
+            old_text = trait_id
+            traits = self.profile.get("traits", [])
+            for idx, t in enumerate(traits):
+                if t == trait_id or f"trait_{abs(hash(t)) % 1000000}" == trait_id:
+                    old_text = t
+                    traits[idx] = clean_text
+                    break
+            if "pinned_traits" in self.profile and old_text in self.profile["pinned_traits"]:
+                self.profile["pinned_traits"].remove(old_text)
+                self.profile["pinned_traits"].append(clean_text)
+            self._save_profile()
+            return True
+
+    def delete_profile_trait(self, trait_id: str):
+        with self._lock:
+            sm = get_storage_manager()
+            sm.delete_memory(trait_id)
+            with sm.transaction() as conn:
+                conn.execute(
+                    "DELETE FROM memories WHERE id = ? OR text = ?",
+                    (trait_id, trait_id),
+                )
+            old_text = trait_id
+            traits = self.profile.get("traits", [])
+            new_traits = []
+            for t in traits:
+                if t == trait_id or f"trait_{abs(hash(t)) % 1000000}" == trait_id:
+                    old_text = t
+                    continue
+                new_traits.append(t)
+            self.profile["traits"] = new_traits
+            if "pinned_traits" in self.profile and old_text in self.profile.get("pinned_traits", []):
+                self.profile["pinned_traits"].remove(old_text)
+            if trait_id in self.profile.get("answers", {}):
+                del self.profile["answers"][trait_id]
+            self._save_profile()
+            return True
 
     def reset_profile(self):
         with self._lock:
@@ -2040,11 +2219,21 @@ class OllamaLocalBridge:
         with self._lock:
             self.chat_history = []
             _save_json(CHAT_HISTORY_FILE, self.chat_history)
+            try:
+                get_storage_manager().clear_chat_history()
+            except Exception:
+                pass
 
     def _append_chat_turn(self, user_text, reply_text, model_used, actions=None):
         now_str = datetime.now().strftime("%H:%M")
         ts = time.time()
         with self._lock:
+            # Sync to SQLite
+            try:
+                get_storage_manager().append_chat_turn(user_text, reply_text, model=model_used, actions=actions)
+            except Exception as e:
+                logger.warning(f"StorageManager chat turn sync error: {e}")
+
             self.chat_history.append(
                 {
                     "id": f"u_{int(ts * 1000)}",
@@ -2078,12 +2267,20 @@ class OllamaLocalBridge:
         if not clean:
             return None
         with self._lock:
-            # Evita duplicati identici
+            # Dual-write & deduplicate with SQLite StorageManager
+            sm = get_storage_manager()
+            try:
+                mid = sm.upsert_memory(clean, category="Generale", source="user")
+            except Exception as e:
+                logger.warning(f"StorageManager add_memory error: {e}")
+                mid = f"mem_{int(time.time() * 1000)}"
+
             for m in self.memories:
-                if m.get("text", "").lower() == clean.lower():
+                if m.get("text", "").lower() == clean.lower() or m.get("id") == mid:
                     return m
+
             entry = {
-                "id": f"mem_{int(time.time() * 1000)}",
+                "id": mid,
                 "text": clean,
                 "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
             }
@@ -2095,17 +2292,32 @@ class OllamaLocalBridge:
         with self._lock:
             if not self.memories:
                 return False
+            removed_id = None
             if str(index_or_query).isdigit():
                 idx = int(index_or_query) - 1
                 if 0 <= idx < len(self.memories):
-                    self.memories.pop(idx)
+                    removed = self.memories.pop(idx)
+                    removed_id = removed.get("id")
                     _save_json(MEMORY_FILE, self.memories)
+                    if removed_id:
+                        try:
+                            get_storage_manager().delete_memory(removed_id)
+                        except Exception:
+                            pass
                     return True
             q = str(index_or_query).lower().strip()
             before = len(self.memories)
+            to_remove = [m for m in self.memories if q in m.get("text", "").lower()]
             self.memories = [m for m in self.memories if q not in m.get("text", "").lower()]
             if len(self.memories) < before:
                 _save_json(MEMORY_FILE, self.memories)
+                sm = get_storage_manager()
+                for m in to_remove:
+                    if m.get("id"):
+                        try:
+                            sm.delete_memory(m["id"])
+                        except Exception:
+                            pass
                 return True
         return False
 
@@ -2737,19 +2949,34 @@ class OllamaLocalBridge:
         self.is_generating = True
         try:
             now_dt = datetime.now()
-            mems = self.get_memories()
+            sm = get_storage_manager()
             todos = self.load_todos()
             upcoming = self.calendar.get_upcoming_events(days_ahead=3)
-            traits = self.mem_proj.profile.get("traits", [])
+            raw_traits = self.mem_proj.profile.get("traits", [])
             proj_state = self.mem_proj.get_projects_state()
+            active_proj = proj_state.get("active_project")
+            active_proj_id = active_proj.get("id") if active_proj else None
             active_projs = proj_state.get("projects", [])
+
+            # 1. FTS5 BM25 + Time-Decay Retrieval
+            retrieved_mems = sm.search_memories(query=text, project_id=active_proj_id, limit=12)
+
+            # 2. Token Budget Manager
+            budget_mgr = TokenBudgetManager()
+
+            pinned_traits = []
+            for t in raw_traits:
+                if isinstance(t, str):
+                    pinned_traits.append(t)
+                elif isinstance(t, dict):
+                    pinned_traits.append(t.get("text", ""))
 
             context_blocks = [
                 f"Data e ora attuali: {now_dt.strftime('%Y-%m-%d %H:%M')} ({now_dt.strftime('%A %d/%m/%Y')}).",
                 f"Postazione PC: {COMPUTER_NAME} (CPU {cpu}%, RAM {ram}%).",
             ]
-            if traits:
-                context_blocks.append("Profilo Utente (da 'Conosciamoci'): " + " | ".join(traits[:12]))
+            if pinned_traits:
+                context_blocks.append("Profilo Utente & Regole: " + " | ".join(pinned_traits[:12]))
             if active_projs:
                 proj_summaries = []
                 for p in active_projs[:6]:
@@ -2757,10 +2984,10 @@ class OllamaLocalBridge:
                     n_lbl = f" -> Regole/Note: {'; '.join(p['notes'])}" if p.get("notes") else ""
                     proj_summaries.append(f"{p['name']}{c_lbl}{n_lbl}")
                 context_blocks.append("Progetti ATTIVI in corso (Memoria Calda): " + " || ".join(proj_summaries))
-            if mems:
+            if retrieved_mems:
                 context_blocks.append(
-                    "Fatti e preferenze generali che ricordi sull'utente: "
-                    + " | ".join([m["text"] for m in mems[-12:]])
+                    "Memorie e preferenze rilevanti recuperate (BM25 + Time-Decay): "
+                    + " | ".join([m["text"] for m in retrieved_mems])
                 )
             if todos:
                 context_blocks.append("To-Do attivi dell'utente: " + " | ".join(todos[:8]))
@@ -2786,21 +3013,26 @@ class OllamaLocalBridge:
                 + "\n".join(context_blocks)
             )
 
-            # Includi gli ultimi 10 messaggi della cronologia per avere una vera conversazione continua!
+            # Fit chat history with TokenBudgetManager (preserves context window)
             recent_turns = self.get_chat_history(limit=10)
+            fitted_history = budget_mgr.fit_chat_history(recent_turns, 600)
             messages = [{"role": "system", "content": system_prompt}]
-            for turn in recent_turns:
+            for turn in fitted_history:
                 r = turn.get("role")
-                if r in ("user", "assistant") and turn.get("text"):
-                    messages.append({"role": r, "content": turn["text"]})
+                t_content = turn.get("text") or turn.get("content")
+                if r in ("user", "assistant") and t_content:
+                    messages.append({"role": r, "content": t_content})
 
-            messages.append({"role": "user", "content": text + clipboard_context})
+            fitted_clip = budget_mgr.fit_clipboard(clipboard_context, 400) if clipboard_context else ""
+            user_msg = text + (f"\n{fitted_clip}" if fitted_clip else "")
+            messages.append({"role": "user", "content": user_msg})
 
-            payload = {
-                "model": model_to_use,
-                "messages": messages,
-                "stream": False,
-            }
+            payload = build_ollama_payload(
+                model=model_to_use,
+                messages=messages,
+                stream=False,
+                num_ctx=8192,
+            )
             req = urllib.request.Request(
                 f"{OLLAMA_BASE}/api/chat",
                 data=json.dumps(payload).encode("utf-8"),
@@ -2834,6 +3066,11 @@ class SystemStateMonitor:
         self.calendar = calendar
         self.mem_proj = mem_proj
         self.win_conn = win_conn
+        self.telemetry = get_telemetry_service(
+            ollama_host=OLLAMA_BASE,
+            vram_threshold_pct=85.0,
+            afk_threshold_sec=300.0,
+        )
         self.cpu_percent = 12.0
         self.ram_percent = 38.0
         self.ai_working = False
@@ -3024,10 +3261,69 @@ class SystemStateMonitor:
         traits_count = len(self.mem_proj.profile.get("traits", []))
         proj_notes_count = sum(len(p.get("notes", [])) for p in p_state.get("projects", []))
 
+        telem_data = self.telemetry.get_snapshot() if hasattr(self, "telemetry") else {}
+
+        # Phase 3: Task Engine & Reactive Pet (F22, F23, F28, F29)
+        te_engine = get_task_engine()
+        active_task = te_engine.get_active_task()
+
+        sr_registry = get_skill_registry()
+        synthesis_candidates = sr_registry.get_synthesis_candidates()
+
+        is_afk_active = bool(
+            telem_data.get("afk", {}).get("is_afk", False)
+            or telem_data.get("afk", {}).get("idle_seconds", 0.0) >= 300.0
+            or (time.time() - getattr(self, "_last_desktop_action", time.time())) >= 300.0
+        )
+        vram_pct = float(telem_data.get("vram_percent", 0.0))
+        has_task_error = bool(active_task and active_task.get("status") in ("FAILED", "ABORTED"))
+        is_ollama_generating = bool(self.ai_working or getattr(self.ollama, "is_generating", False))
+        is_task_running = bool(active_task and active_task.get("status") in ("RUNNING", "RETRY"))
+        is_dcc_render = bool(
+            telem_data.get("active_window", {}).get("is_dcc")
+            and (telem_data.get("gpu_percent", 0.0) > 70.0 or vram_pct > 80.0)
+        )
+
+        has_imminent_deadline = False
+        if cal_summary and cal_summary.get("imminent_events"):
+            has_imminent_deadline = True
+
+        if is_afk_active:
+            cat_state = "SLEEPING"
+        elif has_task_error or vram_pct >= 85.0 or has_imminent_deadline:
+            cat_state = "ALERT"
+        elif is_ollama_generating:
+            cat_state = "THINKING"
+        elif is_task_running or is_dcc_render:
+            cat_state = "RUNNING"
+        else:
+            cat_state = "IDLE"
+
         with self._lock:
             snap = {
-                "cpu": self.cpu_percent,
-                "ram": self.ram_percent,
+                "cat_state": cat_state,
+                "catState": cat_state,
+                "active_task": active_task,
+                "task_progress": active_task["progress_pct"] if active_task else 0,
+                "task_visualizer": active_task["visualizer"] if active_task else "",
+                "task_status": active_task["status"] if active_task else "IDLE",
+                "task_title": active_task["title"] if active_task else "",
+                "synthesis_candidates": synthesis_candidates,
+                "cpu": telem_data.get("cpu_percent", self.cpu_percent),
+                "ram": telem_data.get("ram_percent", self.ram_percent),
+                "gpu": telem_data.get("gpu_percent", 0.0),
+                "vram_used_gb": telem_data.get("vram_used_gb", 0.0),
+                "vram_total_gb": telem_data.get("vram_total_gb", 0.0),
+                "vram_percent": telem_data.get("vram_percent", 0.0),
+                "gpu_name": telem_data.get("gpu_name", "N/A"),
+                "active_window": telem_data.get("active_window", {}),
+                "afk": telem_data.get("afk", {"is_afk": False, "idle_seconds": 0.0}),
+                "is_afk": telem_data.get("afk", {}).get("is_afk", False),
+                "afk_idle_seconds": telem_data.get("afk", {}).get("idle_seconds", 0.0),
+                "project_time": telem_data.get("project_time", {}),
+                "project_time_today_sec": telem_data.get("project_time", {}).get("current_project_seconds", 0.0),
+                "current_app_seconds_today": telem_data.get("project_time", {}).get("current_app_seconds", 0.0),
+                "vram_guard": telem_data.get("vram_guard", {}),
                 "ai_working": self.ai_working,
                 "ai_source": self.ai_source,
                 "ai_detail": self.ai_detail,
@@ -3049,7 +3345,7 @@ class SystemStateMonitor:
                 "projects_count": len(p_state.get("projects", [])),
                 "archive_count": len(p_state.get("archive", [])),
                 "stale_projects_count": len(p_state.get("stale_projects", [])),
-                "active_project_name": active_proj["name"] if active_proj else "",
+                "active_project_name": telem_data.get("active_window", {}).get("project_name") or (active_proj["name"] if active_proj else ""),
                 "profile_answered_count": len(self.mem_proj.profile.get("answers", {})),
                 "hotkey": self.mem_proj.profile.get("hotkey", "Alt+N"),
                 "window_mode": self.win_conn.window_mode,
@@ -3304,9 +3600,143 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
                     "connections": win_conn_manager.get_connections_state(),
                     "memories": ollama_bridge.get_memories(),
                     "todos": ollama_bridge.load_todos(),
-                    "hotkey": mem_proj_manager.profile.get("hotkey", "Alt+N"),
+                    "hotkey": mem_proj_manager.profile.get("hotkey", "Ctrl+Alt+N"),
                 }
             )
+
+        if self.path.startswith("/api/colorsafe"):
+            curr = bool(mem_proj_manager.profile.get("color_safe_mode", False))
+            if "enabled" in body:
+                new_mode = bool(body["enabled"])
+            elif "color_safe_mode" in body:
+                new_mode = bool(body["color_safe_mode"])
+            else:
+                new_mode = not curr
+            with mem_proj_manager._lock:
+                mem_proj_manager.profile["color_safe_mode"] = new_mode
+                mem_proj_manager._save_profile()
+            return self._send_json({"ok": True, "color_safe_mode": new_mode})
+
+        if self.path.startswith("/api/profile/pin"):
+            tid = body.get("trait_id") or body.get("id") or body.get("text") or ""
+            pinned = bool(body.get("pinned", True))
+            ok = mem_proj_manager.pin_profile_trait(tid, pinned=pinned)
+            return self._send_json({"ok": ok, "trait_id": tid, "pinned": pinned})
+
+        if self.path.startswith("/api/profile/edit"):
+            tid = body.get("trait_id") or body.get("id") or ""
+            new_text = body.get("text") or body.get("new_text") or ""
+            ok = mem_proj_manager.edit_profile_trait(tid, new_text)
+            return self._send_json({"ok": ok, "trait_id": tid, "text": new_text})
+
+        if self.path.startswith("/api/profile/delete"):
+            tid = body.get("trait_id") or body.get("id") or body.get("text") or ""
+            ok = mem_proj_manager.delete_profile_trait(tid)
+            return self._send_json({"ok": ok, "trait_id": tid})
+
+        if self.path.startswith("/api/profile"):
+            return self._send_json({"ok": True, "profile": mem_proj_manager.profile})
+
+        # --- Phase 3: Task Engine & Skill Registry Endpoints (F22-F28) ---
+        if self.path.startswith("/api/task/create"):
+            te = get_task_engine()
+            title = body.get("title", "Nuova Attività")
+            steps = body.get("steps", [])
+            skill_id = body.get("skill_id")
+            project_id = body.get("project_id")
+            priority = int(body.get("priority", 1))
+            max_retries = int(body.get("max_retries", 3))
+            tid = te.create_task(title, steps=steps, skill_id=skill_id, project_id=project_id, priority=priority, max_retries=max_retries)
+            return self._send_json({"ok": True, "task_id": tid, "task": te.get_task(tid)})
+
+        if self.path.startswith("/api/task/abort"):
+            te = get_task_engine()
+            tid = body.get("task_id")
+            if not tid:
+                active = te.get_active_task()
+                if active:
+                    tid = active["id"]
+            if tid:
+                ok = te.abort_task(tid)
+                return self._send_json({"ok": ok, "task_id": tid, "task": te.get_task(tid)})
+            return self._send_json({"ok": False, "message": "Nessun task attivo da annullare"})
+
+        if self.path.startswith("/api/task/step"):
+            te = get_task_engine()
+            tid = body.get("task_id")
+            if not tid:
+                active = te.get_active_task()
+                if active:
+                    tid = active["id"]
+            if tid:
+                task = te.execute_next_step(tid)
+                return self._send_json({"ok": True, "task": task})
+            return self._send_json({"ok": False, "message": "Task ID non fornito"})
+
+        if self.path.startswith("/api/task/hitl"):
+            te = get_task_engine()
+            tid = body.get("task_id")
+            if not tid:
+                active = te.get_active_task()
+                if active:
+                    tid = active["id"]
+            choice = int(body.get("choice", 1))
+            files = body.get("files") or body.get("partial_files") or []
+            if tid:
+                try:
+                    res = te.handle_hitl_recovery(tid, choice, files)
+                    return self._send_json({"ok": True, "recovery": res, "task": te.get_task(tid)})
+                except ValueError as e:
+                    return self._send_json({"ok": False, "error": str(e)})
+            return self._send_json({"ok": False, "message": "Task ID non fornito"})
+
+        if self.path.startswith("/api/task/action"):
+            action = body.get("action", "")
+            te = get_task_engine()
+            tid = body.get("task_id")
+            if not tid:
+                active = te.get_active_task()
+                if active:
+                    tid = active["id"]
+            if action == "abort":
+                ok = te.abort_task(tid) if tid else False
+                return self._send_json({"ok": ok, "task": te.get_task(tid) if tid else None})
+            elif action == "step":
+                t = te.execute_next_step(tid) if tid else None
+                return self._send_json({"ok": bool(t), "task": t})
+            elif action == "hitl":
+                choice = int(body.get("choice", 1))
+                files = body.get("files") or []
+                res = te.handle_hitl_recovery(tid, choice, files) if tid else None
+                return self._send_json({"ok": bool(res), "recovery": res, "task": te.get_task(tid) if tid else None})
+            return self._send_json({"ok": False, "message": f"Azione non valida: {action}"})
+
+        if self.path.startswith("/api/skills/execute"):
+            sr = get_skill_registry()
+            sid = body.get("skill_id") or body.get("id") or body.get("cmd") or ""
+            if sid.startswith("/"):
+                sid = sid[1:]
+            params = body.get("params") or {}
+            confirmed = bool(body.get("confirmed", False))
+            auth_token = body.get("auth_token") or body.get("confirmation_text")
+            res = sr.execute_skill(sid, params=params, confirmed=confirmed, auth_token=auth_token)
+            sr.record_action(sid)
+            return self._send_json({"ok": True, "result": res})
+
+        if self.path.startswith("/api/skills/synthesize") or self.path.startswith("/api/skills/create"):
+            sr = get_skill_registry()
+            sig = body.get("signature") or body.get("id") or body.get("name") or ""
+            name = body.get("name")
+            tier = body.get("safety_tier", "CONFIRM_ONCE")
+            template = body.get("command_template")
+            skill = sr.synthesize_skill(sig, name=name, safety_tier=tier, command_template=template)
+            return self._send_json({"ok": True, "skill": skill})
+
+        if self.path.startswith("/api/skills/record_action"):
+            sr = get_skill_registry()
+            sig = body.get("signature", "")
+            sr.record_action(sig)
+            return self._send_json({"ok": True, "is_trigger": sr.check_synthesis_trigger(sig)})
 
         self.send_response(404)
         self.end_headers()
@@ -3318,6 +3748,84 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         client_id = self._extract_client_id()
+        if self.path.startswith("/api/colorsafe"):
+            return self._send_json({"ok": True, "color_safe_mode": bool(mem_proj_manager.profile.get("color_safe_mode", False))})
+
+        if self.path.startswith("/api/task/active"):
+            te = get_task_engine()
+            return self._send_json({"ok": True, "task": te.get_active_task()})
+
+        if self.path.startswith("/api/task/list"):
+            te = get_task_engine()
+            return self._send_json({"ok": True, "tasks": te.list_tasks()})
+
+        if self.path.startswith("/api/skills/synthesis_candidates"):
+            sr = get_skill_registry()
+            return self._send_json({"ok": True, "candidates": sr.get_synthesis_candidates()})
+
+        if self.path.startswith("/api/skills"):
+            sr = get_skill_registry()
+            all_skills = sr.load_skills()
+            formatted = []
+            for s in all_skills:
+                triggers = s.get("trigger_patterns", [])
+                cmd = triggers[0] if triggers and triggers[0].startswith("/") else f"/{s['id']}"
+                formatted.append({
+                    "id": s["id"],
+                    "cmd": cmd,
+                    "name": s.get("name", s["id"]),
+                    "desc": s.get("description", ""),
+                    "tier": s.get("safety_tier", "CONFIRM_ONCE"),
+                    "safety_tier": s.get("safety_tier", "CONFIRM_ONCE"),
+                    "triggers": triggers,
+                })
+            return self._send_json({"ok": True, "skills": formatted})
+
+        if self.path.startswith("/api/profile"):
+            sm = get_storage_manager()
+            all_mems = sm.get_memories()
+            p_traits = list(mem_proj_manager.profile.get("traits", []))
+            pinned_set = set(mem_proj_manager.profile.get("pinned_traits", []))
+            for m in all_mems:
+                if m.get("pinned"):
+                    pinned_set.add(m.get("text"))
+            items = []
+            seen_texts = set()
+            for m in all_mems:
+                t_text = m.get("text", "")
+                if t_text in seen_texts:
+                    continue
+                seen_texts.add(t_text)
+                is_pin = bool(m.get("pinned") or t_text in pinned_set)
+                items.append({
+                    "id": m.get("id"),
+                    "text": t_text,
+                    "category": m.get("category", "Memoria"),
+                    "origin": m.get("source", "user"),
+                    "confidence": 1.0 if is_pin else (0.95 if m.get("importance", 0.5) >= 0.8 else 0.85),
+                    "pinned": is_pin,
+                    "updated_at": m.get("updated_at", 0)
+                })
+            for t in p_traits:
+                if t not in seen_texts:
+                    seen_texts.add(t)
+                    is_pin = t in pinned_set
+                    items.append({
+                        "id": f"trait_{abs(hash(t)) % 1000000}",
+                        "text": t,
+                        "category": "Profilo",
+                        "origin": "Dichiarato",
+                        "confidence": 1.0 if is_pin else 0.90,
+                        "pinned": is_pin,
+                        "updated_at": time.time()
+                    })
+            return self._send_json({
+                "ok": True,
+                "traits": items,
+                "profile": mem_proj_manager.profile,
+                "color_safe_mode": bool(mem_proj_manager.profile.get("color_safe_mode", False))
+            })
+
         if self.path.startswith("/stream"):
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")

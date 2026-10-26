@@ -17,24 +17,36 @@
   <div class="hud-layer" id="hud-layer">
     <!-- TOP BAR PULITA E INTUITIVA -->
     <div class="hud-top-bar" id="status-matrix-panel">
-      <div class="top-bar-section hud-collapsible">
+      <!-- 4-Channel Hardware Telemetry (F12) -->
+      <div class="top-bar-section hud-collapsible" id="hardware-telemetry">
         <span class="status-dot" id="ai-dot"></span>
-        <span class="sys-stat">CPU <strong id="cpu-val">15%</strong></span>
+        <span class="sys-stat">CPU <strong id="cpu-val">--%</strong></span>
         <span class="sys-sep">·</span>
-        <span class="sys-stat">RAM <strong id="ram-val">40%</strong></span>
+        <span class="sys-stat">RAM <strong id="ram-val">--%</strong></span>
+        <span class="sys-sep">·</span>
+        <span class="sys-stat">GPU <strong id="gpu-val">--%</strong></span>
+        <span class="sys-sep">·</span>
+        <span class="sys-stat" id="vram-stat">VRAM <strong id="vram-val">-- / -- GB</strong></span>
+      </div>
+
+      <!-- Active Window / Project Time Tracking & AFK (F13, F14) -->
+      <div class="top-bar-section hud-collapsible" id="active-tracking-section">
+        <span class="active-app-badge" id="active-app-badge" style="display: none;">[Desktop]</span>
+        <span class="active-proj-badge" id="active-proj-name-badge" style="display: none;"></span>
+        <span class="afk-status-badge" id="afk-badge" style="display: none;">[🌙 AFK]</span>
       </div>
 
       <div class="top-bar-divider hud-collapsible">│</div>
 
-      <!-- 4 Pulsanti Principali Chiari e Leggibili -->
+      <!-- 4 Pulsanti Principali Chiari e Leggibili (Inclusi Trigger Cassetto F15) -->
       <div class="top-bar-section" id="hud-assistant-section">
         <button class="hud-pill hud-pill-agenda" id="agenda-pill" title="Clicca per leggere i prossimi appuntamenti">
           📅 Agenda: 0
         </button>
-        <button class="hud-pill hud-pill-todo" id="todo-pill" title="Clicca per aprire la lista rapida dei tuoi To-Do (aggiungi o spunta con 1 click)">
+        <button class="hud-pill hud-pill-todo" id="todo-pill" title="Apri Cassetto Attività e To-Do">
           ✅ To-Do: 0
         </button>
-        <button class="hud-pill hud-pill-proj" id="projects-pill" title="Apri Schede Progetto, Pin Cartelle Server e Archivio Clienti">
+        <button class="hud-pill hud-pill-proj" id="projects-pill" title="Apri Cassetto Schede Progetto e Server">
           📌 Progetti: 0
         </button>
         <button class="hud-pill hud-pill-conn" id="btn-open-settings" title="Apri Impostazioni, Conosciamoci, Gestione Memorie, Connessioni, Scorciatoia e Reset">
@@ -50,8 +62,11 @@
 
       <div class="top-bar-divider">│</div>
 
-      <!-- Azioni rapide: Snack, Mini-Widget, Orologio e Visibilità -->
+      <!-- Azioni rapide: Color-Safe (F11), Snack, Mini-Widget, Orologio e Visibilità -->
       <div class="top-bar-section">
+        <button id="btn-color-safe" class="hud-btn term-btn term-btn-sm" title="Toggle Color-Safe Mode">
+          🎨 Color-Safe
+        </button>
         <button class="term-btn term-btn-sm hud-collapsible" id="btn-fish-snack" title="Lancia un pescetto a Neko">
           🐟 Snack
         </button>
@@ -92,6 +107,64 @@
       </div>
       <div class="todo-popover-list" id="quick-todo-list"></div>
     </div>
+
+    <!-- Backdrop per Slide-out Drawer (F15) -->
+    <div class="hud-drawer-backdrop" id="hud-drawer-backdrop"></div>
+
+    <!-- Unified 360px Slide-Out Task & Project Drawer (F15) -->
+    <aside class="hud-slide-drawer" id="hud-slide-drawer">
+      <div class="hud-drawer-header">
+        <div class="hud-drawer-title-group">
+          <span style="font-size: 16px;">📂</span>
+          <span class="hud-drawer-title">CASSETTO ATTIVITÀ &amp; PROGETTI</span>
+        </div>
+        <button type="button" class="hud-drawer-close" id="btn-close-slide-drawer" title="Chiudi Cassetto (Esc)">✕ Chiudi</button>
+      </div>
+
+      <div class="hud-drawer-nav">
+        <button type="button" class="hud-drawer-tab-btn active" data-drawer-tab="tab-drawer-todo" id="drawer-tab-btn-todo">
+          <span>✅</span> To-Do (<span id="drawer-todo-count">0</span>)
+        </button>
+        <button type="button" class="hud-drawer-tab-btn" data-drawer-tab="tab-drawer-proj" id="drawer-tab-btn-proj">
+          <span>📌</span> Progetti (<span id="drawer-proj-count">0</span>)
+        </button>
+        <button type="button" class="hud-drawer-tab-btn" data-drawer-tab="tab-drawer-mem" id="drawer-tab-btn-mem">
+          <span>🧠</span> Memorie (<span id="drawer-mem-count">0</span>)
+        </button>
+      </div>
+
+      <div class="hud-drawer-body">
+        <!-- Scheda 1: Tasks (✅ To-Do) -->
+        <div class="hud-drawer-pane active" id="tab-drawer-todo">
+          <div class="drawer-todo-input-row">
+            <input
+              type="text"
+              id="drawer-todo-input"
+              class="modal-input"
+              placeholder="Nuova task rapida (premi Invio)..."
+            />
+            <button type="button" class="term-btn btn-accent" id="btn-drawer-add-todo">+</button>
+          </div>
+          <div class="drawer-todo-list" id="drawer-todo-list"></div>
+        </div>
+
+        <!-- Scheda 2: Projects (📌 Progetti) -->
+        <div class="hud-drawer-pane" id="tab-drawer-proj">
+          <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 4px;">
+            Progetto attivo: <strong id="drawer-active-proj-label" style="color:#fde68a;">Nessuno</strong>
+          </div>
+          <div class="drawer-projects-list" id="drawer-projects-list"></div>
+        </div>
+
+        <!-- Scheda 3: Memories (🧠 Memorie) -->
+        <div class="hud-drawer-pane" id="tab-drawer-mem">
+          <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 4px;">
+            Regole persistenti e note chiave del cliente:
+          </div>
+          <div class="drawer-memories-list" id="drawer-memories-list"></div>
+        </div>
+      </div>
+    </aside>
 
     <!-- Pulsante flottante di ripristino quando l'HUD è in modalità ZEN -->
     <button class="hud-restore-pill" id="btn-restore-hud" title="Ripristina l'interfaccia HUD">
@@ -164,15 +237,16 @@
           <div class="neko-modal-content">
             <!-- SCHEDA 1: 🐾 CONOSCIAMOCI (Tutorial di Profilazione Adattivo AI) -->
             <div class="modal-tab-pane" id="tab-conosciamoci">
-              <!-- Banner mostrato durante il primo avvio (Tutorial Obbligatorio in 5 passi) -->
+              <!-- Banner mostrato durante il primo avvio (Tutorial con Snooze F19) -->
               <div class="tutorial-mandatory-banner" id="tutorial-mandatory-banner" style="display: none;">
                 <span style="font-size:18px;">🎓</span>
                 <div style="flex:1;">
                   <strong id="tutorial-step-title">Configurazione Iniziale di Neko (Passo 1 di 5)</strong>
                   <div style="font-size:12px; color:#cbd5e1; margin-top:2px;">
-                    Rispondi a queste 5 domande veloci per insegnare a Neko chi sei e che lavoro fai. Al termine si sbloccherà l'app completa!
+                    Rispondi a queste 5 domande veloci per insegnare a Neko chi sei e che lavoro fai. Puoi anche rimandare e usare subito Neko!
                   </div>
                 </div>
+                <button type="button" id="btn-tutorial-snooze" class="btn-secondary term-btn term-btn-sm" title="Rimanda il tutorial alla prossima sessione">⏱ Rimanda a dopo</button>
               </div>
 
               <div class="pane-header-row">
@@ -420,10 +494,11 @@
                   </div>
                 </div>
                 <div class="hotkey-selector-row" id="hotkey-selector-row">
-                  <button type="button" class="term-btn hotkey-opt-btn active" data-hk-val="Alt+N">⌨️ Alt + N (Consigliato — "Neko")</button>
-                  <button type="button" class="term-btn hotkey-opt-btn" data-hk-val="Alt+Q">⌨️ Alt + Q</button>
-                  <button type="button" class="term-btn hotkey-opt-btn" data-hk-val="Ctrl+Space">⌨️ Ctrl + Spazio</button>
-                  <button type="button" class="term-btn hotkey-opt-btn" data-hk-val="Alt+Z">⌨️ Alt + Z</button>
+                  <button type="button" class="term-btn hotkey-opt-btn active" data-hk-val="Ctrl+Alt+N">⌨️ Ctrl + Alt + N (Raycast Style — Consigliato)</button>
+                  <button type="button" class="term-btn hotkey-opt-btn" data-hk-val="Alt+N">⌨️ Alt + N (Classico Neko)</button>
+                </div>
+                <div class="conn-hint" style="color: #94a3b8; margin-top: 6px;">
+                  🛡️ <strong>DCC Collision Guard:</strong> Scorciatoie come <code>Alt + Q</code> (3ds Max Isolate), <code>Alt + Z</code> (Blender X-Ray) e <code>Ctrl + Spazio</code> sono protette e non possono essere assegnate.
                 </div>
               </div>
 
@@ -532,16 +607,97 @@
         </div>
         <div class="ai-action-buttons" id="ai-action-buttons" style="display: none;"></div>
 
+        <!-- F23: ASCII Task Step Visualizer Widget -->
+        <div class="ai-task-visualizer-dock" id="ai-task-visualizer-dock" style="display: none; margin: 6px 0; padding: 6px 10px; background: rgba(15, 23, 42, 0.7); border: 1px solid var(--accent-cyan, #4facfe); border-radius: 4px; font-family: var(--font-mono, monospace); font-size: 13px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="color: var(--accent-cyan, #4facfe); font-weight: bold;">[TASK ATTIVO]</span>
+              <span id="task-vis-title" style="color: var(--text-primary, #f8fafc);">...</span>
+            </div>
+            <button type="button" class="term-btn term-btn-sm" id="btn-task-abort" style="color: #f87171; border-color: rgba(248, 113, 113, 0.4); cursor: pointer;" title="Annulla immediatamente il task (Esc)">[✕ Annulla]</button>
+          </div>
+          <div id="task-vis-bar" style="margin-top: 4px; color: #38bdf8; letter-spacing: 0.5px;">[□□□□□□□□□□] 0% • Step 0/0 • 00:00 • [✕ Annulla]</div>
+        </div>
+
+        <!-- F24: Human-in-the-Loop (HITL) Rollback / Recovery Dock -->
+        <div class="ai-hitl-prompt-dock" id="ai-hitl-prompt-dock" style="display: none; margin: 6px 0; padding: 8px 12px; background: rgba(30, 20, 25, 0.85); border: 1px solid #f87171; border-radius: 4px; font-family: var(--font-mono, monospace); font-size: 13px;">
+          <div style="color: #f87171; font-weight: bold; margin-bottom: 4px;" id="hitl-error-header">[!] Task interrotto: errore o annullamento utente</div>
+          <div style="color: #cbd5e1; font-size: 12.5px; margin-bottom: 8px;" id="hitl-asset-info">Cosa desideri fare con i file generati?</div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button type="button" class="term-btn term-btn-sm" id="btn-hitl-keep" style="border-color: #34d399; color: #34d399;">[ 1 Mantieni file generati ]</button>
+            <button type="button" class="term-btn term-btn-sm" id="btn-hitl-retry" style="border-color: #fbbf24; color: #fbbf24;">[ 2 Riprova questo step ]</button>
+            <button type="button" class="term-btn term-btn-sm" id="btn-hitl-rollback" style="border-color: #f87171; color: #f87171;">[ 3 Rollback completo (rimuovi parziali) ]</button>
+          </div>
+        </div>
+
+        <!-- F28: Proactive Autonomous Skill Synthesis Dock -->
+        <div class="ai-skill-synthesis-dock" id="ai-skill-synthesis-dock" style="display: none; margin: 6px 0; padding: 8px 12px; background: rgba(15, 30, 45, 0.85); border: 1px solid #a78bfa; border-radius: 4px; font-family: var(--font-mono, monospace); font-size: 13px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="color: #c084fc; font-weight: bold;">✨ SUGGERIMENTO AUTONOMO SKILL</span>
+            <button type="button" class="term-btn term-btn-sm" id="btn-dismiss-synthesis" style="font-size: 11px;">[Ignora]</button>
+          </div>
+          <div style="margin: 4px 0 8px 0; color: #cbd5e1; font-size: 12.5px;" id="synthesis-suggestion-text">
+            Ho notato che ripeti spesso questa azione. Vuoi registrarla come skill rapida accessibile con slash command?
+          </div>
+          <div>
+            <button type="button" class="term-btn term-btn-sm" id="btn-confirm-synthesis" style="border-color: #a78bfa; color: #e9d5ff; font-weight: bold;">[✨ Crea Skill]</button>
+          </div>
+        </div>
+
+        <!-- Floating Slash Command Autocomplete Popover (F16) -->
+        <div class="slash-autocomplete-menu" id="slash-autocomplete-menu" style="display: none;"></div>
+
+        <!-- Multiline Command & Prompt Input (F17) -->
         <form class="ai-input-row" id="ai-input-form" autocomplete="off">
           <span class="ai-prompt-char">❯</span>
-          <input
-            type="text"
+          <textarea
             id="ai-input-field"
             class="ai-input-field"
-            placeholder="Scrivi a Neko (es. 'Il Sig. Rossi vuole tutto minimale', 'Fissa call domani alle 15', 'Apri Blender')..."
-          />
-          <button type="submit" class="term-btn btn-accent">Invia ↵</button>
+            rows="1"
+            placeholder="Scrivi a Neko (es. '/todo', '/colorsafe', '/profilo')... Shift+Enter per nuova riga, Enter per inviare"
+          ></textarea>
+          <button type="submit" class="term-btn btn-accent" id="btn-submit-cmd">Invia ↵</button>
         </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Profile Inspector (/profilo F21) -->
+  <div class="neko-modal-overlay" id="neko-profile-inspector-overlay" style="display: none;">
+    <div class="neko-modal-window" style="max-width: 820px; width: 92%;">
+      <div class="neko-modal-header">
+        <div class="neko-modal-brand">
+          <span class="brand-cat-icon">🧠</span>
+          <div>
+            <div class="neko-modal-title">ISPETTORE PROFILO UTENTE &amp; MEMORIE (/profilo)</div>
+            <div class="neko-modal-subtitle">Tratti consolidati • Storage SQLite-WAL + Atomic JSON</div>
+          </div>
+        </div>
+        <button type="button" class="neko-modal-close" id="btn-close-profile-inspector" title="Chiudi (Esc)">✕ CHIUDI</button>
+      </div>
+      <div class="neko-modal-body" style="padding: 16px; overflow-y: auto; max-height: 70vh;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <span style="color: var(--text-secondary); font-size: 13px;">Regole e Tratti appresi: <strong id="inspector-trait-count">0</strong></span>
+          <span style="font-size: 12px; color: #94a3b8;">[📌 Pinna] = Permanente (&lambda;=0) • [✏ Modifica] • [🗑 Elimina]</span>
+        </div>
+        <table class="profile-inspector-table" id="profile-inspector-table">
+          <thead>
+            <tr>
+              <th style="width: 44%;">Tratto Memorizzato</th>
+              <th style="width: 16%;">Categoria</th>
+              <th style="width: 14%;">Origine</th>
+              <th style="width: 10%;">Confidenza</th>
+              <th style="width: 16%;">Azioni</th>
+            </tr>
+          </thead>
+          <tbody id="profile-inspector-tbody">
+            <tr>
+              <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 16px;">
+                Caricamento profilo e regole...
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </div>

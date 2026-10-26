@@ -221,6 +221,24 @@ class CompanionFace {
       }
     }
 
+    // F29: 5-State Reactive ASCII Cat particle effects
+    const reactive = (
+      (state && (state.cat_state || (state.system && (state.system.cat_state || state.system.catState)))) ||
+      (window.systemBridge && window.systemBridge.state && (window.systemBridge.state.cat_state || (window.systemBridge.state.system && (window.systemBridge.state.system.cat_state || window.systemBridge.state.system.catState)))) ||
+      (state && (state.activeMode === 'afk' || (state.system && state.system.is_afk)) ? 'SLEEPING' : null) ||
+      (state && state.system && state.system.aiWorking ? 'THINKING' : null) ||
+      'IDLE'
+    ).toUpperCase();
+    this.reactiveState = reactive;
+
+    if (reactive.includes('SLEEPING') && Math.random() < dt * 1.2) {
+      this.spawnParticles('zzz', 1);
+    } else if (reactive.includes('THINKING') && Math.random() < dt * 1.5) {
+      this.spawnParticles('ai', 1);
+    } else if (reactive.includes('ALERT') && Math.random() < dt * 2.0) {
+      this.spawnParticles('spark', 1);
+    }
+
     // 1. Movimento verso il target
     if (this.target && !this.isDraggingCat) {
       const dxT = this.target.worldCol - this.worldCol;
@@ -392,11 +410,25 @@ class CompanionFace {
     const audio = state.audioEnergy || 0;
     const shift = this.lookX > 0.25 ? 1 : this.lookX < -0.25 ? -1 : 0;
 
+    const reactive = (
+      (state && (state.cat_state || (state.system && (state.system.cat_state || state.system.catState)))) ||
+      (window.systemBridge && window.systemBridge.state && (window.systemBridge.state.cat_state || (window.systemBridge.state.system && (window.systemBridge.state.system.cat_state || window.systemBridge.state.system.catState)))) ||
+      (mode === 'afk' || (state && state.system && state.system.is_afk) ? 'SLEEPING' : null) ||
+      (state && state.system && state.system.aiWorking ? 'THINKING' : null) ||
+      'IDLE'
+    ).toUpperCase();
+
     if (this.isDraggingCat) return '  > ω <  ';
     if (this.emotion === 'eating') return '  ˆ ڡ ˆ  ';
     if (this.emotion === 'happy') return ' //^ω^// ';
     if (this.emotion === 'surprised') return '  o ω o  ';
-    if (mode === 'afk') return '  - ω -  ';
+
+    // F29: 5-State Reactive ASCII Cat expressions
+    if (reactive.includes('SLEEPING') || mode === 'afk') return '  -.- zZ ';
+    if (reactive.includes('ALERT') || reactive.includes('POUNCING')) return '  O.O !  ';
+    if (reactive.includes('THINKING') || reactive.includes('GENERATING')) return ' -.-*    ';
+    if (reactive.includes('RUNNING') || reactive.includes('HUNTING')) return ' =^.^=   ';
+
     if (mode === 'coffee') return '  ˘ ω ˘  ';
     if (mode === 'ai') return ' -•-ω-•- ';
 
@@ -436,6 +468,13 @@ class CompanionFace {
     const cx = localCatCol;
     const cy = Math.round(this.row + this.bounceY);
     const face = this.getSimpleFace(time, state);
+    const reactive = (
+      (state && (state.cat_state || (state.system && (state.system.cat_state || state.system.catState)))) ||
+      (window.systemBridge && window.systemBridge.state && (window.systemBridge.state.cat_state || (window.systemBridge.state.system && (window.systemBridge.state.system.cat_state || window.systemBridge.state.system.catState)))) ||
+      (state && (state.activeMode === 'afk' || (state.system && state.system.is_afk)) ? 'SLEEPING' : null) ||
+      (state && state.system && state.system.aiWorking ? 'THINKING' : null) ||
+      'IDLE'
+    ).toUpperCase();
 
     // 2. Disegna la Lucciola (*) se il Neko è nell'animazione 'firefly'
     if (this.idleState === 'firefly' && this.firefly && !this.isWalking) {
@@ -456,8 +495,43 @@ class CompanionFace {
         `   ${sway}   `
       ];
       this.drawArtLines(renderer, cx, cy - 3, lines, 7);
-    } else if (state.activeMode === 'afk' || (this.idleState === 'loaf' && !this.isWalking)) {
-      // Posa acciambellata a pagnotta (Cat Loaf / AFK)
+    } else if (reactive.includes('ALERT') || reactive.includes('POUNCING')) {
+      // Posa Allerta / Pouncing (F29: ALERT)
+      renderer.drawText(cx + 6, cy - 4, ' ! ', 1, true);
+      const lines = [
+        '  /\\_____/\\! ',
+        ` (${face}) `,
+        '  /   |   \\ ╭',
+        ' (    |    )─╯',
+        '  `─∪───∪──\'  '
+      ];
+      this.drawArtLines(renderer, cx, cy - 3, lines, 7);
+    } else if (reactive.includes('THINKING') || reactive.includes('GENERATING')) {
+      // Posa Elaborazione AI / Thinking (F29: THINKING)
+      const k = Math.floor(time * 9) % 2 === 0 ? '[ ▀▄▀▄▀▄▀ ]' : '[ ▄▀▄▀▄▀▄ ]';
+      renderer.drawText(cx - 5, cy + 2, k, 7, true);
+      const lines = [
+        '  /\\_____/\\* ',
+        ` (${face}) `,
+        '  /  >⌨   \\  ╭',
+        ' (  │   │  )─╯',
+        '  `─∪───∪──\'  '
+      ];
+      this.drawArtLines(renderer, cx, cy - 3, lines, 7);
+    } else if ((reactive.includes('RUNNING') || reactive.includes('HUNTING')) && !this.isWalking) {
+      // Posa Caccia / Task RUNNING (F29: RUNNING)
+      const wiggle = Math.floor(time * 12) % 2 === 0 ? '╭─╮' : '╰─╯';
+      const lines = [
+        '  /\\_____/\\     ',
+        ` (${face})___ `,
+        ` (  "   "      )${wiggle}`,
+        '  `─∪───∪──────\'   '
+      ];
+      this.drawArtLines(renderer, cx, cy - 2, lines, 7);
+    } else if (reactive.includes('SLEEPING') || state.activeMode === 'afk' || (this.idleState === 'loaf' && !this.isWalking)) {
+      // Posa acciambellata a pagnotta (Cat Loaf / AFK / SLEEPING)
+      const zzz = Math.sin(time * 3) > 0 ? ' zZ ' : ' Zz ';
+      renderer.drawText(cx + 6, cy - 3, zzz, 4, true);
       const lines = [
         '  /\\_____/\\  ',
         ` (${face})___ `,

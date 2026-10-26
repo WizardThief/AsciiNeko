@@ -9,8 +9,14 @@ class HudTerminal {
     this.actions = actions;
 
     this.elHudLayer = document.getElementById('hud-layer');
+    this.elCpuStat = document.getElementById('cpu-stat');
     this.elCpuVal = document.getElementById('cpu-val');
+    this.elRamStat = document.getElementById('ram-stat');
     this.elRamVal = document.getElementById('ram-val');
+    this.elGpuStat = document.getElementById('gpu-stat');
+    this.elGpuVal = document.getElementById('gpu-val');
+    this.elVramStat = document.getElementById('vram-stat');
+    this.elVramVal = document.getElementById('vram-val');
     this.elAiDot = document.getElementById('ai-dot');
 
     this.elDialogue = document.getElementById('companion-dialogue');
@@ -24,26 +30,90 @@ class HudTerminal {
     this.elAiDock = document.getElementById('ai-terminal-dock');
     this.elAiModelBadge = document.getElementById('ai-model-badge');
     this.elActiveProjBadge = document.getElementById('active-proj-badge');
+    this.elActiveAppBadge = document.getElementById('active-app-badge');
+    this.elActiveProjNameBadge = document.getElementById('active-proj-name-badge');
+    this.elAfkBadge = document.getElementById('afk-badge');
     this.elHotkeyHintBadge = document.getElementById('hotkey-hint-badge');
     this.elAiForm = document.getElementById('ai-input-form');
     this.elAiInput = document.getElementById('ai-input-field');
+    this.elSlashMenu = document.getElementById('slash-autocomplete-menu');
+
+    // F23, F24, F28 Task Visualizer & HITL & Skill Synthesis
+    this.elTaskVisDock = document.getElementById('ai-task-visualizer-dock');
+    this.elTaskVisTitle = document.getElementById('task-vis-title');
+    this.elTaskVisBar = document.getElementById('task-vis-bar');
+    this.elBtnTaskAbort = document.getElementById('btn-task-abort');
+    this.elHitlPromptDock = document.getElementById('ai-hitl-prompt-dock');
+    this.elHitlErrorHeader = document.getElementById('hitl-error-header');
+    this.elHitlAssetInfo = document.getElementById('hitl-asset-info');
+    this.elBtnHitlKeep = document.getElementById('btn-hitl-keep');
+    this.elBtnHitlRetry = document.getElementById('btn-hitl-retry');
+    this.elBtnHitlRollback = document.getElementById('btn-hitl-rollback');
+    this.elSkillSynthDock = document.getElementById('ai-skill-synthesis-dock');
+    this.elSynthesisText = document.getElementById('synthesis-suggestion-text');
+    this.elBtnConfirmSynth = document.getElementById('btn-confirm-synthesis');
+    this.elBtnDismissSynth = document.getElementById('btn-dismiss-synthesis');
+
+    this.activeTask = null;
+    this.currentHitlTask = null;
+    this.currentSynthesisCandidate = null;
+    this.dismissedSynthesis = new Set();
+    this._lastTaskPollTime = 0;
+
+    // Slash command suggestions for F16
+    this.slashCommands = [
+      { cmd: '/todo', desc: 'Gestione e lista To-Do rapida' },
+      { cmd: '/cal', desc: 'Visualizza agenda e impegni del calendario' },
+      { cmd: '/briefing', desc: 'Sintesi della giornata e focus' },
+      { cmd: '/profilo', desc: 'Ispettore profilo utente e memorie' },
+      { cmd: '/colorsafe', desc: 'Attiva/Disattiva modalità Color-Safe' },
+      { cmd: '/skills', desc: 'Elenco competenze e strumenti AI' },
+      { cmd: '/sync', desc: 'Sincronizza stato e progetti' },
+      { cmd: '/dcc_backup', desc: 'Salva snapshot di sicurezza progetto' }
+    ];
+    this.filteredSlashCommands = [];
+    this.slashIndex = 0;
 
     // Top Bar Pills & Buttons
     this.elAgendaPill = document.getElementById('agenda-pill');
     this.elTodoPill = document.getElementById('todo-pill');
     this.elProjectsPill = document.getElementById('projects-pill');
+    this.elBtnColorSafe = document.getElementById('btn-color-safe');
+    this.isColorSafe = false;
     this.elBtnConosciamoci = document.getElementById('btn-conosciamoci');
     this.elBtnOpenSettings = document.getElementById('btn-open-settings');
     this.elMemTotalBadge = document.getElementById('mem-total-badge');
     this.elBtnWindowMode = document.getElementById('btn-window-mode');
 
-    // Quick To-Do Popover
+    // Quick To-Do Popover (Legacy compatibility)
     this.elTodoPopover = document.getElementById('hud-todo-popover');
     this.elBtnCloseTodoPopover = document.getElementById('btn-close-todo-popover');
     this.elQuickTodoInput = document.getElementById('quick-todo-input');
     this.elBtnQuickTodoAdd = document.getElementById('btn-quick-todo-add');
     this.elQuickTodoList = document.getElementById('quick-todo-list');
     this.elQuickTodoCount = document.getElementById('quick-todo-count');
+
+    // Slide-out Drawer (F15 360px Drawer)
+    this.elSlideDrawer = document.getElementById('hud-slide-drawer');
+    this.elDrawerBackdrop = document.getElementById('hud-drawer-backdrop');
+    this.elBtnCloseSlideDrawer = document.getElementById('btn-close-slide-drawer');
+    this.elDrawerTodoCount = document.getElementById('drawer-todo-count');
+    this.elDrawerProjCount = document.getElementById('drawer-proj-count');
+    this.elDrawerMemCount = document.getElementById('drawer-mem-count');
+    this.elDrawerTodoList = document.getElementById('drawer-todo-list');
+    this.elDrawerProjectsList = document.getElementById('drawer-projects-list');
+    this.elDrawerMemoriesList = document.getElementById('drawer-memories-list');
+    this.elDrawerTodoInput = document.getElementById('drawer-todo-input');
+    this.elBtnDrawerAddTodo = document.getElementById('btn-drawer-add-todo');
+    this.elDrawerActiveProjLabel = document.getElementById('drawer-active-proj-label');
+    this.activeDrawerTab = 'tab-drawer-todo';
+    this.isDrawerOpen = false;
+
+    // Profile Inspector Modal (F21 /profilo)
+    this.elProfileInspectorOverlay = document.getElementById('neko-profile-inspector-overlay');
+    this.elBtnCloseProfileInspector = document.getElementById('btn-close-profile-inspector');
+    this.elProfileInspectorTbody = document.getElementById('profile-inspector-tbody');
+    this.elInspectorTraitCount = document.getElementById('inspector-trait-count');
 
     // Control Hub Modal
     this.elModalOverlay = document.getElementById('neko-modal-overlay');
@@ -57,7 +127,9 @@ class HudTerminal {
 
     // TAB 1: Conosciamoci Elements
     this.elTutorialBanner = document.getElementById('tutorial-mandatory-banner');
+    this.elBtnTutorialSnooze = document.getElementById('btn-tutorial-snooze');
     this.elTutorialStepTitle = document.getElementById('tutorial-step-title');
+    this.isTutorialSnoozed = (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('neko_tutorial_snoozed') === 'true');
     this.elOnboardProgress = document.getElementById('onboard-progress-badge');
     this.elBtnRandomQuestion = document.getElementById('btn-random-question');
     this.elOnboardQCat = document.getElementById('onboard-q-cat');
@@ -169,6 +241,8 @@ class HudTerminal {
 
     this.bindEvents();
     this.loadInitialHistory();
+    this._hookBridgeForPhase3();
+    this.fetchSkillsForAutocomplete();
   }
 
   async loadInitialHistory() {
@@ -231,13 +305,384 @@ class HudTerminal {
   closeModal() {
     if (!this.elModalOverlay) return;
     if (this.isMandatoryTutorial) {
-      this.say('🎓 Completa prima le 5 domande rapide del Tutorial per insegnare a Neko chi sei!');
+      this.snoozeTutorial();
       return;
     }
     this.elModalOverlay.style.display = 'none';
     if (this.elBtnConosciamoci) this.elBtnConosciamoci.classList.remove('active');
     if (this.elProjectsPill) this.elProjectsPill.classList.remove('active');
     if (this.elBtnOpenSettings) this.elBtnOpenSettings.classList.remove('active');
+  }
+
+  snoozeTutorial() {
+    this.isTutorialSnoozed = true;
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem('neko_tutorial_snoozed', 'true');
+      }
+    } catch (e) {}
+    this.isMandatoryTutorial = false;
+    if (this.elModalOverlay) {
+      this.elModalOverlay.classList.remove('mandatory-tutorial');
+      this.elModalOverlay.style.display = 'none';
+    }
+    if (this.elTutorialBanner) {
+      this.elTutorialBanner.style.display = 'none';
+    }
+    if (this.elBtnConosciamoci) this.elBtnConosciamoci.classList.remove('active');
+    this.say('⏱ Tutorial iniziale rimandato! Puoi riprenderlo quando vuoi cliccando su "🐾 Conosciamoci" nella Top Bar.');
+  }
+
+  // --- F11: COLOR-SAFE MODE ---
+  toggleColorSafe(forcedState) {
+    if (typeof forcedState === 'boolean') {
+      this.isColorSafe = forcedState;
+    } else {
+      this.isColorSafe = !this.isColorSafe;
+    }
+
+    document.body.classList.toggle('color-safe', this.isColorSafe);
+    if (this.elBtnColorSafe) {
+      this.elBtnColorSafe.classList.toggle('active', this.isColorSafe);
+      this.elBtnColorSafe.textContent = this.isColorSafe ? '🎨 COLOR-SAFE: ON' : '🎨 COLOR-SAFE';
+      this.elBtnColorSafe.title = this.isColorSafe
+        ? 'Modalità Color-Safe Attiva (effetti CRT e flickering disattivati)'
+        : 'Attiva Modalità Color-Safe (disattiva scansioni CRT e distorsioni visive)';
+    }
+
+    if (window.systemBridge && typeof window.systemBridge.toggleColorSafe === 'function') {
+      window.systemBridge.toggleColorSafe(this.isColorSafe);
+    } else {
+      fetch('http://127.0.0.1:8765/api/colorsafe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: this.isColorSafe })
+      }).catch(() => {});
+    }
+
+    this.say(
+      this.isColorSafe
+        ? '🎨 Modalità Color-Safe ATTIVATA: scansioni CRT, jitter e flickering visivo disattivati per massima leggibilità.'
+        : '🎨 Modalità Color-Safe DISATTIVATA: effetti grafici retro CRT ripristinati.'
+    );
+  }
+
+  // --- F12: 4-CHANNEL TELEMETRY THRESHOLDS ---
+  applyTelemetryThreshold(element, percent) {
+    if (!element) return;
+    element.classList.remove('stat-normal', 'stat-warning', 'stat-critical');
+    if (percent > 85.0) {
+      element.classList.add('stat-critical');
+    } else if (percent >= 70.0) {
+      element.classList.add('stat-warning');
+    } else {
+      element.classList.add('stat-normal');
+    }
+  }
+
+  // --- F15: 360PX UNIFIED SLIDE-OUT DRAWER ---
+  openSlideDrawer(tab = 'tab-drawer-todo') {
+    const tabMap = {
+      todo: 'tab-drawer-todo',
+      proj: 'tab-drawer-proj',
+      mem: 'tab-drawer-mem',
+      'tab-drawer-todo': 'tab-drawer-todo',
+      'tab-drawer-proj': 'tab-drawer-proj',
+      'tab-drawer-mem': 'tab-drawer-mem'
+    };
+    const targetTab = tabMap[tab] || 'tab-drawer-todo';
+    this.activeDrawerTab = targetTab;
+    this.isDrawerOpen = true;
+
+    if (this.elSlideDrawer) this.elSlideDrawer.classList.add('open');
+    if (this.elDrawerBackdrop) this.elDrawerBackdrop.classList.add('open');
+
+    this.switchDrawerTab(targetTab);
+  }
+
+  closeSlideDrawer() {
+    this.isDrawerOpen = false;
+    if (this.elSlideDrawer) this.elSlideDrawer.classList.remove('open');
+    if (this.elDrawerBackdrop) this.elDrawerBackdrop.classList.remove('open');
+    if (this.elTodoPill) this.elTodoPill.classList.remove('active');
+    if (this.elProjectsPill) this.elProjectsPill.classList.remove('active');
+  }
+
+  switchDrawerTab(tabId) {
+    this.activeDrawerTab = tabId;
+
+    document.querySelectorAll('.hud-drawer-tab-btn').forEach((btn) => {
+      btn.classList.toggle('active', btn.getAttribute('data-drawer-tab') === tabId);
+    });
+
+    document.querySelectorAll('.hud-drawer-pane').forEach((pane) => {
+      pane.classList.toggle('active', pane.id === tabId);
+    });
+
+    if (this.elTodoPill) this.elTodoPill.classList.toggle('active', tabId === 'tab-drawer-todo');
+    if (this.elProjectsPill) this.elProjectsPill.classList.toggle('active', tabId === 'tab-drawer-proj');
+
+    if (tabId === 'tab-drawer-todo') {
+      this.renderDrawerTodos();
+      if (this.elDrawerTodoInput) this.elDrawerTodoInput.focus();
+    } else if (tabId === 'tab-drawer-proj') {
+      this.renderDrawerProjects();
+    } else if (tabId === 'tab-drawer-mem') {
+      this.renderDrawerMemories();
+    }
+  }
+
+  renderDrawerTodos() {
+    const list = (this.state.system && Array.isArray(this.state.system.todosList))
+      ? this.state.system.todosList
+      : [];
+
+    if (this.elDrawerTodoCount) this.elDrawerTodoCount.textContent = String(list.length);
+    if (!this.elDrawerTodoList) return;
+
+    if (list.length === 0) {
+      this.elDrawerTodoList.innerHTML =
+        '<div style="color:var(--text-muted); font-size:13px; padding:12px 4px;">🎉 Nessuna task attiva! Aggiungi un To-Do rapido qui sopra.</div>';
+      return;
+    }
+
+    this.elDrawerTodoList.innerHTML = '';
+    list.forEach((txt, idx) => {
+      const row = document.createElement('div');
+      row.className = 'drawer-list-item';
+      row.innerHTML = `
+        <span style="flex:1; word-break:break-word; font-size:13px;">${this.escapeHtml(txt)}</span>
+        <button type="button" class="drawer-item-btn" title="Segna come completato">✓ Fatto</button>
+      `;
+      const btn = row.querySelector('.drawer-item-btn');
+      if (btn) {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (!this.actions.settingsAction) return;
+          const res = await this.actions.settingsAction({ action: 'delete_todo', index: idx });
+          if (res && Array.isArray(res.todos)) {
+            if (this.state.system) {
+              this.state.system.todosList = res.todos;
+              this.state.system.todoCount = res.todos.length;
+            }
+            this.renderDrawerTodos();
+            this.say(`✅ Task completata: "${txt}"!`);
+          }
+        });
+      }
+      this.elDrawerTodoList.appendChild(row);
+    });
+  }
+
+  renderDrawerProjects() {
+    const pState = this.projectsState || { projects: [] };
+    const projects = Array.isArray(pState.projects) ? pState.projects : [];
+    const activeId = pState.active_project_id || (projects[0] ? projects[0].id : '');
+
+    if (this.elDrawerProjCount) this.elDrawerProjCount.textContent = String(projects.length);
+
+    const activeP = projects.find((p) => p.id === activeId);
+    if (this.elDrawerActiveProjLabel) {
+      this.elDrawerActiveProjLabel.textContent = activeP
+        ? (activeP.client ? `${activeP.name} (${activeP.client})` : activeP.name)
+        : 'Nessuno';
+    }
+
+    if (!this.elDrawerProjectsList) return;
+
+    if (projects.length === 0) {
+      this.elDrawerProjectsList.innerHTML =
+        '<div style="color:var(--text-muted); font-size:13px; padding:12px 4px;">Nessun progetto attivo. Apri Impostazioni & Memorie per crearne uno!</div>';
+      return;
+    }
+
+    this.elDrawerProjectsList.innerHTML = '';
+    projects.forEach((p) => {
+      const isAct = p.id === activeId;
+      const row = document.createElement('div');
+      row.className = 'drawer-list-item' + (isAct ? ' active-proj' : '');
+      row.innerHTML = `
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:600; font-size:13px; color:${isAct ? '#fde68a' : 'var(--text-main)'};">📌 ${this.escapeHtml(p.name)}</div>
+          ${p.client ? `<div style="font-size:11.5px; color:var(--text-muted);">Cliente: ${this.escapeHtml(p.client)}</div>` : ''}
+        </div>
+        <button type="button" class="drawer-item-btn" title="${isAct ? 'Progetto già attivo' : 'Attiva progetto'}">
+          ${isAct ? '● Attivo' : 'Attiva'}
+        </button>
+      `;
+      const btn = row.querySelector('.drawer-item-btn');
+      if (btn && !isAct) {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (this.actions.projectsAction) {
+            const res = await this.actions.projectsAction({ action: 'set_active', project_id: p.id });
+            if (res && res.state) {
+              this.renderProjectsState(res.state);
+              this.renderDrawerProjects();
+            }
+          }
+        });
+      }
+      this.elDrawerProjectsList.appendChild(row);
+    });
+  }
+
+  renderDrawerMemories() {
+    const onb = (this.state.system && this.state.system.onboarding) ? this.state.system.onboarding : null;
+    const traits = onb && onb.profile && Array.isArray(onb.profile.traits)
+      ? onb.profile.traits
+      : [];
+
+    if (this.elDrawerMemCount) this.elDrawerMemCount.textContent = String(traits.length);
+    if (!this.elDrawerMemoriesList) return;
+
+    if (traits.length === 0) {
+      this.elDrawerMemoriesList.innerHTML =
+        '<div style="color:var(--text-muted); font-size:13px; padding:12px 4px;">Nessun tratto consolidato. Usa "Conosciamoci" o la chat con Neko per apprendere regole!</div>';
+      return;
+    }
+
+    this.elDrawerMemoriesList.innerHTML = '';
+    traits.forEach((trait) => {
+      const chip = document.createElement('div');
+      chip.className = 'drawer-list-item';
+      chip.innerHTML = `<span style="font-size:12.5px; color:#c084fc;">🧠 ${this.escapeHtml(trait)}</span>`;
+      this.elDrawerMemoriesList.appendChild(chip);
+    });
+  }
+
+  // --- F21: PROFILE INSPECTOR MODAL (/profilo) ---
+  openProfileInspector() {
+    if (this.elProfileInspectorOverlay) {
+      this.elProfileInspectorOverlay.style.display = 'flex';
+      this.loadAndRenderProfileInspector();
+    }
+  }
+
+  closeProfileInspector() {
+    if (this.elProfileInspectorOverlay) {
+      this.elProfileInspectorOverlay.style.display = 'none';
+    }
+  }
+
+  async loadAndRenderProfileInspector() {
+    if (!this.elProfileInspectorTbody) return;
+    this.elProfileInspectorTbody.innerHTML =
+      '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:16px;">Caricamento profilo e regole...</td></tr>';
+
+    let traits = [];
+    if (window.systemBridge && typeof window.systemBridge.fetchProfileData === 'function') {
+      const data = await window.systemBridge.fetchProfileData();
+      if (data && Array.isArray(data.traits)) traits = data.traits;
+    } else {
+      try {
+        const resp = await fetch('http://127.0.0.1:8765/api/profile');
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data && Array.isArray(data.traits)) traits = data.traits;
+        }
+      } catch (e) {}
+    }
+
+    if (this.elInspectorTraitCount) {
+      this.elInspectorTraitCount.textContent = String(traits.length);
+    }
+
+    if (traits.length === 0) {
+      this.elProfileInspectorTbody.innerHTML =
+        '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:16px;">Nessun tratto consolidato o pinned. Rispondi alle domande in "🐾 Conosciamoci" o chatta con Neko!</td></tr>';
+      return;
+    }
+
+    this.elProfileInspectorTbody.innerHTML = '';
+    traits.forEach((t, idx) => {
+      const traitId = t.id || `trait_${idx}`;
+      const text = typeof t === 'string' ? t : (t.text || '');
+      const cat = t.category || 'Generale';
+      const source = t.source || 'ai';
+      const isPinned = Boolean(t.pinned);
+      const conf = isPinned ? '📌 Permanente (λ=0)' : (t.importance ? `${Math.round(t.importance * 100)}%` : 'Attivo (λ=0.05)');
+
+      const tr = document.createElement('tr');
+      if (isPinned) tr.classList.add('pinned-row');
+      tr.innerHTML = `
+        <td style="font-weight: 500; word-break: break-word;">${this.escapeHtml(text)}</td>
+        <td><span class="badge" style="background: rgba(147, 51, 234, 0.2); color: #c084fc; padding: 2px 6px; border-radius: 4px; font-size: 11.5px;">${this.escapeHtml(cat)}</span></td>
+        <td style="color: var(--text-muted); font-size: 12px;">${this.escapeHtml(source)}</td>
+        <td style="font-size: 12px; color: ${isPinned ? '#38ef7d' : '#94a3b8'};">${conf}</td>
+        <td>
+          <div class="profile-actions-cell">
+            <button type="button" class="term-btn term-btn-sm ${isPinned ? 'btn-pinned' : ''}" data-pin-id="${this.escapeHtml(traitId)}" title="${isPinned ? 'Rimuovi Pin' : 'Fissa come regola permanente (λ=0)'}">
+              ${isPinned ? '📌 Pinned' : '📌 Pinna'}
+            </button>
+            <button type="button" class="term-btn term-btn-sm" data-edit-id="${this.escapeHtml(traitId)}" title="Modifica testo regola">
+              ✏ Modifica
+            </button>
+            <button type="button" class="term-btn term-btn-sm" data-del-id="${this.escapeHtml(traitId)}" title="Elimina regola">
+              🗑 Elimina
+            </button>
+          </div>
+        </td>
+      `;
+
+      const pinBtn = tr.querySelector('[data-pin-id]');
+      if (pinBtn) {
+        pinBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (window.systemBridge && typeof window.systemBridge.pinProfileTrait === 'function') {
+            await window.systemBridge.pinProfileTrait(traitId, !isPinned);
+          } else {
+            await fetch('http://127.0.0.1:8765/api/profile/pin', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: traitId, pinned: !isPinned })
+            }).catch(() => {});
+          }
+          await this.loadAndRenderProfileInspector();
+        });
+      }
+
+      const editBtn = tr.querySelector('[data-edit-id]');
+      if (editBtn) {
+        editBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const newText = window.prompt('Modifica il tratto/regola di Neko:', text);
+          if (newText !== null && newText.trim() !== '') {
+            if (window.systemBridge && typeof window.systemBridge.editProfileTrait === 'function') {
+              await window.systemBridge.editProfileTrait(traitId, newText.trim());
+            } else {
+              await fetch('http://127.0.0.1:8765/api/profile/edit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: traitId, text: newText.trim() })
+              }).catch(() => {});
+            }
+            await this.loadAndRenderProfileInspector();
+          }
+        });
+      }
+
+      const delBtn = tr.querySelector('[data-del-id]');
+      if (delBtn) {
+        delBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (window.confirm(`Eliminare definitivamente questa regola?\n\n"${text}"`)) {
+            if (window.systemBridge && typeof window.systemBridge.deleteProfileTrait === 'function') {
+              await window.systemBridge.deleteProfileTrait(traitId);
+            } else {
+              await fetch('http://127.0.0.1:8765/api/profile/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: traitId })
+              }).catch(() => {});
+            }
+            await this.loadAndRenderProfileInspector();
+          }
+        });
+      }
+
+      this.elProfileInspectorTbody.appendChild(tr);
+    });
   }
 
   async refreshAllSettingsData() {
@@ -403,6 +848,14 @@ class HudTerminal {
       });
     });
 
+    // F11: Toggle Color-Safe Mode Button
+    if (this.elBtnColorSafe) {
+      this.elBtnColorSafe.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.toggleColorSafe();
+      });
+    }
+
     // Apertura/Chiusura Finestra Centrale Control Hub
     if (this.elBtnConosciamoci) {
       this.elBtnConosciamoci.addEventListener('click', (e) => {
@@ -411,10 +864,95 @@ class HudTerminal {
       });
     }
 
+    // F15: Projects Pill apre il Cassetto Slide-out (360px) sulla scheda Progetti
     if (this.elProjectsPill) {
       this.elProjectsPill.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.openModalTab('tab-progetti');
+        if (this.isDrawerOpen && this.activeDrawerTab === 'tab-drawer-proj') {
+          this.closeSlideDrawer();
+        } else {
+          this.openSlideDrawer('tab-drawer-proj');
+        }
+      });
+    }
+
+    // F15: Schede di navigazione nel Cassetto Slide-out (360px)
+    document.querySelectorAll('.hud-drawer-tab-btn').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const tabId = btn.getAttribute('data-drawer-tab');
+        if (tabId) this.switchDrawerTab(tabId);
+      });
+    });
+
+    // F15: Chiusura Cassetto Slide-out tramite pulsante X o click sul backdrop
+    if (this.elBtnCloseSlideDrawer) {
+      this.elBtnCloseSlideDrawer.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.closeSlideDrawer();
+      });
+    }
+
+    if (this.elDrawerBackdrop) {
+      this.elDrawerBackdrop.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.closeSlideDrawer();
+      });
+    }
+
+    // F15: Aggiunta rapida To-Do dentro il Cassetto Slide-out
+    const addDrawerTodo = async () => {
+      if (!this.elDrawerTodoInput || !this.actions.settingsAction) return;
+      const text = this.elDrawerTodoInput.value.trim();
+      if (!text) return;
+      this.elDrawerTodoInput.value = '';
+      const res = await this.actions.settingsAction({ action: 'add_todo', text });
+      if (res && Array.isArray(res.todos)) {
+        if (this.state.system) {
+          this.state.system.todosList = res.todos;
+          this.state.system.todoCount = res.todos.length;
+        }
+        this.renderDrawerTodos();
+        this.say(`✅ Nuova task aggiunta ai To-Do: "${text}"`);
+      }
+    };
+
+    if (this.elBtnDrawerAddTodo) {
+      this.elBtnDrawerAddTodo.addEventListener('click', (e) => {
+        e.stopPropagation();
+        addDrawerTodo();
+      });
+    }
+    if (this.elDrawerTodoInput) {
+      this.elDrawerTodoInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          addDrawerTodo();
+        }
+      });
+    }
+
+    // F19: Snooze Tutorial Iniziale ("⏱ Rimanda a dopo")
+    if (this.elBtnTutorialSnooze) {
+      this.elBtnTutorialSnooze.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.snoozeTutorial();
+      });
+    }
+
+    // F21: Chiusura Modal Profile Inspector
+    if (this.elBtnCloseProfileInspector) {
+      this.elBtnCloseProfileInspector.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.closeProfileInspector();
+      });
+    }
+
+    if (this.elProfileInspectorOverlay) {
+      this.elProfileInspectorOverlay.addEventListener('click', (e) => {
+        if (e.target === this.elProfileInspectorOverlay) {
+          this.closeProfileInspector();
+        }
       });
     }
 
@@ -453,9 +991,28 @@ class HudTerminal {
       });
     }
 
+    // Gestione unificata Escape (F24 Kill Switch Task -> Ispettore Profilo -> Cassetto Slide-out -> Modal Hub)
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && this.elModalOverlay && this.elModalOverlay.style.display !== 'none') {
-        this.closeModal();
+      if (e.key === 'Escape') {
+        if (this.activeTask && (this.activeTask.status === 'RUNNING' || this.activeTask.status === 'RETRY')) {
+          this.abortActiveTask();
+          return;
+        }
+        if (this.currentHitlTask) {
+          this.abortActiveTask();
+          return;
+        }
+        if (this.elProfileInspectorOverlay && this.elProfileInspectorOverlay.style.display !== 'none') {
+          this.closeProfileInspector();
+          return;
+        }
+        if (this.isDrawerOpen) {
+          this.closeSlideDrawer();
+          return;
+        }
+        if (this.elModalOverlay && this.elModalOverlay.style.display !== 'none') {
+          this.closeModal();
+        }
       }
     });
 
@@ -570,17 +1127,14 @@ class HudTerminal {
       });
     }
 
-    // Popover Rapido To-Do nella Top Bar
-    if (this.elTodoPill && this.elTodoPopover) {
-      this.elTodoPill.addEventListener('click', async (e) => {
+    // F15: Top Bar To-Do Pill apre il Cassetto Slide-out (360px) sulla scheda To-Do
+    if (this.elTodoPill) {
+      this.elTodoPill.addEventListener('click', (e) => {
         e.stopPropagation();
-        const willOpen = this.elTodoPopover.style.display === 'none';
-        this.elTodoPopover.style.display = willOpen ? 'flex' : 'none';
-        this.elTodoPill.classList.toggle('active', willOpen);
-        if (willOpen) {
-          const list = (this.state.system && this.state.system.todosList) || [];
-          this.renderQuickTodoPopover(list);
-          if (this.elQuickTodoInput) this.elQuickTodoInput.focus();
+        if (this.isDrawerOpen && this.activeDrawerTab === 'tab-drawer-todo') {
+          this.closeSlideDrawer();
+        } else {
+          this.openSlideDrawer('tab-drawer-todo');
         }
       });
     }
@@ -1045,31 +1599,180 @@ class HudTerminal {
       });
     });
 
-    // Invio da tastiera nel Terminale AI + Frecce Su/Giù per richiamare comandi
+    // F16 & F17: Invio da tastiera nel Terminale AI, Shift+Enter per multilinea (1-4 righe) e Autocomplete Slash (/)
     if (this.elAiForm && this.elAiInput) {
+      const doSubmit = () => {
+        const text = this.elAiInput.value.trim();
+        this.hideSlashMenu();
+        if (!text) return;
+        this.sentCommands.push(text);
+        this.cmdCursor = this.sentCommands.length;
+        this.elAiInput.value = '';
+        this.adjustInputHeight();
+        this.submitAiCommand(text);
+      };
+
+      this.elAiInput.addEventListener('input', () => {
+        this.adjustInputHeight();
+        const val = this.elAiInput.value;
+        if (val.startsWith('/')) {
+          const query = val.trim().toLowerCase();
+          this.filteredSlashCommands = this.slashCommands.filter((c) =>
+            c.cmd.toLowerCase().startsWith(query)
+          );
+          if (this.filteredSlashCommands.length > 0) {
+            this.slashIndex = 0;
+            this.renderSlashMenu();
+          } else {
+            this.hideSlashMenu();
+          }
+        } else {
+          this.hideSlashMenu();
+        }
+      });
+
       this.elAiInput.addEventListener('keydown', (e) => {
-        if (e.key === 'ArrowUp' && this.sentCommands.length > 0) {
+        if (e.key === 'Enter') {
+          if (e.shiftKey) {
+            // Shift+Enter: Nuova riga (comportamento standard textarea), auto-espande altezza
+            setTimeout(() => this.adjustInputHeight(), 0);
+            return;
+          }
+          // Enter semplice
+          if (this.filteredSlashCommands.length > 0) {
+            e.preventDefault();
+            this.selectSlashCommand(this.filteredSlashCommands[this.slashIndex].cmd);
+            return;
+          }
           e.preventDefault();
-          this.cmdCursor = Math.max(0, this.cmdCursor - 1);
-          this.elAiInput.value = this.sentCommands[this.cmdCursor] || '';
-        } else if (e.key === 'ArrowDown' && this.sentCommands.length > 0) {
-          e.preventDefault();
-          this.cmdCursor = Math.min(this.sentCommands.length, this.cmdCursor + 1);
-          this.elAiInput.value = this.sentCommands[this.cmdCursor] || '';
+          e.stopPropagation();
+          doSubmit();
+        } else if (e.key === 'Tab') {
+          if (this.filteredSlashCommands.length > 0) {
+            e.preventDefault();
+            this.selectSlashCommand(this.filteredSlashCommands[this.slashIndex].cmd);
+          }
+        } else if (e.key === 'ArrowUp') {
+          if (this.filteredSlashCommands.length > 0) {
+            e.preventDefault();
+            this.slashIndex = (this.slashIndex - 1 + this.filteredSlashCommands.length) % this.filteredSlashCommands.length;
+            this.renderSlashMenu();
+          } else if (this.sentCommands.length > 0) {
+            e.preventDefault();
+            this.cmdCursor = Math.max(0, this.cmdCursor - 1);
+            this.elAiInput.value = this.sentCommands[this.cmdCursor] || '';
+            this.adjustInputHeight();
+          }
+        } else if (e.key === 'ArrowDown') {
+          if (this.filteredSlashCommands.length > 0) {
+            e.preventDefault();
+            this.slashIndex = (this.slashIndex + 1) % this.filteredSlashCommands.length;
+            this.renderSlashMenu();
+          } else if (this.sentCommands.length > 0) {
+            e.preventDefault();
+            this.cmdCursor = Math.min(this.sentCommands.length, this.cmdCursor + 1);
+            this.elAiInput.value = this.sentCommands[this.cmdCursor] || '';
+            this.adjustInputHeight();
+          }
+        } else if (e.key === 'Escape') {
+          if (this.filteredSlashCommands.length > 0) {
+            e.preventDefault();
+            this.hideSlashMenu();
+          }
         }
       });
 
       this.elAiForm.addEventListener('submit', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        const text = this.elAiInput.value.trim();
-        if (!text) return;
-        this.sentCommands.push(text);
-        this.cmdCursor = this.sentCommands.length;
-        this.elAiInput.value = '';
-        this.submitAiCommand(text);
+        doSubmit();
       });
     }
+
+    // F24: Task Abort Kill Switch Button
+    if (this.elBtnTaskAbort) {
+      this.elBtnTaskAbort.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.abortActiveTask();
+      });
+    }
+
+    // F24: Human-in-the-Loop Recovery Choices
+    if (this.elBtnHitlKeep) {
+      this.elBtnHitlKeep.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.handleHitlChoice(1);
+      });
+    }
+    if (this.elBtnHitlRetry) {
+      this.elBtnHitlRetry.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.handleHitlChoice(2);
+      });
+    }
+    if (this.elBtnHitlRollback) {
+      this.elBtnHitlRollback.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.handleHitlChoice(3);
+      });
+    }
+
+    // F28: Skill Synthesis Suggestion Buttons
+    if (this.elBtnConfirmSynth) {
+      this.elBtnConfirmSynth.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.synthesizeCandidateSkill();
+      });
+    }
+    if (this.elBtnDismissSynth) {
+      this.elBtnDismissSynth.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.dismissCurrentSynthesis();
+      });
+    }
+  }
+
+  adjustInputHeight() {
+    if (!this.elAiInput) return;
+    this.elAiInput.style.height = 'auto';
+    this.elAiInput.style.height = Math.min(this.elAiInput.scrollHeight, 120) + 'px';
+  }
+
+  renderSlashMenu() {
+    if (!this.elSlashMenu) return;
+    this.elSlashMenu.innerHTML = '';
+    this.filteredSlashCommands.forEach((item, idx) => {
+      const div = document.createElement('div');
+      div.className = 'slash-autocomplete-item' + (idx === this.slashIndex ? ' active' : '');
+      div.innerHTML = `
+        <span class="slash-item-cmd">${this.escapeHtml(item.cmd)}</span>
+        <span class="slash-item-desc">${this.escapeHtml(item.desc)}</span>
+      `;
+      div.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.selectSlashCommand(item.cmd);
+      });
+      this.elSlashMenu.appendChild(div);
+    });
+    this.elSlashMenu.style.display = 'block';
+  }
+
+  hideSlashMenu() {
+    if (this.elSlashMenu) {
+      this.elSlashMenu.style.display = 'none';
+      this.elSlashMenu.innerHTML = '';
+    }
+    this.filteredSlashCommands = [];
+    this.slashIndex = 0;
+  }
+
+  selectSlashCommand(cmd) {
+    if (!this.elAiInput) return;
+    this.elAiInput.value = cmd + ' ';
+    this.hideSlashMenu();
+    this.elAiInput.focus();
+    this.adjustInputHeight();
   }
 
   // --- RENDERING POPOVER RAPIDO TO-DO ---
@@ -1112,14 +1815,17 @@ class HudTerminal {
     });
   }
 
-  // --- RENDERING TAB 1: "🐾 CONOSCIAMOCI" (Tutorial Adattivo AI) ---
+  // --- RENDERING TAB 1: "🐾 CONOSCIAMOCI" (Tutorial Adattivo AI & Offline Fallback) ---
   renderOnboardingState(onb) {
     if (!onb) return;
     const traits = onb.profile && Array.isArray(onb.profile.traits) ? onb.profile.traits : [];
     const ansCount = onb.answered_count || 0;
     const reqSteps = onb.required_steps || 5;
-    const tutDone = Boolean(onb.tutorial_completed) || ansCount >= reqSteps;
+    const isCompleted = Boolean(onb.tutorial_completed) || ansCount >= reqSteps;
+    const tutDone = isCompleted || this.isTutorialSnoozed;
     const wasMandatory = this.isMandatoryTutorial;
+
+    const isOllamaOffline = Boolean(this.state.system && (this.state.system.ollamaOnline === false || this.state.system.ollamaActive === 'OFFLINE'));
 
     if (!tutDone) {
       this.isMandatoryTutorial = true;
@@ -1138,7 +1844,8 @@ class HudTerminal {
         this.elTutorialBanner.style.display = 'flex';
       }
       if (this.elTutorialStepTitle) {
-        this.elTutorialStepTitle.textContent = `Configurazione Iniziale di Neko (Passo ${Math.min(reqSteps, ansCount + 1)} di ${reqSteps})`;
+        const offlineTag = isOllamaOffline ? ' <span class="offline-badge">[● OLLAMA OFFLINE]</span>' : '';
+        this.elTutorialStepTitle.innerHTML = `Configurazione Iniziale di Neko (Passo ${Math.min(reqSteps, ansCount + 1)} di ${reqSteps})${offlineTag}`;
       }
     } else {
       this.isMandatoryTutorial = false;
@@ -1148,7 +1855,7 @@ class HudTerminal {
       if (this.elTutorialBanner) {
         this.elTutorialBanner.style.display = 'none';
       }
-      if (wasMandatory) {
+      if (wasMandatory && isCompleted) {
         this.closeModal();
         this.say(
           '🎉 Tutorial iniziale completato! Ora so chi sei e come lavori. Trovi sempre "🐾 Conosciamoci" dentro ⚙️ Impostazioni & Memorie!'
@@ -1157,14 +1864,54 @@ class HudTerminal {
     }
 
     if (this.elOnboardProgress) {
-      this.elOnboardProgress.textContent = tutDone
+      this.elOnboardProgress.textContent = isCompleted
         ? `${traits.length} tratti appresi`
         : `Passo ${Math.min(reqSteps, ansCount + 1)}/${reqSteps}`;
     }
-    const q = onb.next_question;
+
+    // Domande Statiche Fallback se Ollama è offline o non risponde
+    const fallbackQuestions = [
+      {
+        id: 'fb_professione',
+        category: 'Professione',
+        question: 'Qual è la tua professione o attività principale?',
+        options: ['Architetto / ArchViz Specialist', '3D Generalist', 'Environment Artist', 'Game Developer / Modeler']
+      },
+      {
+        id: 'fb_software',
+        category: 'Software',
+        question: 'Quali software 3D o DCC utilizzi maggiormente?',
+        options: ['3ds Max', 'Blender', 'Unreal Engine', 'AutoCAD / Revit']
+      },
+      {
+        id: 'fb_organizzazione',
+        category: 'Organizzazione',
+        question: 'Come preferisci organizzare le scadenze e i progetti?',
+        options: ['Google Calendar', 'To-Do List rapide', 'Note per progetto', 'Scadenze mentali']
+      },
+      {
+        id: 'fb_formati',
+        category: 'Formati',
+        question: 'Quali formati di esportazione utilizzi di solito?',
+        options: ['EXR 32-bit (ACEScg)', 'TIFF / PNG 16-bit', 'JPG sRGB rapido']
+      },
+      {
+        id: 'fb_notifiche',
+        category: 'Notifiche',
+        question: 'Quali notifiche preferisci ricevere durante il render?',
+        options: ['Avviso sonoro a fine render', 'Notifica visiva discreta', 'Nessuna notifica']
+      }
+    ];
+
+    let q = onb.next_question;
+    if (!q || isOllamaOffline) {
+      const idx = Math.min(ansCount, fallbackQuestions.length - 1);
+      q = fallbackQuestions[idx];
+    }
     this.currentQuestion = q;
+
     if (q) {
-      const aiBadge = q.ai_generated ? ' ✨ (Domanda AI su misura)' : '';
+      const aiBadge = q.ai_generated ? ' ✨ (Domanda AI su misura)' : (isOllamaOffline ? ' 🔌 (Fallback Offline)' : '');
       if (this.elOnboardQCat) this.elOnboardQCat.textContent = `🐾 ${q.category || 'Profilo'}${aiBadge}`;
       if (this.elOnboardQText) this.elOnboardQText.textContent = q.question || '';
       if (this.elOnboardOptions) {
@@ -1179,7 +1926,7 @@ class HudTerminal {
             if (!this.actions.conosciamociAction) return;
             if (this.elOnboardQText) {
               this.elOnboardQText.textContent =
-                '🧠 Neko sta analizzando la tua risposta con l\'AI e preparando la prossima domanda su misura...';
+                '🧠 Neko sta analizzando la tua risposta e preparando la prossima domanda...';
             }
             this.elOnboardOptions.innerHTML = '';
             const res = await this.actions.conosciamociAction({
@@ -1191,7 +1938,7 @@ class HudTerminal {
             });
             if (res && res.onboarding) {
               this.renderOnboardingState(res.onboarding);
-              this.say(`🐾 Perfetto! Ho aggiornato il tuo profilo e generato la prossima domanda.`);
+              this.say(`🐾 Perfetto! Ho aggiornato il tuo profilo con "${opt}".`);
             }
           });
           this.elOnboardOptions.appendChild(btn);
@@ -1743,6 +2490,92 @@ class HudTerminal {
   }
 
   async submitAiCommand(text) {
+    if (!text) return;
+    const clean = text.trim();
+
+    // Comandi locali Slash immediati
+    if (clean === '/colorsafe') {
+      this.toggleColorSafe();
+      return;
+    }
+
+    if (clean === '/profilo') {
+      this.openProfileInspector();
+      this.say('🔍 Ispettore Profilo Utente (/profilo) aperto: consulta o modifica le regole apprese da Neko.');
+      return;
+    }
+
+    if (clean === '/todo' || clean.startsWith('/todo ')) {
+      const rest = clean.slice(5).trim();
+      if (!rest) {
+        this.openSlideDrawer('tab-drawer-todo');
+        this.say('📂 Cassetto To-Do aperto.');
+      } else {
+        if (this.actions.settingsAction) {
+          const res = await this.actions.settingsAction({ action: 'add_todo', text: rest });
+          if (res && Array.isArray(res.todos)) {
+            if (this.state.system) {
+              this.state.system.todosList = res.todos;
+              this.state.system.todoCount = res.todos.length;
+            }
+            this.renderDrawerTodos();
+            this.say(`✅ Nuova task aggiunta ai To-Do: "${rest}"`);
+          }
+        }
+      }
+      return;
+    }
+
+    if (clean === '/skills') {
+      try {
+        const res = await fetch('http://127.0.0.1:8765/api/skills', { cache: 'no-store' });
+        const skillsData = await res.json();
+        if (skillsData && Array.isArray(skillsData.skills)) {
+          const list = skillsData.skills.map((s) => `• /${s.id} [${s.safety_tier}]: ${s.name} - ${s.description}`).join('\n');
+          this.say(`🛠️ Competenze AI e Skill registrate per Neko:\n${list}`);
+          return;
+        }
+      } catch (e) {}
+      if (window.systemBridge && typeof window.systemBridge.fetchSkills === 'function') {
+        const skillsData = await window.systemBridge.fetchSkills();
+        if (skillsData && Array.isArray(skillsData.skills)) {
+          const list = skillsData.skills.map((s) => `• ${s.name}: ${s.description}`).join('\n');
+          this.say(`🛠️ Competenze AI e Skill registrate per Neko:\n${list}`);
+          return;
+        }
+      }
+    }
+
+    if (clean.startsWith('/') && clean !== '/colorsafe' && clean !== '/profilo' && !clean.startsWith('/todo') && clean !== '/cal' && clean !== '/briefing') {
+      const parts = clean.slice(1).split(' ');
+      const skillId = parts[0];
+      const match = this.slashCommands.find(c => c.cmd === '/' + skillId);
+      if (match) {
+        this.say(`⏳ Esecuzione skill: /${skillId}...`);
+        try {
+          const res = await fetch('http://127.0.0.1:8765/api/skills/execute', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ skill_id: skillId })
+          });
+          const data = await res.json();
+          if (data.ok) {
+            this.say(`✅ Skill /${skillId} completata con successo!\n${JSON.stringify(data.result || data.output || 'OK')}`);
+          } else if (data.requires_confirmation) {
+            this.say(`⚠️ La skill /${skillId} (Tier 2: CONFIRM_ONCE) richiede conferma:\n"${data.message || 'Conferma richiesta'}"`);
+          } else if (data.requires_auth) {
+            this.say(`🔒 La skill /${skillId} (Tier 3: DESTRUCTIVE) richiede autorizzazione esplicita:\n"${data.message || 'Operazione distruttiva'}"`);
+          } else {
+            this.say(`❌ Errore esecuzione skill /${skillId}: ${data.error}`);
+          }
+          return;
+        } catch (e) {
+          this.say(`❌ Errore di connessione durante esecuzione skill: ${e.message}`);
+          return;
+        }
+      }
+    }
+
     this.say(`⏳ Elaborazione: "${text}"...`, []);
     if (this.actions.sendAiPrompt) {
       const res = await this.actions.sendAiPrompt(text);
@@ -1821,8 +2654,69 @@ class HudTerminal {
       }
     }
 
-    if (this.elCpuVal) this.elCpuVal.textContent = `${this.state.system.cpu}%`;
-    if (this.elRamVal) this.elRamVal.textContent = `${this.state.system.ram}%`;
+    // F12: 4-Channel Telemetry (CPU, RAM, GPU, VRAM) con classi soglia
+    const cpu = Number(this.state.system ? this.state.system.cpu || 0 : 0);
+    const ram = Number(this.state.system ? this.state.system.ram || 0 : 0);
+    const gpu = Number(this.state.system ? this.state.system.gpu || this.state.system.gpu_percent || 0 : 0);
+    const vramUsed = Number(this.state.system ? this.state.system.vram_used_gb || 0 : 0);
+    const vramTotal = Number(this.state.system ? this.state.system.vram_total_gb || 0 : 0);
+    const vramPct = Number(
+      this.state.system && this.state.system.vram_percent !== undefined
+        ? this.state.system.vram_percent
+        : (vramTotal > 0 ? (vramUsed / vramTotal) * 100 : 0)
+    );
+
+    if (this.elCpuVal) this.elCpuVal.textContent = `${cpu.toFixed(0)}%`;
+    this.applyTelemetryThreshold(this.elCpuStat, cpu);
+
+    if (this.elRamVal) this.elRamVal.textContent = `${ram.toFixed(0)}%`;
+    this.applyTelemetryThreshold(this.elRamStat, ram);
+
+    if (this.elGpuVal) this.elGpuVal.textContent = `${gpu.toFixed(0)}%`;
+    this.applyTelemetryThreshold(this.elGpuStat, gpu);
+
+    if (this.elVramVal) {
+      this.elVramVal.textContent = vramTotal > 0
+        ? `${vramUsed.toFixed(1)}/${vramTotal.toFixed(0)} GB`
+        : `${vramUsed.toFixed(1)} GB`;
+    }
+    this.applyTelemetryThreshold(this.elVramStat, vramPct);
+
+    // F13 & F14: Active Window, Active Project Name & AFK Detection (>300s)
+    const activeApp = this.state.system ? this.state.system.active_window || '' : '';
+    if (this.elActiveAppBadge) {
+      if (activeApp) {
+        this.elActiveAppBadge.textContent = activeApp;
+        this.elActiveAppBadge.style.display = 'inline-block';
+      } else {
+        this.elActiveAppBadge.style.display = 'none';
+      }
+    }
+
+    const isAfk = Boolean(
+      this.state.system && (
+        this.state.system.is_afk ||
+        (this.state.system.afk_idle_seconds && this.state.system.afk_idle_seconds >= 300) ||
+        this.state.activeMode === 'afk'
+      )
+    );
+    if (this.elAfkBadge) {
+      this.elAfkBadge.style.display = isAfk ? 'inline-block' : 'none';
+    }
+
+    // F11: Sincronizzazione Color-Safe da stream backend
+    if (
+      this.state.system &&
+      typeof this.state.system.colorSafeMode === 'boolean' &&
+      this.state.system.colorSafeMode !== this.isColorSafe
+    ) {
+      this.isColorSafe = this.state.system.colorSafeMode;
+      document.body.classList.toggle('color-safe', this.isColorSafe);
+      if (this.elBtnColorSafe) {
+        this.elBtnColorSafe.classList.toggle('active', this.isColorSafe);
+        this.elBtnColorSafe.textContent = this.isColorSafe ? '🎨 COLOR-SAFE: ON' : '🎨 COLOR-SAFE';
+      }
+    }
 
     const aiActive = this.state.activeMode === 'ai' || this.state.system.aiWorking;
     if (this.elAiDot) {
@@ -1892,6 +2786,9 @@ class HudTerminal {
       if (this.elTodoPopover && this.elTodoPopover.style.display !== 'none') {
         this.renderQuickTodoPopover(todosList);
       }
+      if (this.isDrawerOpen && this.activeDrawerTab === 'tab-drawer-todo') {
+        this.renderDrawerTodos();
+      }
     }
 
     const projCount = this.state.system ? this.state.system.projectsCount || 0 : 0;
@@ -1917,6 +2814,9 @@ class HudTerminal {
           this.elActiveProjBadge.style.display = 'none';
         }
       }
+      if (this.isDrawerOpen && this.activeDrawerTab === 'tab-drawer-proj') {
+        this.renderDrawerProjects();
+      }
     }
 
     const ansCount = this.state.system ? this.state.system.profileAnsweredCount || 0 : 0;
@@ -1929,6 +2829,9 @@ class HudTerminal {
     if (this.elMemTotalBadge && this._lastMemKey !== memCount) {
       this._lastMemKey = memCount;
       this.elMemTotalBadge.textContent = String(memCount);
+      if (this.isDrawerOpen && this.activeDrawerTab === 'tab-drawer-mem') {
+        this.renderDrawerMemories();
+      }
     }
 
     // Promemoria automatico sul desktop quando un evento inizia entro 15 minuti
@@ -1959,6 +2862,16 @@ class HudTerminal {
         this._imminentDismissedFor = null;
       }
     }
+    // F23 & F24 & F28: Hook Bridge per Phase 3, Task Visualizer, HITL & Skill Synthesis
+    this._hookBridgeForPhase3();
+
+    // Aggiornamento periodico task e synthesis candidate (fallback polling se SSE disconnesso)
+    const nowMs = Date.now();
+    if (nowMs - this._lastTaskPollTime > 2000) {
+      this._lastTaskPollTime = nowMs;
+      this.pollActiveTask();
+      this.pollSynthesisCandidates();
+    }
   }
 
   escapeHtml(str) {
@@ -1968,6 +2881,295 @@ class HudTerminal {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
+  }
+
+  // --- F23, F24, F25-F28: HELPER METHODS FOR PHASE 3 TASK ENGINE & SKILL REGISTRY ---
+
+  _hookBridgeForPhase3() {
+    if (window.systemBridge && typeof window.systemBridge.applyBridgeData === 'function') {
+      if (window.systemBridge._m3Hooked) return;
+      window.systemBridge._m3Hooked = true;
+      const origApply = window.systemBridge.applyBridgeData.bind(window.systemBridge);
+      window.systemBridge.applyBridgeData = (data) => {
+        origApply(data);
+        if (data && window.systemBridge.state) {
+          if (!window.systemBridge.state.system) window.systemBridge.state.system = {};
+          if (data.cat_state) {
+            window.systemBridge.state.system.cat_state = data.cat_state;
+            window.systemBridge.state.cat_state = data.cat_state;
+          }
+          if (data.active_task !== undefined) {
+            window.systemBridge.state.system.active_task = data.active_task;
+            window.systemBridge.state.active_task = data.active_task;
+            this.activeTask = data.active_task;
+            this.renderTaskVisualizer(this.activeTask);
+          }
+          if (data.task_visualizer) {
+            window.systemBridge.state.system.task_visualizer = data.task_visualizer;
+          }
+          if (Array.isArray(data.synthesis_candidates)) {
+            window.systemBridge.state.system.synthesis_candidates = data.synthesis_candidates;
+            if (data.synthesis_candidates.length > 0) {
+              this.showSynthesisSuggestion(data.synthesis_candidates[0]);
+            } else if (!this.currentSynthesisCandidate && this.elSkillSynthDock) {
+              this.elSkillSynthDock.style.display = 'none';
+            }
+          }
+        }
+      };
+    }
+  }
+
+  async fetchSkillsForAutocomplete() {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/skills', { cache: 'no-store' });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data && Array.isArray(data.skills)) {
+        for (const s of data.skills) {
+          const cmd = '/' + s.id;
+          if (!this.slashCommands.find((item) => item.cmd === cmd)) {
+            this.slashCommands.push({
+              cmd: cmd,
+              desc: `${s.name} [${s.safety_tier}]`
+            });
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
+  async pollActiveTask() {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/task/active', { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok) {
+          this.activeTask = data.task;
+          this.renderTaskVisualizer(this.activeTask);
+        }
+      }
+    } catch (e) {}
+  }
+
+  async pollSynthesisCandidates() {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/skills/synthesis_candidates', { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok && Array.isArray(data.candidates) && data.candidates.length > 0) {
+          this.showSynthesisSuggestion(data.candidates[0]);
+        }
+      }
+    } catch (e) {}
+  }
+
+  renderTaskVisualizer(task) {
+    if (!task) {
+      if (this.elTaskVisDock) this.elTaskVisDock.style.display = 'none';
+      if (!this.currentHitlTask && this.elHitlPromptDock) this.elHitlPromptDock.style.display = 'none';
+      return;
+    }
+
+    const status = task.status || 'RUNNING';
+
+    if (status === 'RUNNING' || status === 'RETRY') {
+      if (this.elTaskVisDock) this.elTaskVisDock.style.display = 'block';
+      if (this.elHitlPromptDock) this.elHitlPromptDock.style.display = 'none';
+
+      const total = task.total_steps || (Array.isArray(task.steps) ? task.steps.length : 1) || 1;
+      const current = Math.min(total, task.current_step !== undefined ? task.current_step : 0);
+      const pct = Math.min(100, Math.max(0, Math.round((current / total) * 100)));
+      const filled = Math.min(10, Math.max(0, Math.round((pct / 100) * 10)));
+      const bar = '[' + '■'.repeat(filled) + '□'.repeat(10 - filled) + ']';
+
+      const elapsed = task.elapsed_seconds || (task.started_at ? Math.max(0, Math.floor((Date.now() / 1000) - task.started_at)) : 0);
+      const min = Math.floor(elapsed / 60);
+      const sec = Math.floor(elapsed % 60);
+      const timeStr = `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+
+      let stepTitle = '';
+      if (task.steps && task.steps[current]) {
+        stepTitle = `: ${task.steps[current].title || task.steps[current].name || ''}`;
+      }
+      const stepLabel = `Step ${Math.min(total, current + 1)}/${total}${stepTitle}`;
+
+      if (this.elTaskVisTitle) {
+        const prefix = status === 'RETRY' ? '🔄 [RETRY' : '⚡ [TASK ATTIVO';
+        const retryInfo = status === 'RETRY' ? ` tentat. ${task.retry_count || 1}]` : ']';
+        this.elTaskVisTitle.textContent = `${prefix}${retryInfo} ${task.title || 'Elaborazione in corso...'}`;
+      }
+      if (this.elTaskVisBar) {
+        this.elTaskVisBar.textContent = `${bar} ${pct}% • ${stepLabel} • Tempo: ${timeStr} • Annulla: [Esc / Click ✕]`;
+      }
+    } else if (status === 'WAITING_INPUT' || status === 'FAILED' || status === 'ABORTED') {
+      if (this.elTaskVisDock) this.elTaskVisDock.style.display = 'block';
+      if (this.elTaskVisTitle) {
+        this.elTaskVisTitle.textContent = `⚠️ [TASK: ${status}] ${task.title || 'Interrotto'}`;
+      }
+      if (this.elTaskVisBar) {
+        const err = task.error || task.error_message || 'In attesa di input o recovery';
+        this.elTaskVisBar.textContent = `[!] Stato: ${status} • ${err}`;
+      }
+      this.showHitlRecovery(task);
+    } else if (status === 'COMPLETED') {
+      if (this.elTaskVisDock) this.elTaskVisDock.style.display = 'block';
+      if (this.elTaskVisTitle) {
+        this.elTaskVisTitle.textContent = `✅ [COMPLETATO] ${task.title || 'Task completato con successo'}`;
+      }
+      if (this.elTaskVisBar) {
+        this.elTaskVisBar.textContent = `[■■■■■■■■■■] 100% • Tutte le fasi completate con successo.`;
+      }
+      if (this.elHitlPromptDock) this.elHitlPromptDock.style.display = 'none';
+      setTimeout(() => {
+        if (this.activeTask && this.activeTask.status === 'COMPLETED') {
+          if (this.elTaskVisDock) this.elTaskVisDock.style.display = 'none';
+        }
+      }, 3500);
+    }
+  }
+
+  async abortActiveTask() {
+    const task = this.activeTask || this.currentHitlTask;
+    const taskId = task ? task.id : 'active';
+    this.say('🛑 Invio Kill Switch per interrompere istantaneamente il task...');
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/task/abort', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_id: taskId, reason: 'Kill Switch Utente (Esc / Annulla)' })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        this.say('🛑 Task interrotto con successo (Stato: ABORTED). Neko ripristinato a IDLE.');
+        if (this.activeTask) this.activeTask.status = 'ABORTED';
+        if (this.elTaskVisDock) this.elTaskVisDock.style.display = 'none';
+        await this.pollActiveTask();
+      } else {
+        this.say(`⚠️ Errore kill switch task: ${data.error || 'Operazione non riuscita'}`);
+      }
+    } catch (err) {
+      this.say(`❌ Errore connessione abort: ${err.message}`);
+    }
+  }
+
+  showHitlRecovery(task) {
+    this.currentHitlTask = task;
+    if (this.elHitlPromptDock) {
+      this.elHitlPromptDock.style.display = 'block';
+      if (this.elHitlErrorHeader) {
+        const stepNum = task.current_step !== undefined ? task.current_step + 1 : '?';
+        const totalNum = task.total_steps || (task.steps ? task.steps.length : '?');
+        const err = task.error || task.error_message || 'Errore o input richiesto';
+        this.elHitlErrorHeader.textContent = `⚠️ [!] Task interrotto al passaggio ${stepNum}/${totalNum}: ${err}`;
+      }
+      if (this.elHitlAssetInfo) {
+        let artifacts = [];
+        if (Array.isArray(task.artifacts) && task.artifacts.length > 0) {
+          artifacts = task.artifacts;
+        } else if (Array.isArray(task.steps)) {
+          task.steps.forEach((s) => {
+            if (s.output_file) artifacts.push(s.output_file);
+            if (Array.isArray(s.artifacts)) artifacts.push(...s.artifacts);
+          });
+        }
+        const artText = artifacts.length > 0 ? artifacts.join(', ') : 'File parziali generati nel workspace';
+        this.elHitlAssetInfo.textContent = `Asset parziali generati: ${artText}`;
+      }
+    }
+  }
+
+  async handleHitlChoice(choice) {
+    const task = this.currentHitlTask || this.activeTask;
+    if (!task) return;
+    const taskId = task.id;
+    const choiceLabels = {
+      1: '1. Mantieni i file generati e termina',
+      2: '2. Riprova questo passaggio',
+      3: '3. Rollback completo (rimuovi file parziali)'
+    };
+    this.say(`⚙️ Applico scelta HITL: ${choiceLabels[choice] || choice}...`);
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/task/hitl', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_id: taskId, recovery_choice: choice })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        if (this.elHitlPromptDock) this.elHitlPromptDock.style.display = 'none';
+        this.currentHitlTask = null;
+        this.say(`✅ Recupero completato: ${data.action || 'Operazione applicata'}.`);
+        await this.pollActiveTask();
+      } else {
+        this.say(`⚠️ Errore recupero HITL: ${data.error || 'Operazione non riuscita'}`);
+      }
+    } catch (err) {
+      this.say(`❌ Errore connessione HITL: ${err.message}`);
+    }
+  }
+
+  showSynthesisSuggestion(candidate) {
+    if (!candidate) {
+      if (this.elSkillSynthDock) this.elSkillSynthDock.style.display = 'none';
+      return;
+    }
+    const sig = candidate.pattern_signature || candidate.pattern_name;
+    if (this.dismissedSynthesis.has(sig)) {
+      if (this.elSkillSynthDock) this.elSkillSynthDock.style.display = 'none';
+      return;
+    }
+    this.currentSynthesisCandidate = candidate;
+    if (this.elSkillSynthDock) {
+      this.elSkillSynthDock.style.display = 'flex';
+      if (this.elSynthesisText) {
+        const count = candidate.count || 3;
+        const name = candidate.pattern_name || candidate.pattern_signature || 'Azione ricorrente';
+        const slug = candidate.suggested_slug || candidate.pattern_signature || 'nuova_skill';
+        this.elSynthesisText.innerHTML = `💡 Rilevata azione frequente (${count} volte): "<em>${this.escapeHtml(name)}</em>". Vuoi registrarla come skill rapida <code>/${this.escapeHtml(slug)}</code>?`;
+      }
+    }
+  }
+
+  async synthesizeCandidateSkill() {
+    if (!this.currentSynthesisCandidate) return;
+    const cand = this.currentSynthesisCandidate;
+    const sig = cand.pattern_signature || cand.pattern_name;
+    this.say(`✨ Sintesi autonoma della skill "${cand.pattern_name || sig}" in corso...`);
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/skills/synthesize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pattern_signature: cand.pattern_signature,
+          name: cand.pattern_name,
+          description: cand.description || 'Skill sintetizzata autonomamente da pattern ricorrente'
+        })
+      });
+      const data = await res.json();
+      if (data.ok && data.skill) {
+        this.dismissedSynthesis.add(sig);
+        if (this.elSkillSynthDock) this.elSkillSynthDock.style.display = 'none';
+        this.currentSynthesisCandidate = null;
+        this.say(`✨ Skill creata con successo: <strong>${this.escapeHtml(data.skill.name)}</strong> (Tier: ${data.skill.safety_tier}). Disponibile in <code>/skills</code> e con <code>/${data.skill.id}</code>!`);
+        await this.fetchSkillsForAutocomplete();
+      } else {
+        this.say(`⚠️ Errore sintesi skill: ${data.error || 'Operazione non riuscita'}`);
+      }
+    } catch (err) {
+      this.say(`❌ Errore connessione sintesi: ${err.message}`);
+    }
+  }
+
+  dismissCurrentSynthesis() {
+    if (this.currentSynthesisCandidate) {
+      const sig = this.currentSynthesisCandidate.pattern_signature || this.currentSynthesisCandidate.pattern_name;
+      this.dismissedSynthesis.add(sig);
+      this.currentSynthesisCandidate = null;
+    }
+    if (this.elSkillSynthDock) {
+      this.elSkillSynthDock.style.display = 'none';
+    }
   }
 }
 

@@ -54,11 +54,27 @@ MOD_ALT = 0x0001
 MOD_CONTROL = 0x0002
 MOD_NOREPEAT = 0x4000
 
+DCC_HOTKEY_BLACKLIST = {
+    "Alt+Q": "3ds Max: Isolate Selection",
+    "Alt+Z": "Blender: X-Ray Toggle / 3ds Max: Zoom",
+    "Ctrl+Space": "IDE IntelliSense / Blender: Maximize",
+}
+
+
+def validate_hotkey(hotkey: str) -> tuple:
+    normalized = (hotkey or "").replace(" ", "")
+    clean = normalized.lower()
+    for blacklisted, desc in DCC_HOTKEY_BLACKLIST.items():
+        if clean == blacklisted.replace(" ", "").lower():
+            return False, f"Scorciatoia protetta: {desc}"
+    if clean in ["ctrl+alt+n", "alt+n"]:
+        return True, "Scorciatoia valida"
+    return True, "Scorciatoia personalizzata accettata"
+
+
 HOTKEY_MAP = {
-    "Alt+N": (MOD_ALT | MOD_NOREPEAT, 0x4E),           # Alt + N ("Neko" - Default senza conflitti con Gemini!)
-    "Alt+Q": (MOD_ALT | MOD_NOREPEAT, 0x51),           # Alt + Q
-    "Ctrl+Space": (MOD_CONTROL | MOD_NOREPEAT, 0x20),  # Ctrl + Spazio
-    "Alt+Z": (MOD_ALT | MOD_NOREPEAT, 0x5A),           # Alt + Z
+    "Ctrl+Alt+N": (MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, 0x4E),  # Ctrl + Alt + N (Primaria stile Raycast)
+    "Alt+N": (MOD_ALT | MOD_NOREPEAT, 0x4E),                      # Alt + N (Default storico Neko)
 }
 
 
@@ -80,12 +96,19 @@ def get_configured_hotkey() -> str:
         try:
             with open(profile_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                hk = data.get("hotkey", "Alt+N")
+                hk = data.get("hotkey", "Ctrl+Alt+N")
+                is_valid, reason = validate_hotkey(hk)
+                if not is_valid:
+                    print(f"ATTENZIONE: Scorciatoia '{hk}' rifiutata ({reason})! Riservata ai software 3D/DCC. Uso 'Ctrl+Alt+N'.")
+                    return "Ctrl+Alt+N"
                 if hk in HOTKEY_MAP:
                     return hk
+                norm_hk = hk.replace(" ", "")
+                if norm_hk in HOTKEY_MAP:
+                    return norm_hk
         except Exception:
             pass
-    return "Alt+N"
+    return "Ctrl+Alt+N"
 
 
 def is_server_running() -> bool:
@@ -189,7 +212,7 @@ def run_hotkey_loop(pywebview_win):
     PM_REMOVE = 0x0001
 
     current_hk_name = get_configured_hotkey()
-    mods, vk = HOTKEY_MAP.get(current_hk_name, HOTKEY_MAP["Alt+N"])
+    mods, vk = HOTKEY_MAP.get(current_hk_name, HOTKEY_MAP.get("Ctrl+Alt+N", HOTKEY_MAP["Alt+N"]))
     user32.RegisterHotKey(None, 1, mods, vk)
 
     msg = wintypes.MSG()
@@ -211,7 +234,7 @@ def run_hotkey_loop(pywebview_win):
                 if new_hk != current_hk_name:
                     user32.UnregisterHotKey(None, 1)
                     current_hk_name = new_hk
-                    mods, vk = HOTKEY_MAP.get(current_hk_name, HOTKEY_MAP["Alt+N"])
+                    mods, vk = HOTKEY_MAP.get(current_hk_name, HOTKEY_MAP.get("Ctrl+Alt+N", HOTKEY_MAP["Alt+N"]))
                     user32.RegisterHotKey(None, 1, mods, vk)
 
             time.sleep(0.03)
