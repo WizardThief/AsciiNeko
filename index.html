@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ASCII AI Companion // Neko Desktop</title>
-  <link rel="stylesheet" href="css/terminal.css" />
+  <link rel="stylesheet" href="css/terminal.css?v=2" />
 </head>
 <body>
   <!-- Griglia ASCII Interattiva a 60 FPS -->
@@ -13,9 +13,9 @@
   <!-- Sottile filtro scanline / vignettatura terminale -->
   <div class="crt-overlay" id="crt-overlay"></div>
 
-  <!-- Interfaccia HUD Ultra-Minimale -->
+  <!-- Interfaccia HUD & App Desktop Pulita -->
   <div class="hud-layer" id="hud-layer">
-    <!-- TOP BAR: Compatta in alto a destra (lascia totalmente libera la zona icone di Windows a sinistra) -->
+    <!-- TOP BAR PULITA E INTUITIVA -->
     <div class="hud-top-bar" id="status-matrix-panel">
       <div class="top-bar-section hud-collapsible">
         <span class="status-dot" id="ai-dot"></span>
@@ -26,36 +26,19 @@
 
       <div class="top-bar-divider hud-collapsible">│</div>
 
-      <!-- Sezione Assistente Locale: Agenda Google Calendar & Memoria -->
-      <div class="top-bar-section hud-collapsible" id="hud-assistant-section">
-        <button class="hud-pill hud-pill-agenda" id="agenda-pill" title="Clicca per vedere i prossimi impegni in Agenda">
-          📅 AGENDA: 0
+      <!-- 4 Pulsanti Principali Chiari e Leggibili -->
+      <div class="top-bar-section" id="hud-assistant-section">
+        <button class="hud-pill hud-pill-agenda" id="agenda-pill" title="Clicca per leggere i prossimi appuntamenti">
+          📅 Agenda: 0
         </button>
-        <button class="hud-pill hud-pill-mem" id="mem-pill" title="Clicca per vedere cosa ricorda Neko su di te">
-          🧠 MEM: 0
+        <button class="hud-pill hud-pill-proj" id="projects-pill" title="Apri Schede Progetto, Pin Cartelle Server e Archivio Clienti">
+          📌 Progetti: 0
         </button>
-      </div>
-
-      <div class="top-bar-divider hud-collapsible">│</div>
-
-      <!-- Stati del Neko -->
-      <div class="mode-buttons">
-        <button class="term-btn active" data-mode-btn="companion" title="Modalità Neko Companion">● NEKO</button>
-        <button class="term-btn" data-mode-btn="ai" title="Modalità AI Coding">⚡ AI</button>
-        <button class="term-btn" data-mode-btn="coffee" title="Pausa Caffè">☕ CAFFÈ</button>
-        <button class="term-btn" data-mode-btn="afk" title="Standby / Dorme">🌙 AFK</button>
-        <button class="term-btn" data-mode-btn="focus" title="Deep Focus">🎯 FOCUS</button>
-      </div>
-
-      <div class="top-bar-divider hud-collapsible">│</div>
-
-      <!-- Azioni rapide Neko -->
-      <div class="top-bar-section hud-collapsible">
-        <button class="term-btn term-btn-sm" id="btn-fish-snack" title="Lancia un pescetto ><(((º> (oppure Tasto Destro sullo sfondo)">
-          🐟 SNACK
+        <button class="hud-pill hud-pill-onboard" id="btn-conosciamoci" title="Rispondi alle domande rapide per insegnare a Neko chi sei e come lavori">
+          🐾 Conosciamoci
         </button>
-        <button class="term-btn term-btn-sm active" id="btn-face-style" title="Movimento autonomo del Neko">
-          🐾 LIBERO
+        <button class="hud-pill hud-pill-conn" id="btn-open-settings" title="Apri Impostazioni, Gestione Memorie, Connessioni, Scorciatoia e Reset">
+          ⚙️ Impostazioni &amp; Memorie (<span id="mem-total-badge">0</span>)
         </button>
       </div>
 
@@ -67,13 +50,16 @@
 
       <div class="top-bar-divider">│</div>
 
-      <!-- Orologio + Selettore Schermo + Visibilità HUD -->
+      <!-- Azioni rapide: Snack, Mini-Widget, Orologio e Visibilità -->
       <div class="top-bar-section">
-        <span class="clock-inline" id="clock-display">00:00</span>
-        <button class="term-btn term-btn-sm hud-collapsible" id="companion-affection" title="Clicca per invertire Schermo 1 / Schermo 2">
-          🖥 S1 ★
+        <button class="term-btn term-btn-sm hud-collapsible" id="btn-fish-snack" title="Lancia un pescetto a Neko">
+          🐟 Snack
         </button>
-        <button class="term-btn term-btn-sm" id="btn-toggle-hud" title="Cambia visibilità HUD: Completa / Compatta / Zen">
+        <button class="term-btn term-btn-sm hud-btn-mini" id="btn-window-mode" title="Riduci a Mini-Widget sempre in primo piano (o riespandi)">
+          🗕 Mini
+        </button>
+        <span class="clock-inline" id="clock-display">00:00</span>
+        <button class="term-btn term-btn-sm" id="btn-toggle-hud" title="Cambia visibilità interfaccia">
           👁
         </button>
       </div>
@@ -91,95 +77,426 @@
 
     <!-- Pulsante flottante di ripristino quando l'HUD è in modalità ZEN -->
     <button class="hud-restore-pill" id="btn-restore-hud" title="Ripristina l'interfaccia HUD">
-      [ 👁 HUD ]
+      [ 👁 Mostra HUD ]
     </button>
 
-    <!-- BOTTOM TERMINAL: Assistente Locale Neko (Ollama + Cronologia Chat + Google Calendar + Controllo PC) -->
-    <div class="ai-terminal-dock hud-collapsible" id="ai-terminal-dock">
+    <!-- =========================================================================
+         CENTRO DI CONTROLLO MODALE (Stile Raycast / ChatGPT Settings / AnythingLLM)
+         Spazioso, leggibile e diviso in 5 schede chiare sulla barra laterale sinistra
+         ========================================================================= -->
+    <div class="neko-modal-overlay" id="neko-modal-overlay" style="display: none;">
+      <div class="neko-modal-window">
+        <!-- Header Modale -->
+        <div class="neko-modal-header">
+          <div class="neko-modal-brand">
+            <span class="brand-cat-icon">🐾</span>
+            <div>
+              <div class="neko-modal-title">CENTRO DI CONTROLLO NEKO</div>
+              <div class="neko-modal-subtitle">Gestisci Profilo, Progetti Server, Memorie salvate, Connessioni e Reset</div>
+            </div>
+          </div>
+          <button type="button" class="neko-modal-close" id="btn-close-modal" title="Chiudi (Esc)">✕ CHIUDI</button>
+        </div>
+
+        <div class="neko-modal-body">
+          <!-- Barra Laterale Sinistra (5 Schede Chiare) -->
+          <div class="neko-modal-sidebar">
+            <button type="button" class="modal-nav-btn active" data-modal-tab="tab-conosciamoci">
+              <span class="nav-icon">🐾</span>
+              <div class="nav-text">
+                <strong>Conosciamoci</strong>
+                <small>Domande &amp; Profilo Base</small>
+              </div>
+            </button>
+
+            <button type="button" class="modal-nav-btn" data-modal-tab="tab-progetti">
+              <span class="nav-icon">📌</span>
+              <div class="nav-text">
+                <strong>Progetti &amp; Server</strong>
+                <small>Pin Cartelle &amp; Clienti</small>
+              </div>
+            </button>
+
+            <button type="button" class="modal-nav-btn" data-modal-tab="tab-memorie">
+              <span class="nav-icon">🧠</span>
+              <div class="nav-text">
+                <strong>Memorie &amp; To-Do</strong>
+                <small>Controlla o elimina ricordi</small>
+              </div>
+            </button>
+
+            <button type="button" class="modal-nav-btn" data-modal-tab="tab-connessioni">
+              <span class="nav-icon">🔌</span>
+              <div class="nav-text">
+                <strong>Connessioni</strong>
+                <small>Calendar, Ollama, Sync Git</small>
+              </div>
+            </button>
+
+            <button type="button" class="modal-nav-btn" data-modal-tab="tab-impostazioni">
+              <span class="nav-icon">⚙️</span>
+              <div class="nav-text">
+                <strong>Scorciatoia &amp; Reset</strong>
+                <small>Tasti rapidi, Neko &amp; Pulizia</small>
+              </div>
+            </button>
+          </div>
+
+          <!-- Contenuto Principale a Destra -->
+          <div class="neko-modal-content">
+            <!-- SCHEDA 1: 🐾 CONOSCIAMOCI -->
+            <div class="modal-tab-pane" id="tab-conosciamoci">
+              <div class="pane-header-row">
+                <div>
+                  <h3 class="pane-title">🐾 Insegna a Neko chi sei e come lavori</h3>
+                  <p class="pane-desc">Rispondi con un click o scrivi liberamente. Queste informazioni formano il tuo <strong>Profilo Base</strong> sempre attivo.</p>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <span class="drawer-count-badge" id="onboard-progress-badge">0/10 risposte</span>
+                  <button type="button" class="term-btn btn-accent" id="btn-random-question">
+                    🎲 Fammi un'altra domanda
+                  </button>
+                </div>
+              </div>
+
+              <div class="onboard-cat-tabs" id="onboard-cat-tabs">
+                <button type="button" class="onboard-cat-btn active" data-onboard-cat="">Tutte le categorie</button>
+                <button type="button" class="onboard-cat-btn" data-onboard-cat="Lavoro & Software">💻 Lavoro &amp; Software</button>
+                <button type="button" class="onboard-cat-btn" data-onboard-cat="Routine & Orari">⏰ Routine &amp; Orari</button>
+                <button type="button" class="onboard-cat-btn" data-onboard-cat="Clienti & Progetti">🤝 Clienti &amp; Progetti</button>
+                <button type="button" class="onboard-cat-btn" data-onboard-cat="Stile & Preferenze">🎨 Stile &amp; Preferenze</button>
+              </div>
+
+              <div class="onboard-question-card" id="onboard-question-card">
+                <div class="onboard-q-cat" id="onboard-q-cat">CATEGORIA</div>
+                <div class="onboard-q-text" id="onboard-q-text">Caricamento domanda...</div>
+                <div class="onboard-options-grid" id="onboard-options-grid"></div>
+                <div class="onboard-custom-row">
+                  <input
+                    type="text"
+                    id="onboard-custom-input"
+                    class="modal-input"
+                    placeholder="Oppure scrivi qui una risposta personalizzata..."
+                  />
+                  <button type="button" class="term-btn btn-accent" id="btn-save-onboard">Salva Risposta ↵</button>
+                </div>
+              </div>
+
+              <div class="onboard-traits-box">
+                <div class="onboard-traits-title">🧠 Riepilogo del tuo Profilo Base (clicca × per rimuovere un tratto):</div>
+                <div class="onboard-traits-list" id="onboard-traits-list"></div>
+              </div>
+            </div>
+
+            <!-- SCHEDA 2: 📌 PROGETTI & SERVER (Zero Scansione + Ciclo Caldo/Freddo) -->
+            <div class="modal-tab-pane" id="tab-progetti" style="display: none;">
+              <div class="pane-header-row">
+                <div>
+                  <h3 class="pane-title">📌 Schede Progetto, Pin Server &amp; Archivio Clienti</h3>
+                  <p class="pane-desc">Fissa le cartelle aperte sul Server senza fare scansioni lente. Quando un progetto finisce, spostalo in <strong>Archivio Storico</strong>.</p>
+                </div>
+                <div style="display:flex; gap:6px;">
+                  <button type="button" class="term-btn active" id="tab-btn-proj-active">🔥 Attivi (<span id="count-proj-active">0</span>)</button>
+                  <button type="button" class="term-btn" id="tab-btn-proj-archive">📦 Archivio Storico (<span id="count-proj-archive">0</span>)</button>
+                </div>
+              </div>
+
+              <!-- Alert Progetti Inattivi > 14 giorni -->
+              <div class="stale-alert-banner" id="stale-alert-banner" style="display: none;"></div>
+
+              <!-- Creazione Rapida Progetto -->
+              <div class="proj-create-bar">
+                <input type="text" id="proj-new-name" class="modal-input" placeholder="Nome Progetto (es. Villa Rossi)" style="max-width:170px;" />
+                <input type="text" id="proj-new-client" class="modal-input" placeholder="Cliente (es. Sig. Rossi)" style="max-width:155px;" />
+                <input type="text" id="proj-new-note" class="modal-input" placeholder="Prima regola cliente (es. Vuole sempre tutto minimale)..." style="flex:1;" />
+                <button type="button" class="term-btn btn-accent" id="btn-create-project">+ Crea / Attiva</button>
+              </div>
+
+              <!-- Vista Progetti Attivi -->
+              <div id="proj-active-view" class="proj-view-container">
+                <div id="proj-selector-list"></div>
+                <div class="proj-detail-card" id="proj-detail-card"></div>
+                <div class="open-windows-picker" id="open-windows-picker" style="display: none;"></div>
+              </div>
+
+              <!-- Vista Archivio Storico -->
+              <div id="proj-archive-view" class="proj-view-container" style="display: none;">
+                <div class="proj-archive-hint">
+                  💡 <em>I progetti archiviati qui non appesantiscono le risposte quotidiane di Neko, ma se in futuro nomini uno di questi clienti Neko ti proporrà subito di riattivare le sue preferenze!</em>
+                </div>
+                <div class="proj-archive-list" id="proj-archive-list"></div>
+              </div>
+            </div>
+
+            <!-- SCHEDA 3: 🧠 TUTTE LE MEMORIE & TO-DO (Memory Inspector) -->
+            <div class="modal-tab-pane" id="tab-memorie" style="display: none;">
+              <div class="pane-header-row">
+                <div>
+                  <h3 class="pane-title">🧠 Ispettore Memorie &amp; To-Do di Neko</h3>
+                  <p class="pane-desc">Controlla, aggiungi o cancella singolarmente qualsiasi informazione che Neko ha imparato su di te.</p>
+                </div>
+              </div>
+
+              <!-- Sezione A: Fatti & Preferenze in Memoria (memory.json) -->
+              <div class="inspector-section">
+                <div class="inspector-sec-header">
+                  <strong>💡 Fatti, Regole &amp; Note Generali Salvate (<span id="insp-mem-count">0</span>)</strong>
+                  <div style="display:flex; gap:6px;">
+                    <input type="text" id="insp-new-mem-input" class="modal-input" placeholder="Aggiungi una nuova nota in memoria..." style="width:240px;" />
+                    <button type="button" class="term-btn btn-accent" id="btn-insp-add-mem">+ Salva Nota</button>
+                  </div>
+                </div>
+                <div class="inspector-list" id="insp-mem-list"></div>
+              </div>
+
+              <!-- Sezione B: To-Do List Attiva (todo.json) -->
+              <div class="inspector-section">
+                <div class="inspector-sec-header">
+                  <strong>📝 Lista To-Do Attivi (<span id="insp-todo-count">0</span>)</strong>
+                  <div style="display:flex; gap:6px;">
+                    <input type="text" id="insp-new-todo-input" class="modal-input" placeholder="Aggiungi un nuovo To-Do..." style="width:240px;" />
+                    <button type="button" class="term-btn btn-accent" id="btn-insp-add-todo">+ Aggiungi Task</button>
+                  </div>
+                </div>
+                <div class="inspector-list" id="insp-todo-list"></div>
+              </div>
+
+              <!-- Sezione C: Risposte Profilo Base ("Conosciamoci") -->
+              <div class="inspector-section">
+                <div class="inspector-sec-header">
+                  <strong>🐾 Risposte Profilo Base "Conosciamoci" (<span id="insp-prof-count">0</span>)</strong>
+                </div>
+                <div class="inspector-list" id="insp-prof-list"></div>
+              </div>
+            </div>
+
+            <!-- SCHEDA 4: 🔌 CONNESSIONI -->
+            <div class="modal-tab-pane" id="tab-connessioni" style="display: none;">
+              <div class="pane-header-row">
+                <div>
+                  <h3 class="pane-title">🔌 Centro Connessioni Facilitato</h3>
+                  <p class="pane-desc">Collega il tuo Google Calendar, scegli il modello AI locale di Ollama e sincronizza i dati tra Casa e Lavoro.</p>
+                </div>
+              </div>
+
+              <div class="conn-grid">
+                <!-- Google Calendar -->
+                <div class="conn-card">
+                  <div class="conn-card-header">
+                    <span>📅 Google Calendar (.ics)</span>
+                    <span class="conn-status-badge" id="conn-badge-cal">🔴 Da collegare</span>
+                  </div>
+                  <div class="conn-card-body">
+                    <div class="cal-config-row">
+                      <input
+                        type="text"
+                        id="cal-ical-input"
+                        class="modal-input"
+                        placeholder="Incolla qui l'Indirizzo segreto in formato iCal (.ics)..."
+                      />
+                      <button type="button" class="term-btn btn-accent" id="btn-save-ical">Salva &amp; Testa</button>
+                      <button type="button" class="term-btn" id="btn-open-gcal-web">🌐 Apri Calendar</button>
+                    </div>
+                    <div class="conn-hint">
+                      Su Google Calendar Web: <em>Impostazioni ⚙️ → Il tuo calendario a sinistra → "Indirizzo segreto in formato iCal"</em>.
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Ollama AI Locale -->
+                <div class="conn-card">
+                  <div class="conn-card-header">
+                    <span>🧠 Modello AI Locale (Ollama)</span>
+                    <span class="conn-status-badge" id="conn-badge-ollama">⏳ Verifica...</span>
+                  </div>
+                  <div class="conn-card-body">
+                    <div class="cal-config-row">
+                      <select id="conn-ollama-select" class="conn-select">
+                        <option value="">Caricamento modelli...</option>
+                      </select>
+                      <button type="button" class="term-btn btn-accent" id="btn-pull-llama">
+                        ⬇️ Scarica llama3.2
+                      </button>
+                    </div>
+                    <div class="conn-hint" id="conn-ollama-hint">
+                      Seleziona quale modello locale usare per le risposte di Neko.
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Sync Casa <-> Lavoro -->
+                <div class="conn-card">
+                  <div class="conn-card-header">
+                    <span>🔄 Sincronizzazione Casa ↔ Lavoro (GitHub)</span>
+                    <span class="conn-status-badge" id="conn-badge-git">🟢 Pronto</span>
+                  </div>
+                  <div class="conn-card-body">
+                    <div class="cal-config-row">
+                      <span class="conn-git-info" id="conn-git-info">Postazione locale · Branch main</span>
+                      <button type="button" class="term-btn btn-accent" id="btn-git-sync-now">
+                        🔄 Sincronizza Ora
+                      </button>
+                    </div>
+                    <div class="conn-hint">
+                      Salva e allinea con 1 click Profilo, Progetti, Archivio Clienti e Memorie tra il PC dell'Ufficio e quello di Casa.
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Link Rapidi -->
+                <div class="conn-card">
+                  <div class="conn-card-header">
+                    <span>🌐 Link &amp; Web App Rapide</span>
+                    <span class="conn-status-badge">🟢 Attivi</span>
+                  </div>
+                  <div class="conn-card-body">
+                    <div class="quick-links-chips" id="quick-links-chips"></div>
+                    <div class="cal-config-row" style="margin-top: 6px;">
+                      <input type="text" id="new-link-label" class="modal-input" placeholder="Nome (es. Notion)" style="max-width:130px;" />
+                      <input type="text" id="new-link-url" class="modal-input" placeholder="URL (es. notion.so)" />
+                      <button type="button" class="term-btn" id="btn-add-quick-link">+ Aggiungi Link</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- SCHEDA 5: ⚙️ SCORCIATOIA, NEKO & ZONA RESET -->
+            <div class="modal-tab-pane" id="tab-impostazioni" style="display: none;">
+              <div class="pane-header-row">
+                <div>
+                  <h3 class="pane-title">⚙️ Scorciatoia Richiamo, Controlli Neko &amp; Reset</h3>
+                  <p class="pane-desc">Personalizza i tasti rapidi (senza conflitti con Gemini!) e resetta selettivamente o totalmente la memoria di Neko.</p>
+                </div>
+              </div>
+
+              <!-- 1. Scorciatoia Globale da Tastiera -->
+              <div class="inspector-section">
+                <div class="inspector-sec-header">
+                  <div>
+                    <strong>⌨️ Scorciatoia Globale per richiamare Neko sopra qualsiasi programma</strong>
+                    <div class="conn-hint">Abbiamo disattivato <code>Alt + Spazio</code> perché sul tuo PC apre Gemini! Scegli la combinazione che preferisci:</div>
+                  </div>
+                </div>
+                <div class="hotkey-selector-row" id="hotkey-selector-row">
+                  <button type="button" class="term-btn hotkey-opt-btn active" data-hk-val="Alt+N">⌨️ Alt + N (Consigliato — "Neko")</button>
+                  <button type="button" class="term-btn hotkey-opt-btn" data-hk-val="Alt+Q">⌨️ Alt + Q</button>
+                  <button type="button" class="term-btn hotkey-opt-btn" data-hk-val="Ctrl+Space">⌨️ Ctrl + Spazio</button>
+                  <button type="button" class="term-btn hotkey-opt-btn" data-hk-val="Alt+Z">⌨️ Alt + Z</button>
+                </div>
+              </div>
+
+              <!-- 2. Comportamento e Stato di Neko -->
+              <div class="inspector-section">
+                <div class="inspector-sec-header">
+                  <strong>🐾 Stato e Movimento del Gattino Neko</strong>
+                </div>
+                <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+                  <div class="mode-buttons">
+                    <button class="term-btn active" data-mode-btn="companion">● Normale</button>
+                    <button class="term-btn" data-mode-btn="ai">⚡ AI Coding</button>
+                    <button class="term-btn" data-mode-btn="coffee">☕ Pausa Caffè</button>
+                    <button class="term-btn" data-mode-btn="focus">🎯 Deep Focus</button>
+                    <button class="term-btn" data-mode-btn="afk">🌙 Dorme (AFK)</button>
+                  </div>
+                  <button class="term-btn active" id="btn-face-style">🐾 Movimento: Libero</button>
+                </div>
+              </div>
+
+              <!-- 3. Zona Reset & Pulizia Dati -->
+              <div class="inspector-section reset-danger-zone">
+                <div class="inspector-sec-header">
+                  <div>
+                    <strong style="color:#fca5a5;">🧹 Zona Reset &amp; Pulizia Dati di Neko</strong>
+                    <div class="conn-hint">Puoi svuotare solo una singola parte oppure riportare Neko allo stato iniziale come appena installato.</div>
+                  </div>
+                </div>
+                <div class="reset-buttons-grid">
+                  <button type="button" class="term-btn reset-sub-btn" data-reset-target="chat">
+                    🧹 Svuota solo Cronologia Chat
+                  </button>
+                  <button type="button" class="term-btn reset-sub-btn" data-reset-target="profile">
+                    🧹 Resetta Profilo "Conosciamoci"
+                  </button>
+                  <button type="button" class="term-btn reset-sub-btn" data-reset-target="memories">
+                    🧹 Resetta Memoria Fatti
+                  </button>
+                  <button type="button" class="term-btn reset-sub-btn" data-reset-target="todos">
+                    🧹 Svuota Lista To-Do
+                  </button>
+                  <button type="button" class="term-btn reset-sub-btn" data-reset-target="projects">
+                    🧹 Resetta Progetti &amp; Archivio
+                  </button>
+                  <button type="button" class="term-btn reset-all-btn" id="btn-reset-all-neko">
+                    ⚠️ RESET TOTALE DI NEKO (Cancella tutto)
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BOTTOM COMMAND & CHAT BAR (Stile Spotlight / Raycast — Pulita e Leggibile) -->
+    <div class="ai-terminal-dock" id="ai-terminal-dock">
       <div class="ai-term-header">
         <div class="ai-term-title">
-          <span>&gt;_ NEKO ASSISTANT //</span>
+          <span>🐾 NEKO //</span>
           <span class="ai-model-badge" id="ai-model-badge">OLLAMA</span>
+          <span class="active-proj-badge" id="active-proj-badge" style="display: none;"></span>
+          <span class="hotkey-hint-badge" id="hotkey-hint-badge" title="Scorciatoia globale per richiamare Neko da qualsiasi app (modificabile in ⚙️ Impostazioni)">⌨️ Alt + N</span>
         </div>
 
         <div class="ai-quick-chips">
-          <button class="ai-chip" data-ai-cmd="/briefing" title="Riepilogo di oggi: Impegni, To-Do, Memoria e Stato PC">
-            ☀️ BRIEFING
+          <button class="ai-chip" data-ai-cmd="/briefing" title="Riepilogo di oggi: Impegni, Progetti Attivi, To-Do e Stato PC">
+            ☀️ Briefing Oggi
           </button>
           <button class="ai-chip" data-ai-cmd="/cal" title="Mostra i prossimi appuntamenti del tuo Calendario">
-            📅 AGENDA
-          </button>
-          <button class="ai-chip" data-ai-cmd="/todo" title="Mostra la tua lista To-Do locale">
-            📝 TO-DO
+            📅 Agenda
           </button>
           <button class="ai-chip" data-ai-cmd="Riassumi gli appunti" title="Legge e riassume ciò che hai appena copiato con Ctrl+C">
-            📋 APPUNTI
-          </button>
-          <button class="ai-chip" data-ai-cmd="/sys" title="Mostra i processi che consumano più RAM e stato CPU">
-            📊 CPU/RAM
+            📋 Riassumi Appunti
           </button>
           <button class="ai-chip" data-ai-cmd="__timer25__" title="Avvia un timer Focus di 25 minuti">
-            ⏱ 25m
+            ⏱ Timer 25m
           </button>
-          <button class="ai-chip" id="btn-toggle-history" title="Apri/Chiudi la cronologia completa delle chat">
-            📜 STORICO
+          <button class="ai-chip" id="btn-toggle-history" title="Apri/Chiudi la cronologia completa delle conversazioni">
+            📜 Storico Chat
           </button>
-          <button class="ai-chip" id="btn-cal-settings" title="Collega Google Calendar (.ics) o aggiungi un evento rapido">
-            ⚙️ CAL
-          </button>
-          <button class="ai-chip" id="btn-min-term" title="Riduci/Espandi il terminale AI">
+          <button class="ai-chip" id="btn-min-term" title="Riduci/Espandi la barra di comando">
             [▼]
           </button>
         </div>
       </div>
 
-      <!-- Pannello Configurazione Rapida Google Calendar (nascosto di default) -->
-      <div class="cal-config-drawer" id="cal-config-drawer" style="display: none;">
-        <div class="cal-config-row">
-          <span class="cal-config-label">🔗 Link iCal privato Google Calendar (.ics):</span>
-          <input
-            type="text"
-            id="cal-ical-input"
-            class="ai-input-field cal-input"
-            placeholder="Incolla qui l'Indirizzo segreto in formato iCal dalle Impostazioni di Google Calendar..."
-          />
-          <button type="button" class="term-btn term-btn-sm" id="btn-save-ical">SALVA LINK</button>
-          <button type="button" class="term-btn term-btn-sm" id="btn-open-gcal-web" title="Apri Google Calendar nel browser">🌐 APRI GCAL</button>
-        </div>
-        <div class="cal-config-hint">
-          💡 <em>Su Google Calendar Web: Impostazioni ⚙️ → Clicca sul tuo calendario a sinistra → "Indirizzo segreto in formato iCal" → Copia e incolla qui. Per creare eventi da chat scrivi: <code>Fissa call domani alle 15:00</code>.</em>
-        </div>
-      </div>
-
-      <!-- Pannello Cronologia Chat Scorrevole (visibile cliccando su 📜 STORICO) -->
+      <!-- Pannello Cronologia Chat Scorrevole (visibile cliccando su 📜 Storico Chat) -->
       <div class="chat-history-panel" id="chat-history-panel" style="display: none;">
         <div class="chat-history-toolbar">
           <span>📜 CRONOLOGIA CONVERSAZIONI CON NEKO</span>
-          <button type="button" class="term-btn term-btn-sm" id="btn-clear-history" title="Svuota la cronologia chat (mantiene i ricordi in Memoria)">
-            🧹 PULISCI CHAT
+          <button type="button" class="term-btn term-btn-sm" id="btn-clear-history">
+            🧹 Pulisci Chat
           </button>
         </div>
-        <div class="chat-history-list" id="chat-history-list">
-          <!-- Popolato dinamicamente -->
-        </div>
+        <div class="chat-history-list" id="chat-history-list"></div>
       </div>
 
       <div class="ai-term-body" id="ai-term-body">
         <div class="ai-output-line" id="ai-output-line">
-          <span class="ai-prefix">neko@local:~$</span>
-          <span id="companion-dialogue">Pronto! Scrivimi in chat (es. "Ricorda che...", "Apri Blender", "Fissa call domani alle 15:00") o usa i pulsanti rapidi qui sopra.</span>
+          <span class="ai-prefix">neko:~$</span>
+          <span id="companion-dialogue">Ciao! Premi `Alt + N` per richiamarmi sopra qualsiasi programma. Usa `🐾 Conosciamoci`, `📌 Progetti` o `⚙️ Impostazioni & Memorie` qui in alto!</span>
         </div>
         <div class="ai-action-buttons" id="ai-action-buttons" style="display: none;"></div>
 
         <form class="ai-input-row" id="ai-input-form" autocomplete="off">
-          <span class="ai-prompt-char">$</span>
+          <span class="ai-prompt-char">❯</span>
           <input
             type="text"
             id="ai-input-field"
             class="ai-input-field"
-            placeholder="Parla con Neko, oppure scrivi 'Ricorda che...', 'Apri <app>', 'Fissa call domani alle 15:00'..."
+            placeholder="Scrivi a Neko (es. 'Il Sig. Rossi vuole tutto minimale', 'Fissa call domani alle 15', 'Apri Blender')..."
           />
-          <button type="submit" class="term-btn term-btn-sm">INVIA ↵</button>
+          <button type="submit" class="term-btn btn-accent">Invia ↵</button>
         </form>
       </div>
     </div>

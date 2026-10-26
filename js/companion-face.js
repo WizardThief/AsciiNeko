@@ -82,8 +82,7 @@ class CompanionFace {
     this.onEvent(toyType === 'fish' ? 'fish' : 'yarn');
   }
 
-  spawnFishSnack(renderer, customLocalCol, customRow, state, systemBridge) {
-    const isSecondary = state && state.screenIndex !== 0;
+  spawnFishSnack(renderer, customLocalCol, customRow) {
     const localC =
       customLocalCol !== undefined
         ? customLocalCol
@@ -93,11 +92,6 @@ class CompanionFace {
         ? customRow
         : Math.round(renderer.rows * (0.3 + Math.random() * 0.4));
 
-    if (isSecondary && systemBridge) {
-      systemBridge.sendRemoteCommand({ type: 'fish', localCol: localC, row: r });
-      return;
-    }
-
     this.idleState = 'sit';
     this.toy = { worldCol: localC, row: r, type: 'fish' };
     this.target = { worldCol: localC, row: r, type: 'fish' };
@@ -105,26 +99,8 @@ class CompanionFace {
   }
 
   handleMouseDown(clickCol, clickRow, button, renderer, state, systemBridge) {
-    // Ignora i click se l'utente sta cliccando dentro un'altra finestra/applicazione aperta!
-    if (state.system && state.system.isDesktopFocus === false) {
-      return 'ignored_not_desktop';
-    }
-
-    const isSecondary = state.screenIndex !== 0;
-    if (isSecondary) {
-      const cmdType = button === 2 ? 'fish' : 'yarn';
-      if (systemBridge) {
-        systemBridge.sendRemoteCommand({
-          type: cmdType,
-          localCol: clickCol,
-          row: clickRow
-        });
-      }
-      return cmdType;
-    }
-
     if (button === 2) {
-      this.spawnFishSnack(renderer, clickCol, clickRow, state, systemBridge);
+      this.spawnFishSnack(renderer, clickCol, clickRow);
       return 'fish';
     }
 
@@ -156,8 +132,7 @@ class CompanionFace {
     return 'wave';
   }
 
-  handleMouseMove(col, row, renderer, state) {
-    if (state.screenIndex !== 0) return false;
+  handleMouseMove(col, row, renderer) {
     if (this.isDraggingCat) {
       this.worldCol = Math.max(8, Math.min(renderer.cols - 8, col));
       this.row = Math.max(6, Math.min(renderer.rows - 8, row + 2));
@@ -166,8 +141,7 @@ class CompanionFace {
     return false;
   }
 
-  handleMouseUp(state) {
-    if (state && state.screenIndex !== 0) return;
+  handleMouseUp() {
     if (this.isDraggingCat) {
       this.isDraggingCat = false;
       this.bounceVel = -8.0;
@@ -220,7 +194,7 @@ class CompanionFace {
     }
   }
 
-  update(dt, time, state, renderer, systemBridge) {
+  update(dt, time, state, renderer) {
     this.homeCol = Math.round(renderer.cols * 0.5);
     this.homeRow = Math.round(renderer.rows * 0.5);
 
@@ -230,59 +204,11 @@ class CompanionFace {
       this.initializedPos = true;
     }
 
-    // Schermo 2 (Secondario): riceve lo stato dell'unico Neko dallo Schermo 1
-    if (state.screenIndex !== 0) {
-      if (state.sharedCat) {
-        this.worldCol = state.sharedCat.worldCol;
-        this.row = state.sharedCat.row;
-        this.facing = state.sharedCat.facing;
-        this.isWalking = state.sharedCat.isWalking;
-        this.walkPhase = state.sharedCat.walkPhase;
-        this.emotion = state.sharedCat.emotion || 'neutral';
-        this.idleState = state.sharedCat.idleState || 'sit';
-        this.toy = state.sharedCat.toy || null;
-      }
-      return;
-    }
+    // Mantieni sempre Neko dentro i bordi visibili della finestra (anche dopo un resize o passaggio a Mini-Widget)
+    this.worldCol = Math.max(8, Math.min(Math.max(9, renderer.cols - 8), this.worldCol));
+    this.row = Math.max(6, Math.min(Math.max(7, renderer.rows - 8), this.row));
 
-    // --- Logica Master sullo Schermo 1 (Principale) ---
-
-    // 1. Se l'utente sta lavorando a lungo sullo Schermo 2, il Neko si incuriosisce
-    //    e cammina fino al bordo tra Schermo 1 e Schermo 2 per fare capolino!
-    if (state.globalMouse && state.globalMouse.screen === 1 && state.activeMode === 'companion') {
-      this.userOnScreen2Seconds += dt;
-      if (
-        this.userOnScreen2Seconds > 14.0 &&
-        this.roamEnabled &&
-        !this.target &&
-        this.worldCol < renderer.cols - 6
-      ) {
-        this.userOnScreen2Seconds = 0;
-        // Cammina appena oltre il bordo (entra di ~14 colonne nello Schermo 2 per sbirciare!)
-        this.target = {
-          worldCol: renderer.cols + 12,
-          row: Math.max(10, Math.min(renderer.rows - 12, this.row)),
-          type: 'walk'
-        };
-        this.visitSecondScreenTimer = 6.5;
-      }
-    } else {
-      this.userOnScreen2Seconds = Math.max(0, this.userOnScreen2Seconds - dt * 0.5);
-    }
-
-    // 2. Ritorno automatico sullo Schermo 1 dopo aver visitato lo Schermo 2
-    if (this.worldCol >= renderer.cols - 2 && !this.target) {
-      this.visitSecondScreenTimer -= dt;
-      if (this.visitSecondScreenTimer <= 0) {
-        this.target = {
-          worldCol: Math.round(renderer.cols * (0.4 + Math.random() * 0.3)),
-          row: Math.round(renderer.rows * (0.4 + Math.random() * 0.25)),
-          type: 'walk'
-        };
-      }
-    }
-
-    // Se siamo in modalità AI, Coffee o Focus, il Neko resta nella zona centrale dello Schermo 1
+    // Se siamo in modalità AI, Coffee o Focus, il Neko resta nella zona centrale della finestra
     if (
       (state.activeMode === 'ai' || state.activeMode === 'coffee' || state.activeMode === 'focus') &&
       !this.isDraggingCat
@@ -295,7 +221,7 @@ class CompanionFace {
       }
     }
 
-    // 3. Movimento verso il target
+    // 1. Movimento verso il target
     if (this.target && !this.isDraggingCat) {
       const dxT = this.target.worldCol - this.worldCol;
       const dyT = this.target.row - this.row;
@@ -333,7 +259,7 @@ class CompanionFace {
       this.isWalking = false;
     }
 
-    // 4. Ciclo delle Animazioni di Idle & Passeggiate autonome sullo Schermo 1
+    // 2. Ciclo delle Animazioni di Idle & Passeggiate autonome nella finestra
     if (
       state.activeMode === 'companion' &&
       !this.isWalking &&
@@ -358,7 +284,7 @@ class CompanionFace {
         this.firefly.oy = -5 + Math.sin(this.firefly.phase * 2) * 2.5;
       }
 
-      // Passeggiata autonoma occasionale sullo Schermo 1
+      // Passeggiata autonoma occasionale nella finestra
       if (this.roamEnabled && this.idleState === 'sit') {
         this.autonomousWalkTimer -= dt;
         if (this.autonomousWalkTimer <= 0) {
@@ -374,12 +300,8 @@ class CompanionFace {
       this.firefly = null;
     }
 
-    // 5. Sguardo verso il mouse (globale su entrambi gli schermi)
-    let mouseWorldCol = state.mouse.col;
-    if (state.globalMouse && state.globalMouse.screenW > 0) {
-      mouseWorldCol = (state.globalMouse.x / state.globalMouse.screenW) * renderer.cols;
-    }
-    const dxM = mouseWorldCol - this.worldCol;
+    // 3. Sguardo verso il mouse nella finestra
+    const dxM = state.mouse.col - this.worldCol;
     const dyM = state.mouse.row - this.row;
     const distM = Math.hypot(dxM, dyM * 1.5);
     this.lookX = Math.max(-1, Math.min(1, dxM / 20));
@@ -388,7 +310,7 @@ class CompanionFace {
     this.bounceVel += (-this.bounceY * 42.0 - this.bounceVel * 7.5) * dt;
     this.bounceY += this.bounceVel * dt;
 
-    // Allunga la zampina se il mouse passa vicino (e siamo sul desktop)
+    // Allunga la zampina se il mouse passa vicino
     if (
       !this.isWalking &&
       !this.isDraggingCat &&
@@ -450,19 +372,6 @@ class CompanionFace {
       p.life -= p.decay;
       if (p.life <= 0) this.particles.splice(i, 1);
     }
-
-    if (systemBridge) {
-      systemBridge.publishCatState({
-        worldCol: Math.round(this.worldCol * 10) / 10,
-        row: Math.round(this.row * 10) / 10,
-        facing: this.facing,
-        isWalking: this.isWalking,
-        walkPhase: Math.round(this.walkPhase * 10) / 10,
-        emotion: this.emotion,
-        idleState: this.idleState,
-        toy: this.toy
-      });
-    }
   }
 
   drawArtLines(renderer, cx, topY, lines, lum = 7) {
@@ -510,12 +419,11 @@ class CompanionFace {
   }
 
   render(renderer, time, state) {
-    const screenOffsetCols = (state.screenIndex || 0) * renderer.cols;
-    const localCatCol = Math.round(this.worldCol - screenOffsetCols);
+    const localCatCol = Math.round(this.worldCol);
 
     // 1. Disegna eventuale Gomitolo (@)~ o Pescetto ><(((º>
     if (this.toy) {
-      const localToyCol = Math.round(this.toy.worldCol - screenOffsetCols);
+      const localToyCol = Math.round(this.toy.worldCol);
       if (localToyCol >= -6 && localToyCol <= renderer.cols + 6) {
         if (this.toy.type === 'fish') {
           renderer.drawText(localToyCol - 3, Math.round(this.toy.row), '><(((º>', 7, true);
@@ -523,11 +431,6 @@ class CompanionFace {
           renderer.drawText(localToyCol - 2, Math.round(this.toy.row), '(@)~', 7, true);
         }
       }
-    }
-
-    // Se il Neko in questo momento è sull'altro monitor, non disegnarlo qui
-    if (localCatCol < -14 || localCatCol > renderer.cols + 14) {
-      return;
     }
 
     const cx = localCatCol;
@@ -649,7 +552,7 @@ class CompanionFace {
     }
 
     // 4. Accessori minimali per AI Work (Tastiera) e Pausa Caffè (Tazzina)
-    if (!this.isWalking && !this.isDraggingCat && state.screenIndex === 0) {
+    if (!this.isWalking && !this.isDraggingCat) {
       if (state.activeMode === 'ai') {
         const k = Math.floor(time * 9) % 2 === 0 ? '[ ▀▄▀▄▀▄▀ ]' : '[ ▄▀▄▀▄▀▄ ]';
         renderer.drawText(cx - 5, cy + 2, k, 7, true);

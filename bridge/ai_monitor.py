@@ -41,9 +41,13 @@ PROJECT_ROOT = os.path.abspath(os.path.join(BRIDGE_DIR, ".."))
 TODO_FILE = os.path.join(BRIDGE_DIR, "todo.json")
 CHAT_HISTORY_FILE = os.path.join(BRIDGE_DIR, "chat_history.json")
 MEMORY_FILE = os.path.join(BRIDGE_DIR, "memory.json")
+PROFILE_FILE = os.path.join(BRIDGE_DIR, "profile.json")
+PROJECTS_FILE = os.path.join(BRIDGE_DIR, "projects.json")
+ARCHIVE_FILE = os.path.join(BRIDGE_DIR, "archive.json")
 CALENDAR_CONFIG_FILE = os.path.join(BRIDGE_DIR, "calendar_config.json")
 EVENTS_FILE = os.path.join(BRIDGE_DIR, "events.json")
 USER_HOME = os.path.expanduser("~")
+COMPUTER_NAME = os.environ.get("COMPUTERNAME", "PC-LOCALE")
 
 
 # --- Helpers JSON su disco ---
@@ -675,10 +679,16 @@ class WindowsPCActions:
                     os.startfile(folder_path)
                     return True, f"📂 Ho aperto la cartella **{k.title()}** (`{folder_path}`)"
 
-        # 3. Percorso diretto su disco
+        # 3. Percorso diretto su disco o su Server di rete (NAS / UNC)
         if os.path.exists(raw):
             os.startfile(raw)
             return True, f"📂 Ho aperto `{raw}`"
+        if raw.startswith("\\\\") or (len(raw) > 3 and raw[1:3] == ":\\" and not os.path.exists(raw[:3])):
+            return (
+                False,
+                f"🏢 Il percorso `{raw}` non è raggiungibile da questo PC (`{COMPUTER_NAME}`). "
+                "Probabilmente si trova sul Server dell'ufficio — le Note Cliente e i To-Do del progetto restano comunque consultabili qui!",
+            )
 
         # 4. Comandi rapidi di sistema Windows
         for k, exe in cls.KNOWN_COMMANDS.items():
@@ -781,6 +791,983 @@ class WindowsPCActions:
             return ""
 
 
+class MemoryAndProjectsManager:
+    """
+    Gestisce il ciclo di vita della Memoria a 3 Livelli di Neko:
+      1. Livello 1 — Profilo Utente Base (`bridge/profile.json`) + Motore Intervista "🐾 Conosciamoci"
+      2. Livello 2 — Schede Progetto Attive (`bridge/projects.json`) + Pin Rapidi Server (Zero Scansione)
+      3. Livello 3 — Archivio Storico a Lungo Termine (`bridge/archive.json`) con:
+         - Check inattività progetti (>14 giorni)
+         - Risveglio automatico preferenze quando ritorna un vecchio cliente
+         - Rilevamento passivo in chat ("🧠 Salvo questo?")
+    """
+
+    ONBOARDING_QUESTIONS = [
+        {
+            "id": "q_role",
+            "category": "Lavoro & Software",
+            "question": "Di cosa ti occupi principalmente nel tuo lavoro di tutti i giorni?",
+            "options": [
+                "3D Artist & ArchViz",
+                "Technical Artist & Unreal Engine",
+                "3D Generalist & Animazione",
+                "Visual Designer & Post-Produzione",
+            ],
+            "trait_prefix": "Ruolo principale",
+        },
+        {
+            "id": "q_software",
+            "category": "Lavoro & Software",
+            "question": "Quali sono i software principali che tieni aperti ogni giorno?",
+            "options": [
+                "3ds Max + Corona / V-Ray + Photoshop",
+                "3ds Max + Unreal Engine + Blender + Photoshop",
+                "Blender + Unreal Engine + Substance",
+                "Unreal Engine + DaVinci + VS Code",
+            ],
+            "trait_prefix": "Software usati quotidianamente",
+        },
+        {
+            "id": "q_deliverables",
+            "category": "Lavoro & Software",
+            "question": "Quali sono gli output o le consegne che prepari più spesso?",
+            "options": [
+                "Render statici fotorealistici per clienti",
+                "Scene interattive / Animazioni in Unreal & 3ds Max",
+                "Modelli 3D ottimizzati, FBX e materiali",
+                "Immagini post-prodotte e presentazioni cliente",
+            ],
+            "trait_prefix": "Consegne tipiche",
+        },
+        {
+            "id": "q_hours",
+            "category": "Routine & Orari",
+            "question": "Qual è la tua fascia oraria di lavoro abituale?",
+            "options": [
+                "9:00 - 18:00 (Briefing alle 9:00)",
+                "9:30 - 19:00 (Mattina creativa, pomeriggio call/revisioni)",
+                "Orario flessibile basato sulle consegne",
+                "Mattina focus 3D pesante, pomeriggio post e clienti",
+            ],
+            "trait_prefix": "Orari e routine di lavoro",
+        },
+        {
+            "id": "q_breaks",
+            "category": "Routine & Orari",
+            "question": "Come preferisci gestire il focus e le pause mentre lavori?",
+            "options": [
+                "Sessioni lunghe (50-60 min) con pausa caffè",
+                "Sprint Pomodoro da 25 minuti",
+                "Non interrompermi quando faccio render/3D, avvisami solo per le call",
+                "Ricordami di staccare gli occhi ogni 90 minuti",
+            ],
+            "trait_prefix": "Gestione focus e pause",
+        },
+        {
+            "id": "q_end_day",
+            "category": "Routine & Orari",
+            "question": "A fine giornata lavorativa cosa ti è più comodo che ti ricordi?",
+            "options": [
+                "Fare il punto dei To-Do per domani mattina",
+                "Sincronizzare i dati Casa ↔ Lavoro e salvare le versioni",
+                "Controllare se ci sono progetti conclusi da archiviare",
+                "Segnare le ultime note o richieste arrivate dai clienti",
+            ],
+            "trait_prefix": "Routine di fine giornata",
+        },
+        {
+            "id": "q_server_workflow",
+            "category": "Clienti & Progetti",
+            "question": "Dove vivono di solito le cartelle dei tuoi progetti?",
+            "options": [
+                "Su Server NAS in ufficio (cartelle complesse per Anno/Cliente)",
+                "Misto: Server di rete in studio + disco locale a casa",
+                "Cartelle divise in 01_Ref, 02_3D, 03_Render, 04_Post",
+                "Server condiviso + repository Git / Cloud per gli script",
+            ],
+            "trait_prefix": "Organizzazione cartelle progetto",
+        },
+        {
+            "id": "q_client_notes",
+            "category": "Clienti & Progetti",
+            "question": "Quali informazioni sui clienti vuoi che io tenga sempre d'occhio?",
+            "options": [
+                "Gusti estetici e stile (es. minimale, caldo, contrastato)",
+                "Formati richiesti, risoluzioni, inquadrature e scadenze",
+                "Correzioni ricorrenti da non dimenticare prima della consegna",
+                "Tutto: stile preferito, regole tecniche e note sulle revisioni",
+            ],
+            "trait_prefix": "Dettagli chiave da ricordare sui clienti",
+        },
+        {
+            "id": "q_neko_tone",
+            "category": "Stile & Preferenze",
+            "question": "Come preferisci che ti risponda Neko durante la giornata?",
+            "options": [
+                "Diretto, sintetico e super pratico (2-3 righe)",
+                "Organizzato per punti elenco chiari e azionabili",
+                "Simpatico e amichevole ma sempre conciso",
+                "Proattivo: proponimi subito il bottone o l'azione giusta",
+            ],
+            "trait_prefix": "Stile di comunicazione preferito per Neko",
+        },
+        {
+            "id": "q_priorities",
+            "category": "Stile & Preferenze",
+            "question": "Quando hai tante task aperte contemporaneamente, a cosa dai priorità?",
+            "options": [
+                "Scadenze e revisioni urgenti dei clienti",
+                "Lanciare subito i render/calcoli lunghi e poi fare il resto",
+                "Sbrigare prima i task rapidi da 10 minuti per pulire la lista",
+                "Seguire l'ordine degli appuntamenti in Agenda",
+            ],
+            "trait_prefix": "Criterio di priorità nelle task",
+        },
+    ]
+
+    DEFAULT_QUICK_LINKS = [
+        {"label": "📅 Google Calendar", "url": "https://calendar.google.com"},
+        {"label": "✉️ Gmail", "url": "https://mail.google.com"},
+        {"label": "📂 Google Drive", "url": "https://drive.google.com"},
+        {"label": "🐙 GitHub AsciiNeko", "url": "https://github.com/WizardThief/AsciiNeko"},
+    ]
+
+    def __init__(self):
+        self._lock = threading.RLock()
+        self.profile = _load_json(
+            PROFILE_FILE,
+            {
+                "name": "Diego",
+                "answers": {},
+                "traits": [],
+                "quick_links": list(self.DEFAULT_QUICK_LINKS),
+                "active_project_id": "",
+            },
+        )
+        if "answers" not in self.profile or not isinstance(self.profile["answers"], dict):
+            self.profile["answers"] = {}
+        if "traits" not in self.profile or not isinstance(self.profile["traits"], list):
+            self.profile["traits"] = []
+        if "quick_links" not in self.profile or not isinstance(self.profile["quick_links"], list):
+            self.profile["quick_links"] = list(self.DEFAULT_QUICK_LINKS)
+        if "hotkey" not in self.profile or not self.profile["hotkey"]:
+            self.profile["hotkey"] = "Alt+N"
+
+        self.projects = _load_json(PROJECTS_FILE, [])
+        if not isinstance(self.projects, list):
+            self.projects = []
+        self.archive = _load_json(ARCHIVE_FILE, [])
+        if not isinstance(self.archive, list):
+            self.archive = []
+
+    def _save_profile(self):
+        _save_json(PROFILE_FILE, self.profile)
+
+    def _save_projects(self):
+        _save_json(PROJECTS_FILE, self.projects)
+
+    def _save_archive(self):
+        _save_json(ARCHIVE_FILE, self.archive)
+
+    # --- LIVELLO 1: PROFILO UTENTE & INTERVISTA "🐾 CONOSCIAMOCI" ---
+    def _rebuild_traits(self):
+        traits = []
+        q_map = {q["id"]: q for q in self.ONBOARDING_QUESTIONS}
+        for qid, ans_obj in self.profile.get("answers", {}).items():
+            ans_text = (ans_obj.get("answer") or "").strip()
+            if not ans_text:
+                continue
+            prefix = q_map[qid]["trait_prefix"] if qid in q_map else ans_obj.get("question", "Nota profilo")
+            traits.append(f"{prefix}: {ans_text}")
+        self.profile["traits"] = traits
+
+    def get_onboarding_state(self, category=None, exclude_id=None):
+        with self._lock:
+            answered = self.profile.get("answers", {})
+            categories = ["Lavoro & Software", "Routine & Orari", "Clienti & Progetti", "Stile & Preferenze"]
+            next_q = self.get_random_question(category=category, exclude_id=exclude_id)
+            return {
+                "profile": self.profile,
+                "categories": categories,
+                "questions": self.ONBOARDING_QUESTIONS,
+                "next_question": next_q,
+                "answered_count": len(answered),
+                "total_questions": len(self.ONBOARDING_QUESTIONS),
+            }
+
+    def get_random_question(self, category=None, exclude_id=None):
+        with self._lock:
+            answered = self.profile.get("answers", {})
+            pool = [
+                q
+                for q in self.ONBOARDING_QUESTIONS
+                if (not category or q["category"] == category) and q["id"] != exclude_id
+            ]
+            if not pool:
+                pool = [q for q in self.ONBOARDING_QUESTIONS if q["id"] != exclude_id] or list(
+                    self.ONBOARDING_QUESTIONS
+                )
+
+            unanswered = [q for q in pool if q["id"] not in answered]
+            if unanswered:
+                idx = int(time.time() * 1000) % len(unanswered)
+                return unanswered[idx]
+
+            # Se ha già risposto a tutte le domande base, proponi una domanda curiosa contestuale!
+            active_projs = [p for p in self.projects if p.get("status", "active") == "active"]
+            if active_projs:
+                proj = active_projs[0]
+                return {
+                    "id": f"q_ctx_{proj['id']}",
+                    "category": category or "Clienti & Progetti",
+                    "question": f"Sul progetto attivo '{proj['name']}', c'è una regola o preferenza del cliente {proj.get('client') or ''} da non dimenticare?",
+                    "options": [
+                        "Vuole stile minimale e pulito",
+                        "Attenzione massima a luci e materiali realistici",
+                        "Consegna file ordinati sul Server con naming preciso",
+                        "Richiede spesso anteprime veloci prima del render finale",
+                    ],
+                    "trait_prefix": f"Regola progetto {proj['name']}",
+                }
+
+            idx = int(time.time() * 1000) % len(pool)
+            return pool[idx]
+
+    def save_onboarding_answer(self, question_id: str, answer_text: str, category: str = "", question_text: str = ""):
+        clean_ans = (answer_text or "").strip()
+        if not clean_ans:
+            return self.get_onboarding_state(category=category)
+
+        with self._lock:
+            q_obj = next((q for q in self.ONBOARDING_QUESTIONS if q["id"] == question_id), None)
+            cat = category or (q_obj["category"] if q_obj else "Profilo")
+            q_txt = question_text or (q_obj["question"] if q_obj else question_id)
+            self.profile["answers"][question_id] = {
+                "category": cat,
+                "question": q_txt,
+                "answer": clean_ans,
+                "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            }
+            self._rebuild_traits()
+            self._save_profile()
+
+            # Se la domanda riguardava un progetto attivo (q_ctx_proj_...), aggiungi la nota anche al progetto!
+            if question_id.startswith("q_ctx_"):
+                proj_id = question_id[len("q_ctx_") :]
+                self.add_project_note(proj_id, clean_ans)
+
+            return self.get_onboarding_state(category=cat, exclude_id=question_id)
+
+    def delete_onboarding_answer(self, question_id: str):
+        with self._lock:
+            answers = self.profile.get("answers", {})
+            if question_id in answers:
+                del answers[question_id]
+                self._rebuild_traits()
+                self._save_profile()
+            return self.get_onboarding_state()
+
+    def set_hotkey(self, hotkey: str):
+        hk_map = {
+            "alt+n": "Alt+N",
+            "alt+q": "Alt+Q",
+            "ctrl+space": "Ctrl+Space",
+            "alt+z": "Alt+Z",
+        }
+        clean_hk = hk_map.get((hotkey or "Alt+N").strip().lower(), "Alt+N")
+        with self._lock:
+            self.profile["hotkey"] = clean_hk
+            self._save_profile()
+            return clean_hk
+
+    def reset_profile(self):
+        with self._lock:
+            self.profile["answers"] = {}
+            self.profile["traits"] = []
+            self._save_profile()
+            return self.get_onboarding_state()
+
+    def reset_projects_and_archive(self):
+        with self._lock:
+            self.projects = []
+            self.archive = []
+            self.profile["active_project_id"] = ""
+            self._save_projects()
+            self._save_archive()
+            self._save_profile()
+            return self.get_projects_state()
+
+    def add_quick_link(self, label: str, url: str):
+        lbl = (label or "").strip()
+        u = (url or "").strip()
+        if not lbl or not u:
+            return self.profile.get("quick_links", [])
+        if not u.startswith(("http://", "https://")):
+            u = "https://" + u
+        with self._lock:
+            links = self.profile.setdefault("quick_links", list(self.DEFAULT_QUICK_LINKS))
+            links.append({"label": lbl, "url": u})
+            self._save_profile()
+            return list(links)
+
+    def delete_quick_link(self, index: int):
+        with self._lock:
+            links = self.profile.setdefault("quick_links", list(self.DEFAULT_QUICK_LINKS))
+            if 0 <= index < len(links):
+                links.pop(index)
+                self._save_profile()
+            return list(links)
+
+    # --- LIVELLO 2: SCHEDE PROGETTO ATTIVE & PIN SERVER (ZERO SCANSIONE) ---
+    def get_stale_projects(self, inactive_days: int = 14):
+        now_ts = time.time()
+        threshold = inactive_days * 86400
+        stale = []
+        with self._lock:
+            for p in self.projects:
+                if p.get("status", "active") != "active":
+                    continue
+                last_ts = float(p.get("last_ts") or now_ts)
+                days_old = int((now_ts - last_ts) / 86400)
+                if (now_ts - last_ts) >= threshold:
+                    item = dict(p)
+                    item["days_inactive"] = max(inactive_days, days_old)
+                    stale.append(item)
+        return stale
+
+    def get_projects_state(self):
+        with self._lock:
+            active_id = self.profile.get("active_project_id", "")
+            if active_id and not any(p.get("id") == active_id for p in self.projects):
+                active_id = self.projects[0]["id"] if self.projects else ""
+                self.profile["active_project_id"] = active_id
+                self._save_profile()
+            elif not active_id and self.projects:
+                active_id = self.projects[0]["id"]
+                self.profile["active_project_id"] = active_id
+                self._save_profile()
+
+            active_proj = next((p for p in self.projects if p.get("id") == active_id), None)
+            return {
+                "projects": list(self.projects),
+                "archive": list(self.archive),
+                "active_project_id": active_id,
+                "active_project": active_proj,
+                "stale_projects": self.get_stale_projects(14),
+                "computer_name": COMPUTER_NAME,
+            }
+
+    def create_or_update_project(
+        self, name: str, client: str = "", note: str = "", pin_path: str = "", pin_label: str = ""
+    ):
+        clean_name = (name or "").strip()
+        clean_client = (client or "").strip()
+        if not clean_name:
+            return {"ok": False, "error": "Specifica il nome del progetto."}
+
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        now_ts = time.time()
+
+        with self._lock:
+            existing = next((p for p in self.projects if p.get("name", "").lower() == clean_name.lower()), None)
+            if existing:
+                proj = existing
+                if clean_client:
+                    proj["client"] = clean_client
+                proj["updated_at"] = now_str
+                proj["last_ts"] = now_ts
+            else:
+                proj = {
+                    "id": f"proj_{int(now_ts * 1000)}",
+                    "name": clean_name,
+                    "client": clean_client,
+                    "status": "active",
+                    "notes": [],
+                    "pins": [],
+                    "created_at": now_str,
+                    "updated_at": now_str,
+                    "last_ts": now_ts,
+                }
+                self.projects.insert(0, proj)
+
+            if note and note.strip():
+                n_clean = note.strip()
+                if n_clean not in proj["notes"]:
+                    proj["notes"].append(n_clean)
+
+            if pin_path and pin_path.strip():
+                p_clean = pin_path.strip().strip("\"'")
+                lbl = (pin_label or "").strip() or os.path.basename(p_clean.rstrip("\\/")) or p_clean
+                if not any(pin.get("path", "").lower() == p_clean.lower() for pin in proj["pins"]):
+                    proj["pins"].append(
+                        {
+                            "id": f"pin_{int(time.time() * 1000)}",
+                            "label": f"📂 {lbl}",
+                            "path": p_clean,
+                            "host": COMPUTER_NAME,
+                        }
+                    )
+
+            self.profile["active_project_id"] = proj["id"]
+            self._save_projects()
+            self._save_profile()
+
+            # Controlla se questo cliente (o progetto) esisteva già nell'Archivio Storico!
+            search_q = f"{clean_name} {clean_client}".strip()
+            archived_matches = self.find_archived_client_matches(search_q)
+
+            return {
+                "ok": True,
+                "project": proj,
+                "archived_matches": archived_matches,
+                "state": self.get_projects_state(),
+            }
+
+    def set_active_project(self, project_id: str):
+        with self._lock:
+            for p in self.projects:
+                if p.get("id") == project_id:
+                    self.profile["active_project_id"] = project_id
+                    p["last_ts"] = time.time()
+                    p["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    self._save_profile()
+                    self._save_projects()
+                    break
+            return self.get_projects_state()
+
+    def add_project_note(self, project_id: str, note_text: str):
+        clean = (note_text or "").strip()
+        if not clean:
+            return self.get_projects_state()
+        with self._lock:
+            target = next((p for p in self.projects if p.get("id") == project_id), None)
+            if not target and self.projects:
+                target = self.projects[0]
+            if target:
+                if clean not in target.get("notes", []):
+                    target.setdefault("notes", []).append(clean)
+                target["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                target["last_ts"] = time.time()
+                self._save_projects()
+            return self.get_projects_state()
+
+    def delete_project_note(self, project_id: str, note_index: int):
+        with self._lock:
+            target = next((p for p in self.projects if p.get("id") == project_id), None)
+            if target and 0 <= note_index < len(target.get("notes", [])):
+                target["notes"].pop(note_index)
+                target["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                target["last_ts"] = time.time()
+                self._save_projects()
+            return self.get_projects_state()
+
+    def add_project_pin(self, project_id: str, label: str, path: str):
+        p_clean = (path or "").strip().strip("\"'")
+        if not p_clean:
+            return self.get_projects_state()
+        lbl = (label or "").strip() or os.path.basename(p_clean.rstrip("\\/")) or p_clean
+        if not lbl.startswith(("📂", "🎬", "🎨", "📌", "📄")):
+            lbl = f"📂 {lbl}"
+        with self._lock:
+            target = next((p for p in self.projects if p.get("id") == project_id), None)
+            if not target and self.projects:
+                target = self.projects[0]
+            if target:
+                pins = target.setdefault("pins", [])
+                if not any(x.get("path", "").lower() == p_clean.lower() for x in pins):
+                    pins.append(
+                        {
+                            "id": f"pin_{int(time.time() * 1000)}",
+                            "label": lbl,
+                            "path": p_clean,
+                            "host": COMPUTER_NAME,
+                        }
+                    )
+                target["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                target["last_ts"] = time.time()
+                self._save_projects()
+            return self.get_projects_state()
+
+    def delete_project_pin(self, project_id: str, pin_id: str):
+        with self._lock:
+            target = next((p for p in self.projects if p.get("id") == project_id), None)
+            if target:
+                target["pins"] = [x for x in target.get("pins", []) if x.get("id") != pin_id]
+                target["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                self._save_projects()
+            return self.get_projects_state()
+
+    # --- LIVELLO 3: ARCHIVIO STORICO (MEMORIA FREDDA) & RISVEGLIO CLIENTE ---
+    def archive_project(self, project_id: str):
+        with self._lock:
+            idx = next((i for i, p in enumerate(self.projects) if p.get("id") == project_id), -1)
+            if idx == -1:
+                return {"ok": False, "state": self.get_projects_state()}
+            proj = self.projects.pop(idx)
+            proj["status"] = "archived"
+            proj["archived_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+            # Evita duplicati in archivio con lo stesso id
+            self.archive = [a for a in self.archive if a.get("id") != proj["id"]]
+            self.archive.insert(0, proj)
+            if self.profile.get("active_project_id") == project_id:
+                self.profile["active_project_id"] = self.projects[0]["id"] if self.projects else ""
+                self._save_profile()
+            self._save_projects()
+            self._save_archive()
+            return {"ok": True, "archived_project": proj, "state": self.get_projects_state()}
+
+    def restore_from_archive(
+        self, archive_id: str, mode: str = "reactivate_project", target_project_id: str = None
+    ):
+        with self._lock:
+            arch_item = next((a for a in self.archive if a.get("id") == archive_id), None)
+            if not arch_item:
+                return {"ok": False, "state": self.get_projects_state()}
+
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+            if mode == "copy_client_notes":
+                # Copia le preferenze storiche del cliente nel progetto attivo corrente senza togliere il vecchio progetto dall'archivio!
+                tid = target_project_id or self.profile.get("active_project_id")
+                target = next((p for p in self.projects if p.get("id") == tid), None)
+                if not target and self.projects:
+                    target = self.projects[0]
+                if target:
+                    for n in arch_item.get("notes", []):
+                        if n not in target.setdefault("notes", []):
+                            target["notes"].append(n)
+                    target["updated_at"] = now_str
+                    target["last_ts"] = time.time()
+                    self._save_projects()
+                    return {
+                        "ok": True,
+                        "restored_to": target["name"],
+                        "notes_copied": arch_item.get("notes", []),
+                        "state": self.get_projects_state(),
+                    }
+
+            # Altrimenti riporta l'intero progetto tra quelli Attivi
+            self.archive = [a for a in self.archive if a.get("id") != archive_id]
+            restored = dict(arch_item)
+            restored["status"] = "active"
+            restored["updated_at"] = now_str
+            restored["last_ts"] = time.time()
+            self.projects.insert(0, restored)
+            self.profile["active_project_id"] = restored["id"]
+            self._save_archive()
+            self._save_projects()
+            self._save_profile()
+            return {"ok": True, "project": restored, "state": self.get_projects_state()}
+
+    def delete_archived_project(self, archive_id: str):
+        with self._lock:
+            self.archive = [a for a in self.archive if a.get("id") != archive_id]
+            self._save_archive()
+            return self.get_projects_state()
+
+    def find_archived_client_matches(self, text: str):
+        """
+        Controlla se nel testo dell'utente (o nel nuovo progetto) viene nominato un cliente
+        o un progetto presente nell'Archivio Storico (`archive.json`).
+        """
+        low = (text or "").lower()
+        if len(low) < 3:
+            return []
+        matches = []
+        with self._lock:
+            for arch in self.archive:
+                client = (arch.get("client") or "").strip()
+                pname = (arch.get("name") or "").strip()
+                notes = arch.get("notes", [])
+                if not notes:
+                    continue
+                matched = False
+                # Cerca corrispondenza sul nome cliente (anche parziale, es. "Rossi" in "Sig. Rossi")
+                if client:
+                    client_tokens = [
+                        t
+                        for t in re.split(r"[\s\.,_-]+", client.lower())
+                        if len(t) >= 3 and t not in ("sig", "signor", "dott", "arch", "ing", "studio", "srl", "spa")
+                    ]
+                    if client.lower() in low or any(
+                        re.search(rf"\b{re.escape(tok)}\b", low) for tok in client_tokens
+                    ):
+                        matched = True
+                if not matched and len(pname) >= 4 and pname.lower() in low:
+                    matched = True
+
+                if matched:
+                    matches.append(
+                        {
+                            "archive_id": arch["id"],
+                            "project_name": pname,
+                            "client": client or pname,
+                            "notes": list(notes),
+                            "archived_at": arch.get("archived_at", ""),
+                        }
+                    )
+        return matches
+
+    def detect_memory_candidate(self, text: str):
+        """
+        Rileva passivamente se l'utente ha scritto in chat una preferenza, regola di un cliente
+        o informazione utile (es. "il signor rossi vuole sempre tutto minimale", "preferisco...",
+        "usa sempre...") per proporre il bottone 1-click `[🧠 + Salva]`.
+        """
+        clean = (text or "").strip()
+        low = clean.lower()
+        if len(clean) < 12 or clean.startswith("/"):
+            return None
+        if low.startswith(("ricorda che", "ricordati che", "memorizza", "nota:", "salva in memoria", "todo", "apri ", "fissa ")):
+            return None
+
+        triggers = (
+            "vuole sempre",
+            "vuole tutto",
+            "non vuole",
+            "preferisce",
+            "preferisco",
+            "usa sempre",
+            "usiamo sempre",
+            "formato ",
+            "stile ",
+            "il cliente ",
+            "signor ",
+            "sig. ",
+            "scadenza ",
+            "consegna ",
+            "importante:",
+            "regola:",
+        )
+        if not any(t in low for t in triggers):
+            return None
+
+        with self._lock:
+            active_id = self.profile.get("active_project_id", "")
+            active_proj = next((p for p in self.projects if p.get("id") == active_id), None)
+            # Controlla se nel messaggio è nominato uno specifico progetto attivo
+            for p in self.projects:
+                pname = (p.get("name") or "").lower()
+                pclient = (p.get("client") or "").lower()
+                if (pname and pname in low) or (pclient and len(pclient) >= 3 and pclient in low):
+                    active_proj = p
+                    break
+
+            return {
+                "fact": clean,
+                "project_id": active_proj["id"] if active_proj else "",
+                "project_name": active_proj["name"] if active_proj else "",
+            }
+
+    @classmethod
+    def capture_open_windows_paths(cls):
+        """
+        Interroga istantaneamente (< 400ms, ZERO scansione del disco/server!) le finestre aperte
+        di Esplora File (inclusi percorsi di rete `\\\\Server\\...` o NAS) e i titoli delle app 3D/creative.
+        """
+        ps_script = (
+            "$items = @(); "
+            "try { "
+            "  $shell = New-Object -ComObject Shell.Application; "
+            "  foreach ($w in $shell.Windows()) { "
+            "    try { "
+            "      $p = $w.Document.Folder.Self.Path; "
+            "      if ($p) { $items += @{ type='folder'; path=$p; title=(Split-Path $p -Leaf) } } "
+            "    } catch {} "
+            "  } "
+            "} catch {} "
+            "Get-Process | Where-Object { $_.MainWindowTitle -and $_.ProcessName -match '3dsmax|UnrealEditor|blender|Photoshop|AfterFX|Substance|Cinema4D' } | ForEach-Object { "
+            "  $items += @{ type='app'; path=$_.MainWindowTitle; title=($_.ProcessName + ': ' + $_.MainWindowTitle) } "
+            "}; "
+            "$items | ConvertTo-Json -Compress"
+        )
+        try:
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            out = subprocess.check_output(
+                ["powershell", "-NoProfile", "-Command", ps_script],
+                startupinfo=startupinfo,
+                text=True,
+                timeout=3.0,
+            ).strip()
+            if not out:
+                return []
+            raw = json.loads(out)
+            if isinstance(raw, dict):
+                raw = [raw]
+            results = []
+            seen = set()
+            for r in raw:
+                p = (r.get("path") or "").strip()
+                if not p or p in seen:
+                    continue
+                seen.add(p)
+                t = r.get("title") or os.path.basename(p.rstrip("\\/")) or p
+                results.append(
+                    {
+                        "type": r.get("type", "folder"),
+                        "path": p,
+                        "label": f"📂 {t}" if r.get("type") == "folder" else f"🎬 {t}",
+                    }
+                )
+            return results
+        except Exception:
+            return []
+
+
+class WindowAndConnectionsManager:
+    """
+    Gestisce:
+      1. La finestra dell'App Desktop Neko (`Dashboard` 1140x760 vs `Mini-Widget` 390x240 Always-on-Top)
+         e il richiamo globale `Alt + Spazio` (`focus_input_seq`).
+      2. Il download in background dei modelli Ollama (`ollama pull llama3.2`) dal pannello Connessioni.
+      3. La sincronizzazione rapida Git Casa ↔ Lavoro con 1 click.
+    """
+
+    def __init__(self, ollama_ref, calendar_ref, mem_proj_ref):
+        self.ollama = ollama_ref
+        self.calendar = calendar_ref
+        self.mem_proj = mem_proj_ref
+        self.window_mode = "dashboard"
+        self.focus_input_seq = 0
+        self.ollama_pull_status = {"active": False, "model": "", "message": ""}
+
+    def _find_app_hwnds(self):
+        hwnds = []
+        WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+        def _cb(hwnd, lparam):
+            if user32.IsWindowVisible(hwnd):
+                buf = ctypes.create_unicode_buffer(256)
+                user32.GetWindowTextW(hwnd, buf, 256)
+                title = buf.value or ""
+                if "ASCII AI Companion" in title or "Neko Desktop" in title:
+                    # Ignora finestre figlie di WorkerW / Progman (sfondo Lively Wallpaper)
+                    parent = user32.GetParent(hwnd)
+                    cls_buf = ctypes.create_unicode_buffer(128)
+                    user32.GetClassNameW(hwnd, cls_buf, 128)
+                    if cls_buf.value not in ("Progman", "WorkerW") and not parent:
+                        hwnds.append(hwnd)
+            return True
+
+        user32.EnumWindows(WNDENUMPROC(_cb), 0)
+        return hwnds
+
+    def set_window_mode(self, mode: str):
+        hwnds = self._find_app_hwnds()
+        screen_w = user32.GetSystemMetrics(0) or 1920
+        screen_h = user32.GetSystemMetrics(1) or 1080
+        SWP_SHOWWINDOW = 0x0040
+        HWND_TOPMOST = -1
+        HWND_NOTOPMOST = -2
+
+        if mode == "focus_input":
+            self.focus_input_seq += 1
+            for hwnd in hwnds:
+                if user32.IsIconic(hwnd):
+                    user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                user32.SetForegroundWindow(hwnd)
+            return {"ok": True, "window_mode": self.window_mode, "focus_input_seq": self.focus_input_seq}
+
+        if mode == "mini":
+            self.window_mode = "mini"
+            w, h = 400, 250
+            x = max(20, screen_w - w - 24)
+            y = max(20, screen_h - h - 68)
+            for hwnd in hwnds:
+                user32.ShowWindow(hwnd, 9)
+                user32.SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h, SWP_SHOWWINDOW)
+            return {"ok": True, "window_mode": "mini", "hwnd_count": len(hwnds)}
+
+        # Default: "dashboard"
+        self.window_mode = "dashboard"
+        w, h = min(1180, screen_w - 80), min(780, screen_h - 90)
+        x = max(20, (screen_w - w) // 2)
+        y = max(20, (screen_h - h) // 2)
+        for hwnd in hwnds:
+            user32.ShowWindow(hwnd, 9)
+            user32.SetWindowPos(hwnd, HWND_NOTOPMOST, x, y, w, h, SWP_SHOWWINDOW)
+            user32.SetForegroundWindow(hwnd)
+        return {"ok": True, "window_mode": "dashboard", "hwnd_count": len(hwnds)}
+
+    def start_ollama_pull(self, model_name: str = "llama3.2"):
+        model = (model_name or "llama3.2").strip()
+        if self.ollama_pull_status.get("active"):
+            return self.ollama_pull_status
+
+        self.ollama_pull_status = {
+            "active": True,
+            "model": model,
+            "message": f"⏳ Download del modello '{model}' avviato in background...",
+        }
+
+        def _pull_worker():
+            ollama_bin = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Ollama", "ollama.exe")
+            if not os.path.isfile(ollama_bin):
+                ollama_bin = "ollama"
+            try:
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                proc = subprocess.Popen(
+                    [ollama_bin, "pull", model],
+                    startupinfo=startupinfo,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                )
+                for line in proc.stdout:
+                    clean_line = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", line or "").strip()
+                    if clean_line:
+                        self.ollama_pull_status["message"] = f"⬇️ {model}: {clean_line[-70:]}"
+                proc.wait()
+                self.ollama._fetch_models()
+                if model in self.ollama.models or any(m.startswith(model) for m in self.ollama.models):
+                    self.ollama.active_model = next(
+                        (m for m in self.ollama.models if m.startswith(model)), model
+                    )
+                    self.ollama_pull_status = {
+                        "active": False,
+                        "model": model,
+                        "message": f"✅ Modello '{model}' installato e attivato!",
+                    }
+                else:
+                    self.ollama_pull_status = {
+                        "active": False,
+                        "model": model,
+                        "message": f"⚠️ Download di '{model}' terminato (verifica che Ollama sia attivo).",
+                    }
+            except Exception as e:
+                self.ollama_pull_status = {
+                    "active": False,
+                    "model": model,
+                    "message": f"⚠️ Errore durante il download: {e}",
+                }
+
+        threading.Thread(target=_pull_worker, daemon=True).start()
+        return self.ollama_pull_status
+
+    def get_git_status(self):
+        try:
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            branch = subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=PROJECT_ROOT,
+                startupinfo=startupinfo,
+                text=True,
+                timeout=3.0,
+            ).strip()
+            last_commit = subprocess.check_output(
+                ["git", "log", "-1", "--format=%h - %s (%cr)"],
+                cwd=PROJECT_ROOT,
+                startupinfo=startupinfo,
+                text=True,
+                timeout=3.0,
+            ).strip()
+            porcelain = subprocess.check_output(
+                ["git", "status", "--porcelain"],
+                cwd=PROJECT_ROOT,
+                startupinfo=startupinfo,
+                text=True,
+                timeout=3.0,
+            ).strip()
+            changed_count = len([l for l in porcelain.splitlines() if l.strip()]) if porcelain else 0
+            return {
+                "ok": True,
+                "branch": branch,
+                "last_commit": last_commit,
+                "changed_files": changed_count,
+                "computer": COMPUTER_NAME,
+            }
+        except Exception as e:
+            return {"ok": False, "branch": "main", "last_commit": str(e), "changed_files": 0, "computer": COMPUTER_NAME}
+
+    def run_git_sync(self):
+        """
+        Sincronizza i dati e il progetto tra Casa e Lavoro con 1 click:
+        esegue `git pull --rebase origin main` e, se ci sono modifiche, fa commit e push.
+        """
+        try:
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            subprocess.run(
+                ["git", "pull", "--rebase", "origin", "main"],
+                cwd=PROJECT_ROOT,
+                startupinfo=startupinfo,
+                timeout=15.0,
+                check=False,
+            )
+            # Forza l'aggiunta anche dei file JSON della memoria/progetti se presenti
+            for data_file in ("profile.json", "projects.json", "archive.json", "memory.json", "todo.json", "events.json"):
+                fpath = os.path.join(BRIDGE_DIR, data_file)
+                if os.path.isfile(fpath):
+                    subprocess.run(
+                        ["git", "add", "-f", f"bridge/{data_file}"],
+                        cwd=PROJECT_ROOT,
+                        startupinfo=startupinfo,
+                        timeout=4.0,
+                        check=False,
+                    )
+            subprocess.run(
+                ["git", "add", "-A"],
+                cwd=PROJECT_ROOT,
+                startupinfo=startupinfo,
+                timeout=5.0,
+                check=False,
+            )
+            porcelain = subprocess.check_output(
+                ["git", "status", "--porcelain"],
+                cwd=PROJECT_ROOT,
+                startupinfo=startupinfo,
+                text=True,
+                timeout=4.0,
+            ).strip()
+            if porcelain:
+                msg = f"neko sync ({COMPUTER_NAME}): {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                subprocess.run(
+                    ["git", "commit", "-m", msg],
+                    cwd=PROJECT_ROOT,
+                    startupinfo=startupinfo,
+                    timeout=6.0,
+                    check=False,
+                )
+                subprocess.run(
+                    ["git", "push", "origin", "main"],
+                    cwd=PROJECT_ROOT,
+                    startupinfo=startupinfo,
+                    timeout=15.0,
+                    check=False,
+                )
+                return {
+                    "ok": True,
+                    "message": f"✅ Sincronizzazione completata! Dati salvati e inviati su GitHub da {COMPUTER_NAME}.",
+                    "git": self.get_git_status(),
+                }
+            return {
+                "ok": True,
+                "message": f"✅ Tutto già sincronizzato con GitHub ({COMPUTER_NAME})!",
+                "git": self.get_git_status(),
+            }
+        except Exception as e:
+            return {"ok": False, "message": f"⚠️ Errore durante il sync Git: {e}", "git": self.get_git_status()}
+
+    def get_connections_state(self):
+        self.ollama._fetch_models()
+        cal_state = self.calendar.get_summary_state()
+        git_state = self.get_git_status()
+        return {
+            "calendar": cal_state,
+            "ollama": {
+                "online": self.ollama.ollama_online,
+                "active_model": self.ollama.active_model,
+                "models": list(self.ollama.models),
+                "pull_status": self.ollama_pull_status,
+            },
+            "git": git_state,
+            "quick_links": self.mem_proj.profile.get("quick_links", []),
+            "window_mode": self.window_mode,
+        }
+
+
 class OllamaLocalBridge:
     """
     Gestisce il cervello locale di Neko:
@@ -790,8 +1777,9 @@ class OllamaLocalBridge:
     - Azioni rapide sul PC (App, File, Appunti, To-Do, Briefing)
     """
 
-    def __init__(self, calendar_mgr: CalendarManager):
+    def __init__(self, calendar_mgr: CalendarManager, mem_proj_mgr: MemoryAndProjectsManager):
         self.calendar = calendar_mgr
+        self.mem_proj = mem_proj_mgr
         self.models = []
         self.active_model = ""
         self.is_generating = False
@@ -826,11 +1814,26 @@ class OllamaLocalBridge:
             req = urllib.request.Request(f"{OLLAMA_BASE}/api/tags", method="GET")
             with urllib.request.urlopen(req, timeout=1.5) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-                models = [m.get("name") for m in data.get("models", []) if m.get("name")]
+                raw_models = data.get("models", [])
+                chat_models = []
+                other_models = []
+                for m in raw_models:
+                    name = m.get("name")
+                    if not name:
+                        continue
+                    caps = m.get("capabilities") or []
+                    if "completion" in caps or (
+                        not caps
+                        and not any(x in name.lower() for x in ("embed", "nomic", "bge", "clef"))
+                    ):
+                        chat_models.append(name)
+                    else:
+                        other_models.append(name)
+                models = chat_models + other_models
                 self.models = models
                 self.ollama_online = True
-                if models and not self.active_model:
-                    self.active_model = models[0]
+                if models and (not self.active_model or self.active_model not in chat_models and chat_models):
+                    self.active_model = chat_models[0] if chat_models else models[0]
                 return True
         except Exception:
             self.ollama_online = False
@@ -1006,6 +2009,9 @@ class OllamaLocalBridge:
         today_evs = [e for e in upcoming if e.get("is_today")]
         todos = self.load_todos()
         mems = self.get_memories()
+        proj_state = self.mem_proj.get_projects_state()
+        active_projs = proj_state.get("projects", [])
+        stale_projs = proj_state.get("stale_projects", [])
 
         parts = [f"☀️ **Briefing di Neko ({now.strftime('%d/%m/%Y %H:%M')})**"]
 
@@ -1016,7 +2022,19 @@ class OllamaLocalBridge:
             nxt = upcoming[0]
             parts.append(f"📅 **Oggi nessun impegno.** Prossimo: {nxt['day_label']} {nxt['time_label']} — {nxt['title']}")
         else:
-            parts.append("📅 **Agenda:** Nessun evento in programma (usa `cal add ...` o collega Google Calendar con `⚙️ CAL`).")
+            parts.append("📅 **Agenda:** Nessun evento in programma (apri `🔌 CONNESSIONI` per collegare Google Calendar).")
+
+        if active_projs:
+            ap = proj_state.get("active_project") or active_projs[0]
+            notes_preview = f" ({ap['notes'][-1]})" if ap.get("notes") else ""
+            parts.append(
+                f"📌 **Progetti Attivi ({len(active_projs)}):** focus su **{ap['name']}**"
+                + (f" [{ap['client']}]" if ap.get("client") else "")
+                + notes_preview
+            )
+        if stale_projs:
+            stale_names = ", ".join([f"'{p['name']}' ({p['days_inactive']}gg)" for p in stale_projs[:3]])
+            parts.append(f"📦 **Check-up Progetti:** {stale_names} non vengono toccati da oltre 2 settimane. Vuoi spostarli in Archivio Storico?")
 
         if todos:
             td_strs = [f"[{i+1}] {t}" for i, t in enumerate(todos[:5])]
@@ -1027,15 +2045,56 @@ class OllamaLocalBridge:
         if mems:
             parts.append(f"🧠 **Memoria Attiva:** {len(mems)} note salvate (ultima: \"{mems[-1]['text']}\")")
 
-        parts.append(f"💻 **Sistema:** CPU {cpu}% · RAM {ram}% · Modello: {self.active_model or 'Ollama'}")
+        parts.append(f"💻 **Sistema ({COMPUTER_NAME}):** CPU {cpu}% · RAM {ram}% · Modello: {self.active_model or 'Ollama'}")
         return "\n".join(parts)
 
-    def _finish_reply(self, prompt_text, reply_text, model_name="LOCAL-TOOL", actions=None):
-        self._append_chat_turn(prompt_text, reply_text, model_name, actions=actions)
+    def _finish_reply(self, prompt_text, reply_text, model_name="LOCAL-TOOL", actions=None, skip_smart_hooks=False):
+        final_actions = list(actions or [])
+        final_reply = reply_text
+
+        if not skip_smart_hooks and prompt_text:
+            # 1. Riconoscimento Ritorno Cliente dall'Archivio Storico (`archive.json`)
+            arch_matches = self.mem_proj.find_archived_client_matches(prompt_text)
+            for m in arch_matches[:2]:
+                notes_str = "; ".join(m["notes"][:2])
+                if f"Archivio Storico" not in final_reply:
+                    final_reply += (
+                        f"\n\n🐾 **Risveglio dall'Archivio Storico:** ho trovato note passate per **{m['client']}** "
+                        f"*(Progetto \"{m['project_name']}\": \"{notes_str}\")*. Vuoi riattivarle?"
+                    )
+                final_actions.append(
+                    {
+                        "label": f"🔄 Riattiva preferenze di \"{m['client']}\" dall'Archivio",
+                        "restore_archive_id": m["archive_id"],
+                    }
+                )
+
+            # 2. Apprendimento Passivo dalle Chat ("🧠 Salvo questo?")
+            cand = self.mem_proj.detect_memory_candidate(prompt_text)
+            if cand:
+                short_f = cand["fact"][:36] + ("…" if len(cand["fact"]) > 36 else "")
+                if cand.get("project_id"):
+                    final_actions.append(
+                        {
+                            "label": f"🧠 + Salva su \"{cand['project_name']}\": \"{short_f}\"",
+                            "save_project_note": {
+                                "project_id": cand["project_id"],
+                                "note": cand["fact"],
+                            },
+                        }
+                    )
+                final_actions.append(
+                    {
+                        "label": f"🧠 + Salva in Memoria: \"{short_f}\"",
+                        "save_memory": cand["fact"],
+                    }
+                )
+
+        self._append_chat_turn(prompt_text, final_reply, model_name, actions=final_actions)
         return {
-            "reply": reply_text,
+            "reply": final_reply,
             "model": model_name,
-            "actions": actions or [],
+            "actions": final_actions,
             "history": self.get_chat_history(limit=40),
         }
 
@@ -1259,16 +2318,62 @@ class OllamaLocalBridge:
                 return self._finish_reply(text, f"📋 **Testo negli appunti:**\n{preview}", "CLIPBOARD")
             clipboard_context = f"\n\n[TESTO COPIATO NEGLI APPUNTI DI WINDOWS DALL'UTENTE]:\n{clip_text[:3000]}"
 
+        # 8.5 Gestione rapida Progetti da chat ("/progetti", "progetto: ...", "nuovo progetto ...")
+        if low in ("/progetti", "progetti", "lista progetti"):
+            p_state = self.mem_proj.get_projects_state()
+            projs = p_state.get("projects", [])
+            arch = p_state.get("archive", [])
+            if not projs:
+                return self._finish_reply(
+                    text,
+                    f"📌 Nessun progetto attivo al momento ({len(arch)} in Archivio Storico). Clicca su `📌 PROGETTI` in alto o scrivi `progetto: Villa Rossi - Cliente: Sig. Rossi`!",
+                    "PROJECTS",
+                )
+            lines = []
+            actions = []
+            for p in projs[:6]:
+                c_str = f" [{p['client']}]" if p.get("client") else ""
+                n_str = f" — Note: {'; '.join(p['notes'][:2])}" if p.get("notes") else ""
+                lines.append(f"• **{p['name']}**{c_str}{n_str}")
+                for pin in p.get("pins", [])[:2]:
+                    actions.append({"label": f"{pin['label']} ({p['name']})", "open_path": pin["path"]})
+            return self._finish_reply(
+                text,
+                f"📌 **Progetti Attivi ({len(projs)} attivi, {len(arch)} in archivio):**\n" + "\n".join(lines),
+                "PROJECTS",
+                actions=actions[:4],
+            )
+
+        if low.startswith(("progetto:", "nuovo progetto:", "nuovo progetto ", "crea progetto ")):
+            raw_p = re.sub(r"^(progetto:|nuovo progetto:?|crea progetto:?)\s*", "", text, flags=re.IGNORECASE).strip()
+            parts_p = [x.strip() for x in re.split(r"[-|]", raw_p, maxsplit=1)]
+            p_name = parts_p[0] if parts_p else raw_p
+            p_client = ""
+            if len(parts_p) > 1:
+                p_client = re.sub(r"^cliente:?\s*", "", parts_p[1], flags=re.IGNORECASE).strip()
+            res = self.mem_proj.create_or_update_project(p_name, client=p_client)
+            if res.get("ok"):
+                proj = res["project"]
+                return self._finish_reply(
+                    text,
+                    f"📌 Scheda Progetto **\"{proj['name']}\"**"
+                    + (f" (Cliente: **{proj['client']}**)" if proj.get("client") else "")
+                    + " attivata! Puoi fissare le cartelle del Server dal pannello `📌 PROGETTI`.",
+                    "PROJECTS",
+                )
+
         # 9. Richiesta al Modello LLM Locale (Ollama) con Cronologia Conversazionale + Contesto Memoria & Agenda
         if not self.ollama_online:
             self._fetch_models()
 
         model_to_use = requested_model or self.active_model
         if not model_to_use:
+            actions = [{"label": "⬇️ Scarica Modello llama3.2 (Consigliato)", "pull_ollama_model": "llama3.2"}]
             return self._finish_reply(
                 text,
-                "⚠️ Ollama è installato ma non ho trovato modelli scaricati (esegui `ollama pull llama3.2`). Intanto puoi usare `/briefing`, `/cal`, `todo: ...`, `Ricorda che...` e `Apri <programma>`!",
+                "⚠️ Ollama è attivo ma non hai ancora scaricato un modello LLM locale! Clicca sul pulsante qui sotto (o apri `🔌 CONNESSIONI`) per scaricare **`llama3.2`** con 1 click. Intanto ho analizzato il tuo messaggio per Progetti e Memoria!",
                 "OFFLINE",
+                actions=actions,
             )
 
         self.is_generating = True
@@ -1277,14 +2382,26 @@ class OllamaLocalBridge:
             mems = self.get_memories()
             todos = self.load_todos()
             upcoming = self.calendar.get_upcoming_events(days_ahead=3)
+            traits = self.mem_proj.profile.get("traits", [])
+            proj_state = self.mem_proj.get_projects_state()
+            active_projs = proj_state.get("projects", [])
 
             context_blocks = [
                 f"Data e ora attuali: {now_dt.strftime('%A %d/%m/%Y, ore %H:%M')}.",
-                f"Stato PC: CPU {cpu}%, RAM {ram}%.",
+                f"Postazione PC: {COMPUTER_NAME} (CPU {cpu}%, RAM {ram}%).",
             ]
+            if traits:
+                context_blocks.append("Profilo base di Diego (da 'Conosciamoci'): " + " | ".join(traits[:10]))
+            if active_projs:
+                proj_summaries = []
+                for p in active_projs[:6]:
+                    c_lbl = f" (Cliente: {p['client']})" if p.get("client") else ""
+                    n_lbl = f" -> Regole/Note: {'; '.join(p['notes'])}" if p.get("notes") else ""
+                    proj_summaries.append(f"{p['name']}{c_lbl}{n_lbl}")
+                context_blocks.append("Progetti ATTIVI in corso (Memoria Calda): " + " || ".join(proj_summaries))
             if mems:
                 context_blocks.append(
-                    "Fatti e preferenze che ricordi sull'utente (Diego): "
+                    "Fatti e preferenze generali che ricordi sull'utente (Diego): "
                     + " | ".join([m["text"] for m in mems[-12:]])
                 )
             if todos:
@@ -1297,7 +2414,7 @@ class OllamaLocalBridge:
 
             system_prompt = (
                 "Sei Neko AI, il gatto-assistente personale da scrivania di Diego. "
-                "Vivi sul suo Desktop Windows. Rispondi sempre in italiano in modo naturale, "
+                "Vivi nella sua App Desktop su Windows. Rispondi sempre in italiano in modo naturale, "
                 "intelligente, concreto e conciso (2-4 frasi ben formattate). "
                 "Ricorda il contesto della conversazione e i dati seguenti:\n"
                 + "\n".join(context_blocks)
@@ -1337,10 +2454,19 @@ class OllamaLocalBridge:
 
 
 class SystemStateMonitor:
-    def __init__(self, audio: WindowsAudioCapture, ollama: OllamaLocalBridge, calendar: CalendarManager):
+    def __init__(
+        self,
+        audio: WindowsAudioCapture,
+        ollama: OllamaLocalBridge,
+        calendar: CalendarManager,
+        mem_proj: MemoryAndProjectsManager,
+        win_conn: WindowAndConnectionsManager,
+    ):
         self.audio = audio
         self.ollama = ollama
         self.calendar = calendar
+        self.mem_proj = mem_proj
+        self.win_conn = win_conn
         self.cpu_percent = 12.0
         self.ram_percent = 38.0
         self.ai_working = False
@@ -1526,6 +2652,10 @@ class SystemStateMonitor:
         cal_summary = self.calendar.get_summary_state()
         mems = self.ollama.get_memories()
         todos = self.ollama.load_todos()
+        p_state = self.mem_proj.get_projects_state()
+        active_proj = p_state.get("active_project")
+        traits_count = len(self.mem_proj.profile.get("traits", []))
+        proj_notes_count = sum(len(p.get("notes", [])) for p in p_state.get("projects", []))
 
         with self._lock:
             snap = {
@@ -1544,8 +2674,18 @@ class SystemStateMonitor:
                 "shared_cat": dict(self.shared_cat),
                 "ollama_models": list(self.ollama.models),
                 "ollama_active": self.ollama.active_model,
-                "memory_count": len(mems),
+                "ollama_online": self.ollama.ollama_online,
+                "ollama_pull": self.win_conn.ollama_pull_status,
+                "memory_count": len(mems) + traits_count + proj_notes_count,
                 "todo_count": len(todos),
+                "projects_count": len(p_state.get("projects", [])),
+                "archive_count": len(p_state.get("archive", [])),
+                "stale_projects_count": len(p_state.get("stale_projects", [])),
+                "active_project_name": active_proj["name"] if active_proj else "",
+                "profile_answered_count": len(self.mem_proj.profile.get("answers", {})),
+                "hotkey": self.mem_proj.profile.get("hotkey", "Alt+N"),
+                "window_mode": self.win_conn.window_mode,
+                "focus_input_seq": self.win_conn.focus_input_seq,
                 "calendar": cal_summary,
                 "timestamp": time.time(),
             }
@@ -1555,8 +2695,10 @@ class SystemStateMonitor:
 
 audio_capture = WindowsAudioCapture()
 calendar_manager = CalendarManager()
-ollama_bridge = OllamaLocalBridge(calendar_manager)
-monitor = SystemStateMonitor(audio_capture, ollama_bridge, calendar_manager)
+mem_proj_manager = MemoryAndProjectsManager()
+ollama_bridge = OllamaLocalBridge(calendar_manager, mem_proj_manager)
+win_conn_manager = WindowAndConnectionsManager(ollama_bridge, calendar_manager, mem_proj_manager)
+monitor = SystemStateMonitor(audio_capture, ollama_bridge, calendar_manager, mem_proj_manager, win_conn_manager)
 
 
 class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
@@ -1627,6 +2769,165 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
             ok, msg = WindowsPCActions.open_target(target)
             return self._send_json({"ok": ok, "message": msg})
 
+        if self.path.startswith("/conosciamoci"):
+            action = body.get("action", "answer")
+            category = body.get("category") or None
+            if action == "random":
+                exclude_id = body.get("exclude_id") or None
+                st = mem_proj_manager.get_onboarding_state(category=category, exclude_id=exclude_id)
+                return self._send_json({"ok": True, "onboarding": st})
+            # Default: save answer
+            qid = body.get("question_id", "")
+            ans = body.get("answer", "")
+            qtxt = body.get("question_text", "")
+            st = mem_proj_manager.save_onboarding_answer(qid, ans, category=category or "", question_text=qtxt)
+            return self._send_json({"ok": True, "onboarding": st})
+
+        if self.path.startswith("/projects"):
+            action = body.get("action", "list")
+            if action == "create":
+                res = mem_proj_manager.create_or_update_project(
+                    name=body.get("name", ""),
+                    client=body.get("client", ""),
+                    note=body.get("note", ""),
+                    pin_path=body.get("pin_path", ""),
+                    pin_label=body.get("pin_label", ""),
+                )
+                return self._send_json(res)
+            if action == "set_active":
+                st = mem_proj_manager.set_active_project(body.get("project_id", ""))
+                return self._send_json({"ok": True, "state": st})
+            if action == "add_note":
+                st = mem_proj_manager.add_project_note(body.get("project_id", ""), body.get("note", ""))
+                return self._send_json({"ok": True, "state": st})
+            if action == "delete_note":
+                st = mem_proj_manager.delete_project_note(
+                    body.get("project_id", ""), int(body.get("note_index", -1))
+                )
+                return self._send_json({"ok": True, "state": st})
+            if action == "add_pin":
+                st = mem_proj_manager.add_project_pin(
+                    body.get("project_id", ""), body.get("label", ""), body.get("path", "")
+                )
+                return self._send_json({"ok": True, "state": st})
+            if action == "delete_pin":
+                st = mem_proj_manager.delete_project_pin(body.get("project_id", ""), body.get("pin_id", ""))
+                return self._send_json({"ok": True, "state": st})
+            if action == "capture_open":
+                open_items = MemoryAndProjectsManager.capture_open_windows_paths()
+                return self._send_json({"ok": True, "open_windows": open_items})
+            if action == "archive":
+                res = mem_proj_manager.archive_project(body.get("project_id", ""))
+                return self._send_json(res)
+            if action == "restore":
+                res = mem_proj_manager.restore_from_archive(
+                    archive_id=body.get("archive_id", ""),
+                    mode=body.get("mode", "reactivate_project"),
+                    target_project_id=body.get("target_project_id"),
+                )
+                return self._send_json(res)
+            if action == "delete_archive":
+                st = mem_proj_manager.delete_archived_project(body.get("archive_id", ""))
+                return self._send_json({"ok": True, "state": st})
+
+            return self._send_json({"ok": True, "state": mem_proj_manager.get_projects_state()})
+
+        if self.path.startswith("/save_quick_memory"):
+            fact = body.get("fact", "")
+            proj_id = body.get("project_id", "")
+            if proj_id:
+                st = mem_proj_manager.add_project_note(proj_id, fact)
+                return self._send_json(
+                    {"ok": True, "message": f"🧠 Regola salvata nella scheda progetto!", "projects": st}
+                )
+            entry = ollama_bridge.add_memory(fact)
+            return self._send_json(
+                {
+                    "ok": bool(entry),
+                    "message": f"🧠 Salvato nella Memoria di Neko: \"{fact}\"",
+                    "memories": ollama_bridge.get_memories(),
+                }
+            )
+
+        if self.path.startswith("/connections"):
+            action = body.get("action", "status")
+            if action == "set_model":
+                model = (body.get("model") or "").strip()
+                if model:
+                    ollama_bridge.active_model = model
+                return self._send_json({"ok": True, "connections": win_conn_manager.get_connections_state()})
+            if action == "pull_model":
+                model = (body.get("model") or "llama3.2").strip()
+                pull_st = win_conn_manager.start_ollama_pull(model)
+                return self._send_json(
+                    {"ok": True, "pull_status": pull_st, "connections": win_conn_manager.get_connections_state()}
+                )
+            if action == "git_sync":
+                res = win_conn_manager.run_git_sync()
+                return self._send_json(res)
+            if action == "add_link":
+                links = mem_proj_manager.add_quick_link(body.get("label", ""), body.get("url", ""))
+                return self._send_json({"ok": True, "quick_links": links})
+            if action == "delete_link":
+                links = mem_proj_manager.delete_quick_link(int(body.get("index", -1)))
+                return self._send_json({"ok": True, "quick_links": links})
+            return self._send_json({"ok": True, "connections": win_conn_manager.get_connections_state()})
+
+        if self.path.startswith("/window_mode"):
+            mode = body.get("mode", "dashboard")
+            res = win_conn_manager.set_window_mode(mode)
+            return self._send_json(res)
+
+        if self.path.startswith("/settings"):
+            action = body.get("action", "get_all")
+            if action == "delete_profile_answer":
+                mem_proj_manager.delete_onboarding_answer(body.get("question_id", ""))
+            elif action == "delete_memory":
+                ollama_bridge.delete_memory(body.get("target", ""))
+            elif action == "add_memory":
+                ollama_bridge.add_memory(body.get("text", ""))
+            elif action == "delete_todo":
+                todos = ollama_bridge.load_todos()
+                idx = int(body.get("index", -1))
+                if 0 <= idx < len(todos):
+                    todos.pop(idx)
+                    ollama_bridge.save_todos(todos)
+            elif action == "add_todo":
+                txt = (body.get("text") or "").strip()
+                if txt:
+                    todos = ollama_bridge.load_todos()
+                    todos.append(txt)
+                    ollama_bridge.save_todos(todos)
+            elif action == "set_hotkey":
+                mem_proj_manager.set_hotkey(body.get("hotkey", "Alt+N"))
+            elif action == "reset":
+                target = body.get("target", "")
+                if target in ("chat", "all"):
+                    ollama_bridge.clear_chat_history()
+                if target in ("profile", "all"):
+                    mem_proj_manager.reset_profile()
+                if target in ("memories", "all"):
+                    ollama_bridge.clear_memories()
+                if target in ("todos", "all"):
+                    ollama_bridge.save_todos([])
+                if target in ("projects", "all"):
+                    mem_proj_manager.reset_projects_and_archive()
+                if target == "all":
+                    calendar_manager.local_events = []
+                    _save_json(EVENTS_FILE, [])
+
+            return self._send_json(
+                {
+                    "ok": True,
+                    "onboarding": mem_proj_manager.get_onboarding_state(),
+                    "projects": mem_proj_manager.get_projects_state(),
+                    "connections": win_conn_manager.get_connections_state(),
+                    "memories": ollama_bridge.get_memories(),
+                    "todos": ollama_bridge.load_todos(),
+                    "hotkey": mem_proj_manager.profile.get("hotkey", "Alt+N"),
+                }
+            )
+
         self.send_response(404)
         self.end_headers()
 
@@ -1664,6 +2965,19 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
                     "memories": ollama_bridge.get_memories(),
                     "todos": ollama_bridge.load_todos(),
                     "calendar": calendar_manager.get_summary_state(),
+                    "projects": mem_proj_manager.get_projects_state(),
+                    "onboarding": mem_proj_manager.get_onboarding_state(),
+                }
+            )
+
+        if self.path.startswith("/app_data"):
+            return self._send_json(
+                {
+                    "onboarding": mem_proj_manager.get_onboarding_state(),
+                    "projects": mem_proj_manager.get_projects_state(),
+                    "connections": win_conn_manager.get_connections_state(),
+                    "memories": ollama_bridge.get_memories(),
+                    "todos": ollama_bridge.load_todos(),
                 }
             )
 

@@ -1,13 +1,19 @@
-# Python cache & runtime data
+# Python cache & runtime browser profiles
 __pycache__/
 *.py[cod]
 *$py.class
 bridge/.desktop_layer_profile/
+bridge/.neko_app_profile/
+
+# Local runtime state & private calendar config
 bridge/todo.json
 bridge/chat_history.json
 bridge/memory.json
 bridge/calendar_config.json
 bridge/events.json
+bridge/profile.json
+bridge/projects.json
+bridge/archive.json
 .agents/
 
 # OS & Editor files

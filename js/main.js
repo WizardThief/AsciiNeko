@@ -7,11 +7,7 @@
   const fluidField = new FluidField();
 
   const state = {
-    screenIndex: window.screenX >= 1000 || window.screenLeft >= 1000 ? 1 : 0,
-    screenCalibrated: false,
-    screenManualOverride: false,
-    sharedCat: null,
-    globalMouse: null,
+    screenIndex: 0,
     activeMode: 'companion',
     previousUserMode: 'companion',
     manualAfk: false,
@@ -107,7 +103,14 @@
     fetchChatHistory: () => systemBridge.fetchChatHistory(),
     clearChatHistory: () => systemBridge.clearChatHistory(),
     saveCalendarConfig: (url) => systemBridge.saveCalendarConfig(url),
-    triggerPcAction: (path) => systemBridge.triggerPcAction(path)
+    triggerPcAction: (path) => systemBridge.triggerPcAction(path),
+    fetchAppData: () => systemBridge.fetchAppData(),
+    conosciamociAction: (payload) => systemBridge.conosciamociAction(payload),
+    projectsAction: (payload) => systemBridge.projectsAction(payload),
+    saveQuickMemory: (fact, projId) => systemBridge.saveQuickMemory(fact, projId),
+    connectionsAction: (payload) => systemBridge.connectionsAction(payload),
+    setWindowMode: (mode) => systemBridge.setWindowMode(mode),
+    settingsAction: (payload) => systemBridge.settingsAction(payload)
   });
 
   window.addEventListener('resize', () => {
@@ -133,15 +136,14 @@
     state.idleSeconds = 0;
 
     companion.handleMouseMove(newCol, newRow, renderer, state);
-    if (state.system.isDesktopFocus !== false) {
-      fluidField.addMouseTrail(newCol, newRow, state.mouse.vx, state.mouse.vy);
-    }
+    fluidField.addMouseTrail(newCol, newRow, state.mouse.vx, state.mouse.vy);
   });
 
   window.addEventListener('mousedown', (e) => {
     if (
       e.target.closest('#status-matrix-panel') ||
       e.target.closest('#ai-terminal-dock') ||
+      e.target.closest('#neko-modal-overlay') ||
       e.target.closest('.hud-restore-pill') ||
       e.target.closest('#hud-deadline-toast')
     ) {

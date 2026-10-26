@@ -1,46 +1,37 @@
-# ASCII AI Neko Companion // Assistente Locale Desktop (60 FPS)
+# 🐾 AsciiNeko — Assistente Personale AI Locale & Desktop App (60 FPS)
 
-Un wallpaper e assistente personale interattivo in stile **Terminale Moderno Monocromatico (60 FPS)** progettato per **Windows**, **Lively Wallpaper**, **Wallpaper Engine** e Browser, con un **Neko AI in ASCII Art** alimentato da **Ollama locale**, **Cronologia Chat & Memoria**, **Google Calendar** e **Controllo PC**.
-
----
-
-## 🚀 Avvio con 1 Click
-
-Fai semplicemente doppio click su:
-- **[`start_companion.bat`](file:///C:/Users/lodir/WizardThief/AsciiNeko/start_companion.bat)**: avvia l'unico micro-server locale ([`bridge/ai_monitor.py`](file:///C:/Users/lodir/WizardThief/AsciiNeko/bridge/ai_monitor.py) su porta `8765`) e apre subito il Neko nel browser (o aggiorna lo sfondo su Lively Wallpaper).
-- Per chiudere il bridge in background: fai doppio click su **[`stop_companion.bat`](file:///C:/Users/lodir/WizardThief/AsciiNeko/stop_companion.bat)**.
+Un'applicazione desktop indipendente per Windows con un **gattino Neko interattivo in ASCII Art (60 FPS)** e un **Assistente Personale AI locale** alimentato da **Ollama**, con sistema di **Memoria a 3 Livelli**, **Schede Progetto & Pin Server (Zero Scansione)**, **Google Calendar**, **Ispettore Memorie** e **Controllo PC**.
 
 ---
 
-## ✨ Cosa può fare Neko nel Terminale in Basso
+## 🚀 Avvio e Chiusura con 1 Click
 
-### 1. 💬 Chat Continua con Cronologia (`📜 STORICO`) e Memoria (`🧠 MEM`)
-- **Cronologia Conversazioni**: Clicca su **`📜 STORICO`** nel terminale per aprire il pannello scorrevole con tutte le tue domande e le risposte di Neko (salvate in `bridge/chat_history.json`, così rimangono anche dopo il riavvio del PC).
-- **Memoria Conversazionale**: Ollama riceve automaticamente gli ultimi messaggi della chat, le tue note salvate, i tuoi To-Do e i tuoi prossimi appuntamenti.
-- **Insegnare cose a Neko**: Scrivi semplicemente:
-  - `Ricorda che il cliente Rossi preferisce i render in formato EXR 16-bit`
-  - `Nota: la password del server di test è nella cartella Progetti`
-  - `/mem` (per vedere tutte le note salvate) o `/mem del 1` (per cancellarne una).
+- **Avvia Neko**: fai doppio click su **`Avvia_Neko_App.bat`**
+  - Avvia in background il server locale (`bridge/ai_monitor.py` su `http://127.0.0.1:8765`), apre la finestra dedicata senza barre del browser (`bridge/app_window.py`) e attiva la scorciatoia globale **`Alt + N`**.
+- **Chiudi Neko**: fai doppio click su **`Chiudi_Neko_App.bat`**
+  - Chiude la finestra di Neko, il listener della scorciatoia e il bridge Python in background.
 
-### 2. 📅 Google Calendar & Agenda Scadenze (`📅 AGENDA` / `⚙️ CAL`)
-- **Collegare Google Calendar in 10 secondi (Zero configurazione Cloud)**:
-  1. Clicca su **`⚙️ CAL`** nel terminale di Neko.
-  2. Su Google Calendar Web vai in *Impostazioni ⚙️ → Clicca sul tuo calendario a sinistra → "Indirizzo segreto in formato iCal"* e copia il link `.ics`.
-  3. Incollalo nella barra di Neko e clicca **SALVA LINK**.
-- **Creare nuovi impegni da chat**:
-  - Scrivi `Fissa call con Marco domani alle 15:00` oppure `/cal add 2026-10-28 10:30 Revisione 3D`.
-  - Neko salva l'impegno nell'agenda locale (con **promemoria automatico sul desktop 15 minuti prima**) e ti mostra anche il pulsante **`[📅 + Aggiungi su Google Calendar Web]`** per salvarlo con 1 click sul tuo Google Calendar!
+---
 
-### 3. 🖥️ Controllo Applicazioni, File e Appunti del PC
-Direttamente dalla chat di Neko puoi scrivere:
-- **Avviare programmi o cartelle**:
-  - `Apri Blender`, `Apri Unreal`, `Apri Photoshop`, `Apri VS Code`, `Apri Spotify`, `Apri Calcolatrice` *(cerca automaticamente in tutti i programmi del Menu Start di Windows!)*.
-  - `Apri Download`, `Apri Documenti`, `Apri Desktop`, `Apri Google Calendar`, `Apri YouTube`.
-- **Cercare file sul PC**:
-  - `Cerca file: preventivo` oppure `/find modello` → trova i file nelle tue cartelle principali e ti mostra il pulsante **`[📂 Apri Cartella]`**.
-- **Leggere / Riassumere gli Appunti di Windows (`📋 APPUNTI`)**:
-  - Copia qualsiasi testo o email con `Ctrl+C` e clicca su **`📋 APPUNTI`** (o scrivi `Riassumi gli appunti` / `Traduci gli appunti` in chat).
+## ✨ Funzionalità Principali
 
-### 4. ☀️ Briefing del Mattino & To-Do List
-- Clicca su **`☀️ BRIEFING`** (o scrivi `/briefing` / `buongiorno`) per avere in un colpo solo: **Impegni di oggi + To-Do attivi + Note in Memoria + Stato CPU/RAM**.
-- Usa `todo: <cosa da fare>` per aggiungere un To-Do, `/todo` per vederli e `todo done 1` per completarlo.
+### 1. 🖥️ App Desktop 3-in-1 & Scorciatoia Globale (`Alt + N`)
+- **Richiamo istantaneo (`Alt + N`)**: premi **`Alt + N`** da qualsiasi programma (es. 3ds Max, Blender, Photoshop, Browser) per portare Neko in primo piano con il cursore già pronto nella barra di comando (personalizzabile in `Alt + N`, `Alt + Q`, `Ctrl + Spazio` o `Alt + Z` per non avere conflitti con Gemini).
+- **Modalità Mini-Widget Always-on-Top (`🗕 Mini`)**: riduce la finestra a un widget compatto sempre in primo piano nell'angolo dello schermo mentre lavori.
+
+### 2. 🧠 Memoria Intelligente a 3 Livelli
+1. **`🐾 Conosciamoci` (Profilo Base — `bridge/profile.json`)**:
+   - Rispondi quando vuoi a domande rapide a scelta multipla (o risposta libera) divise per categorie (*Lavoro & Strumenti*, *Routine & Orari*, *Clienti & Progetti*, *Stile & Preferenze*).
+2. **`📌 Progetti & Server` (Memoria Calda — `bridge/projects.json`)**:
+   - Crea schede per i progetti in corso (es. *"Villa Rossi"*) con le regole del cliente (*"Il Sig. Rossi vuole sempre tutto minimale"*).
+   - **Pin Rapidi Server (`📌 Fissa Cartelle Aperte`)**: legge in 1 millisecondo le cartelle che hai già aperte in Esplora File di Windows (anche su Server NAS aziendali `\\Server\...` o lettere di rete) senza **mai** scansionare il server.
+3. **`📦 Archivio Storico Clienti` (Memoria Fredda — `bridge/archive.json`)**:
+   - Quando un progetto termina (o è inattivo da >14 giorni), puoi archiviarlo con 1 click: le regole di quel progetto non appesantiscono i task quotidiani, ma se in futuro crei un nuovo progetto per lo stesso cliente Neko le ritrova e ti propone di riattivarle.
+
+### 3. ⚙️ Control Hub Centrale, Ispettore Memorie & Reset
+Cliccando su **`⚙️ Impostazioni & Memorie`** si apre il centro di controllo a 5 schede:
+- **`🐾 Conosciamoci`**: domande guidate per insegnare a Neko chi sei.
+- **`📌 Progetti & Server`**: gestione progetti attivi, Pin cartelle Server e Archivio Storico.
+- **`🧠 Memorie & To-Do`**: ispettore trasparente per leggere, aggiungere o **eliminare singolarmente** ogni nota (`memory.json`), To-Do (`todo.json`) o risposta del profilo (`profile.json`).
+- **`🔌 Connessioni`**: collegamento facilitato a **Google Calendar (`.ics`)**, selettore e download 1-click modelli **Ollama**, **Sincronizzazione Git Casa ↔ Lavoro** e Link Rapidi.
+- **`⚙️ Scorciatoia & Reset`**: cambio scorciatoia globale in tempo reale, **Reset Selettivi** (solo Chat, solo Profilo, solo Memorie, solo To-Do, solo Progetti) e **`⚠️ RESET TOTALE DI NEKO`**.

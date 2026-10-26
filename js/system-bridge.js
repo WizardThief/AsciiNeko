@@ -160,7 +160,7 @@ class SystemBridge {
       }
     } catch (e) {}
     return {
-      reply: '⚠️ Il bridge Python non è raggiungibile su 127.0.0.1:8765. Avvia start_companion.bat!',
+      reply: '⚠️ Il bridge Python non è raggiungibile su 127.0.0.1:8765. Avvia Avvia_Neko_App.bat!',
       model: 'OFFLINE',
       actions: []
     };
@@ -208,6 +208,86 @@ class SystemBridge {
     return { ok: false };
   }
 
+  async fetchAppData() {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/app_data');
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return null;
+  }
+
+  async conosciamociAction(payload) {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/conosciamoci', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {})
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return { ok: false };
+  }
+
+  async projectsAction(payload) {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {})
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return { ok: false };
+  }
+
+  async saveQuickMemory(factText, projectId = '') {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/save_quick_memory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fact: factText, project_id: projectId })
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return { ok: false };
+  }
+
+  async connectionsAction(payload) {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/connections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {})
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return { ok: false };
+  }
+
+  async setWindowMode(mode) {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/window_mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode })
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return { ok: false };
+  }
+
+  async settingsAction(payload) {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {})
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return { ok: false };
+  }
+
   applyBridgeData(data) {
     this.bridgeConnected = true;
     this.state.system.bridgeOnline = true;
@@ -226,6 +306,12 @@ class SystemBridge {
     if (Array.isArray(data.ollama_models)) {
       this.state.system.ollamaModels = data.ollama_models;
     }
+    if (typeof data.ollama_online === 'boolean') {
+      this.state.system.ollamaOnline = data.ollama_online;
+    }
+    if (data.ollama_pull) {
+      this.state.system.ollamaPull = data.ollama_pull;
+    }
 
     if (typeof data.memory_count === 'number') {
       this.state.system.memoryCount = data.memory_count;
@@ -233,44 +319,32 @@ class SystemBridge {
     if (typeof data.todo_count === 'number') {
       this.state.system.todoCount = data.todo_count;
     }
+    if (typeof data.projects_count === 'number') {
+      this.state.system.projectsCount = data.projects_count;
+    }
+    if (typeof data.archive_count === 'number') {
+      this.state.system.archiveCount = data.archive_count;
+    }
+    if (typeof data.stale_projects_count === 'number') {
+      this.state.system.staleProjectsCount = data.stale_projects_count;
+    }
+    if (typeof data.active_project_name === 'string') {
+      this.state.system.activeProjectName = data.active_project_name;
+    }
+    if (typeof data.profile_answered_count === 'number') {
+      this.state.system.profileAnsweredCount = data.profile_answered_count;
+    }
+    if (typeof data.hotkey === 'string') {
+      this.state.system.hotkey = data.hotkey;
+    }
+    if (typeof data.window_mode === 'string') {
+      this.state.system.windowMode = data.window_mode;
+    }
+    if (typeof data.focus_input_seq === 'number') {
+      this.state.system.focusInputSeq = data.focus_input_seq;
+    }
     if (data.calendar) {
       this.state.system.calendar = data.calendar;
-    }
-
-    if (!this.state.screenManualOverride) {
-      const msSinceLocalMove = performance.now() - (this.state.mouse.lastMoveTime || 0);
-      if (msSinceLocalMove < 140 && typeof data.cursor_screen === 'number') {
-        this.state.screenIndex = data.cursor_screen;
-        this.state.screenCalibrated = true;
-      } else if (!this.state.screenCalibrated) {
-        if (window.screenX >= 1000 || window.screenLeft >= 1000) {
-          this.state.screenIndex = 1;
-        } else if (typeof data.assigned_slot === 'number') {
-          this.state.screenIndex = data.assigned_slot;
-        }
-      }
-    }
-
-    if (typeof data.cursor_x === 'number' && typeof data.screen_w === 'number') {
-      this.state.globalMouse = {
-        x: data.cursor_x,
-        y: data.cursor_y,
-        screen: data.cursor_screen || 0,
-        screenW: data.screen_w || 2560
-      };
-    }
-
-    if (data.shared_cat) {
-      if (this.state.screenIndex !== 0) {
-        this.state.sharedCat = data.shared_cat;
-      } else if (
-        data.shared_cat.remoteCommand &&
-        data.shared_cat.cmdId &&
-        data.shared_cat.cmdId !== this.lastCmdId
-      ) {
-        this.lastCmdId = data.shared_cat.cmdId;
-        this.onRemoteCommand(data.shared_cat.remoteCommand);
-      }
     }
 
     if (typeof data.code_version === 'number' && data.code_version > 0) {
