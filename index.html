@@ -324,21 +324,32 @@
                   </div>
                 </div>
 
-                <!-- Sync Casa <-> Lavoro -->
+                <!-- Cartella Memoria (Locale / Google Drive / OneDrive) -->
                 <div class="conn-card">
                   <div class="conn-card-header">
-                    <span>🔄 Sincronizzazione Casa ↔ Lavoro (GitHub)</span>
-                    <span class="conn-status-badge" id="conn-badge-git">🟢 Pronto</span>
+                    <span>☁️ Cartella Memoria (Google Drive / OneDrive / Locale)</span>
+                    <span class="conn-status-badge" id="conn-badge-storage">📂 Locale</span>
                   </div>
                   <div class="conn-card-body">
                     <div class="cal-config-row">
-                      <span class="conn-git-info" id="conn-git-info">Postazione locale · Branch main</span>
-                      <button type="button" class="term-btn btn-accent" id="btn-git-sync-now">
-                        🔄 Sincronizza Ora
+                      <input
+                        type="text"
+                        id="storage-dir-input"
+                        class="modal-input"
+                        placeholder="Percorso cartella memorie (es. G:\Il mio Drive\NekoMemory)..."
+                      />
+                      <button type="button" class="term-btn btn-accent" id="btn-pick-storage-dir" title="Scegli una cartella su Google Drive, OneDrive o sul PC">
+                        📂 Sfoglia...
+                      </button>
+                      <button type="button" class="term-btn" id="btn-save-storage-dir" title="Salva il percorso scritto qui a sinistra">
+                        💾 Salva
+                      </button>
+                      <button type="button" class="term-btn" id="btn-open-storage-dir" title="Apri la cartella delle memorie in Esplora File">
+                        📂 Apri
                       </button>
                     </div>
-                    <div class="conn-hint">
-                      Salva e allinea con 1 click Profilo, Progetti, Archivio Clienti e Memorie tra il PC dell'Ufficio e quello di Casa.
+                    <div class="conn-hint" id="conn-storage-hint">
+                      Scegli una cartella dentro <strong>Google Drive</strong> o <strong>OneDrive</strong> per avere Profilo, Progetti, To-Do e Memorie sempre sincronizzati e privati tra Casa e Ufficio (senza fare commit su Git!).
                     </div>
                   </div>
                 </div>

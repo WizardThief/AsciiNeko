@@ -33,21 +33,97 @@ import urllib.parse
 import urllib.request
 import urllib.error
 
+import shutil
+
 PORT = 8765
 OLLAMA_BASE = "http://127.0.0.1:11434"
 BRIDGE_DIR = os.path.abspath(os.path.dirname(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(BRIDGE_DIR, ".."))
-
-TODO_FILE = os.path.join(BRIDGE_DIR, "todo.json")
-CHAT_HISTORY_FILE = os.path.join(BRIDGE_DIR, "chat_history.json")
-MEMORY_FILE = os.path.join(BRIDGE_DIR, "memory.json")
-PROFILE_FILE = os.path.join(BRIDGE_DIR, "profile.json")
-PROJECTS_FILE = os.path.join(BRIDGE_DIR, "projects.json")
-ARCHIVE_FILE = os.path.join(BRIDGE_DIR, "archive.json")
-CALENDAR_CONFIG_FILE = os.path.join(BRIDGE_DIR, "calendar_config.json")
-EVENTS_FILE = os.path.join(BRIDGE_DIR, "events.json")
 USER_HOME = os.path.expanduser("~")
 COMPUTER_NAME = os.environ.get("COMPUTERNAME", "PC-LOCALE")
+
+STORAGE_CONFIG_FILE = os.path.join(BRIDGE_DIR, "storage_config.json")
+DEFAULT_DATA_DIR = os.path.join(BRIDGE_DIR, "data")
+DATA_DIR = DEFAULT_DATA_DIR
+
+TODO_FILE = ""
+CHAT_HISTORY_FILE = ""
+MEMORY_FILE = ""
+PROFILE_FILE = ""
+PROJECTS_FILE = ""
+ARCHIVE_FILE = ""
+CALENDAR_CONFIG_FILE = ""
+EVENTS_FILE = ""
+
+DATA_FILENAMES = (
+    "profile.json",
+    "projects.json",
+    "archive.json",
+    "memory.json",
+    "todo.json",
+    "events.json",
+    "chat_history.json",
+    "calendar_config.json",
+)
+
+
+def _apply_data_dir(custom_dir: str = "", migrate_from: str = ""):
+    global DATA_DIR, TODO_FILE, CHAT_HISTORY_FILE, MEMORY_FILE, PROFILE_FILE, PROJECTS_FILE, ARCHIVE_FILE, CALENDAR_CONFIG_FILE, EVENTS_FILE
+
+    target_dir = (custom_dir or "").strip()
+    if not target_dir and os.path.isfile(STORAGE_CONFIG_FILE):
+        try:
+            with open(STORAGE_CONFIG_FILE, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                target_dir = (cfg.get("data_dir") or "").strip()
+        except Exception:
+            target_dir = ""
+
+    if not target_dir:
+        target_dir = DEFAULT_DATA_DIR
+
+    try:
+        os.makedirs(target_dir, exist_ok=True)
+    except Exception:
+        target_dir = DEFAULT_DATA_DIR
+        os.makedirs(target_dir, exist_ok=True)
+
+    # Migra eventuali file JSON legacy presenti nella vecchia cartella (o direttamente in bridge/) senza sovrascrivere file già esistenti nella nuova cartella
+    sources_to_check = [BRIDGE_DIR]
+    if migrate_from and os.path.isdir(migrate_from) and os.path.abspath(migrate_from) != os.path.abspath(target_dir):
+        sources_to_check.insert(0, migrate_from)
+
+    for src_dir in sources_to_check:
+        if os.path.abspath(src_dir) == os.path.abspath(target_dir):
+            continue
+        for fname in DATA_FILENAMES:
+            src_path = os.path.join(src_dir, fname)
+            dst_path = os.path.join(target_dir, fname)
+            if os.path.isfile(src_path) and not os.path.isfile(dst_path):
+                try:
+                    shutil.copy2(src_path, dst_path)
+                except Exception:
+                    pass
+            # Rimuovi i vecchi file JSON sparsi in bridge/ dopo averli migrati in bridge/data/
+            if os.path.abspath(src_dir) == os.path.abspath(BRIDGE_DIR) and os.path.isfile(src_path) and os.path.isfile(dst_path):
+                try:
+                    os.remove(src_path)
+                except Exception:
+                    pass
+
+    DATA_DIR = os.path.abspath(target_dir)
+    TODO_FILE = os.path.join(DATA_DIR, "todo.json")
+    CHAT_HISTORY_FILE = os.path.join(DATA_DIR, "chat_history.json")
+    MEMORY_FILE = os.path.join(DATA_DIR, "memory.json")
+    PROFILE_FILE = os.path.join(DATA_DIR, "profile.json")
+    PROJECTS_FILE = os.path.join(DATA_DIR, "projects.json")
+    ARCHIVE_FILE = os.path.join(DATA_DIR, "archive.json")
+    CALENDAR_CONFIG_FILE = os.path.join(DATA_DIR, "calendar_config.json")
+    EVENTS_FILE = os.path.join(DATA_DIR, "events.json")
+    return DATA_DIR
+
+
+_apply_data_dir()
 
 
 # --- Helpers JSON su disco ---
@@ -969,6 +1045,16 @@ class MemoryAndProjectsManager:
     def _save_archive(self):
         _save_json(ARCHIVE_FILE, self.archive)
 
+    def reload_from_disk(self):
+        with self._lock:
+            self.profile = _load_json(PROFILE_FILE, self.profile)
+            self.projects = _load_json(PROJECTS_FILE, [])
+            if not isinstance(self.projects, list):
+                self.projects = []
+            self.archive = _load_json(ARCHIVE_FILE, [])
+            if not isinstance(self.archive, list):
+                self.archive = []
+
     # --- LIVELLO 1: PROFILO UTENTE & INTERVISTA "🐾 CONOSCIAMOCI" ---
     def _rebuild_traits(self):
         traits = []
@@ -1655,115 +1741,90 @@ class WindowAndConnectionsManager:
         threading.Thread(target=_pull_worker, daemon=True).start()
         return self.ollama_pull_status
 
-    def get_git_status(self):
-        try:
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            branch = subprocess.check_output(
-                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                cwd=PROJECT_ROOT,
-                startupinfo=startupinfo,
-                text=True,
-                timeout=3.0,
-            ).strip()
-            last_commit = subprocess.check_output(
-                ["git", "log", "-1", "--format=%h - %s (%cr)"],
-                cwd=PROJECT_ROOT,
-                startupinfo=startupinfo,
-                text=True,
-                timeout=3.0,
-            ).strip()
-            porcelain = subprocess.check_output(
-                ["git", "status", "--porcelain"],
-                cwd=PROJECT_ROOT,
-                startupinfo=startupinfo,
-                text=True,
-                timeout=3.0,
-            ).strip()
-            changed_count = len([l for l in porcelain.splitlines() if l.strip()]) if porcelain else 0
-            return {
-                "ok": True,
-                "branch": branch,
-                "last_commit": last_commit,
-                "changed_files": changed_count,
-                "computer": COMPUTER_NAME,
-            }
-        except Exception as e:
-            return {"ok": False, "branch": "main", "last_commit": str(e), "changed_files": 0, "computer": COMPUTER_NAME}
+    def get_storage_state(self):
+        is_custom = os.path.normcase(os.path.abspath(DATA_DIR)) != os.path.normcase(os.path.abspath(DEFAULT_DATA_DIR))
+        files_present = [f for f in DATA_FILENAMES if os.path.isfile(os.path.join(DATA_DIR, f))]
+        return {
+            "data_dir": DATA_DIR,
+            "default_dir": DEFAULT_DATA_DIR,
+            "is_custom": is_custom,
+            "files_count": len(files_present),
+            "computer": COMPUTER_NAME,
+        }
 
-    def run_git_sync(self):
-        """
-        Sincronizza i dati e il progetto tra Casa e Lavoro con 1 click:
-        esegue `git pull --rebase origin main` e, se ci sono modifiche, fa commit e push.
-        """
+    def set_storage_dir(self, new_dir: str):
+        raw = (new_dir or "").strip().strip("\"'")
+        prev_dir = DATA_DIR
+        if not raw or raw.lower() == "default":
+            target_dir = DEFAULT_DATA_DIR
+            save_cfg_val = ""
+        else:
+            target_dir = os.path.abspath(os.path.expanduser(raw))
+            save_cfg_val = target_dir
+
         try:
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            subprocess.run(
-                ["git", "pull", "--rebase", "origin", "main"],
-                cwd=PROJECT_ROOT,
-                startupinfo=startupinfo,
-                timeout=15.0,
-                check=False,
-            )
-            # Forza l'aggiunta anche dei file JSON della memoria/progetti se presenti
-            for data_file in ("profile.json", "projects.json", "archive.json", "memory.json", "todo.json", "events.json"):
-                fpath = os.path.join(BRIDGE_DIR, data_file)
-                if os.path.isfile(fpath):
-                    subprocess.run(
-                        ["git", "add", "-f", f"bridge/{data_file}"],
-                        cwd=PROJECT_ROOT,
-                        startupinfo=startupinfo,
-                        timeout=4.0,
-                        check=False,
-                    )
-            subprocess.run(
-                ["git", "add", "-A"],
-                cwd=PROJECT_ROOT,
-                startupinfo=startupinfo,
-                timeout=5.0,
-                check=False,
-            )
-            porcelain = subprocess.check_output(
-                ["git", "status", "--porcelain"],
-                cwd=PROJECT_ROOT,
-                startupinfo=startupinfo,
-                text=True,
-                timeout=4.0,
-            ).strip()
-            if porcelain:
-                msg = f"neko sync ({COMPUTER_NAME}): {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-                subprocess.run(
-                    ["git", "commit", "-m", msg],
-                    cwd=PROJECT_ROOT,
-                    startupinfo=startupinfo,
-                    timeout=6.0,
-                    check=False,
-                )
-                subprocess.run(
-                    ["git", "push", "origin", "main"],
-                    cwd=PROJECT_ROOT,
-                    startupinfo=startupinfo,
-                    timeout=15.0,
-                    check=False,
-                )
-                return {
-                    "ok": True,
-                    "message": f"✅ Sincronizzazione completata! Dati salvati e inviati su GitHub da {COMPUTER_NAME}.",
-                    "git": self.get_git_status(),
-                }
+            os.makedirs(target_dir, exist_ok=True)
+            _apply_data_dir(target_dir, migrate_from=prev_dir)
+            _save_json(STORAGE_CONFIG_FILE, {"data_dir": save_cfg_val})
+
+            # Ricarica in tempo reale tutti i file dalla nuova cartella (es. Google Drive / OneDrive)
+            self.mem_proj.reload_from_disk()
+            with self.ollama._lock:
+                self.ollama.memories = _load_json(MEMORY_FILE, [])
+                self.ollama.chat_history = _load_json(CHAT_HISTORY_FILE, [])
+            with self.calendar._lock:
+                self.calendar.local_events = _load_json(EVENTS_FILE, [])
+                self.calendar.config = _load_json(CALENDAR_CONFIG_FILE, self.calendar.config)
+
             return {
                 "ok": True,
-                "message": f"✅ Tutto già sincronizzato con GitHub ({COMPUTER_NAME})!",
-                "git": self.get_git_status(),
+                "message": f"✅ Cartella Memoria impostata su: {DATA_DIR}",
+                "storage": self.get_storage_state(),
             }
         except Exception as e:
-            return {"ok": False, "message": f"⚠️ Errore durante il sync Git: {e}", "git": self.get_git_status()}
+            return {
+                "ok": False,
+                "message": f"⚠️ Impossibile impostare la cartella '{target_dir}': {e}",
+                "storage": self.get_storage_state(),
+            }
+
+    def pick_storage_dir_dialog(self):
+        """Apre il selettore cartella nativo di Windows per scegliere una cartella (es. Google Drive / OneDrive)."""
+        try:
+            ps_script = (
+                "Add-Type -AssemblyName System.Windows.Forms; "
+                "$f = New-Object System.Windows.Forms.FolderBrowserDialog; "
+                "$f.Description = 'Scegli la cartella dove salvare le Memorie di Neko (es. Google Drive o OneDrive)'; "
+                f"$f.SelectedPath = '{DATA_DIR.replace(chr(39), chr(39)*2)}'; "
+                "$f.ShowNewFolderButton = $true; "
+                "if ($f.ShowDialog() -eq 'OK') { Write-Output $f.SelectedPath }"
+            )
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            out = subprocess.check_output(
+                ["powershell", "-NoProfile", "-Sta", "-Command", ps_script],
+                startupinfo=startupinfo,
+                text=True,
+                timeout=120.0,
+            ).strip()
+            if out:
+                return self.set_storage_dir(out)
+            return {
+                "ok": False,
+                "cancelled": True,
+                "message": "Selezione cartella annullata.",
+                "storage": self.get_storage_state(),
+            }
+        except Exception as e:
+            return {
+                "ok": False,
+                "message": f"⚠️ Impossibile aprire il selettore cartella: {e}",
+                "storage": self.get_storage_state(),
+            }
 
     def get_connections_state(self):
         self.ollama._fetch_models()
         cal_state = self.calendar.get_summary_state()
-        git_state = self.get_git_status()
         return {
             "calendar": cal_state,
             "ollama": {
@@ -1772,7 +1833,7 @@ class WindowAndConnectionsManager:
                 "models": list(self.ollama.models),
                 "pull_status": self.ollama_pull_status,
             },
-            "git": git_state,
+            "storage": self.get_storage_state(),
             "quick_links": self.mem_proj.profile.get("quick_links", []),
             "window_mode": self.window_mode,
         }
@@ -2887,9 +2948,15 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
                 return self._send_json(
                     {"ok": True, "pull_status": pull_st, "connections": win_conn_manager.get_connections_state()}
                 )
-            if action == "git_sync":
-                res = win_conn_manager.run_git_sync()
+            if action == "set_storage_dir":
+                res = win_conn_manager.set_storage_dir(body.get("data_dir", ""))
                 return self._send_json(res)
+            if action == "pick_storage_dir":
+                res = win_conn_manager.pick_storage_dir_dialog()
+                return self._send_json(res)
+            if action == "open_storage_dir":
+                ok, msg = WindowsPCActions.open_target(DATA_DIR)
+                return self._send_json({"ok": ok, "message": msg, "storage": win_conn_manager.get_storage_state()})
             if action == "add_link":
                 links = mem_proj_manager.add_quick_link(body.get("label", ""), body.get("url", ""))
                 return self._send_json({"ok": True, "quick_links": links})

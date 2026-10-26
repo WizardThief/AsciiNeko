@@ -5,7 +5,9 @@ __pycache__/
 bridge/.desktop_layer_profile/
 bridge/.neko_app_profile/
 
-# Local runtime state & private calendar config
+# Local runtime state & private memory folder (synced via Google Drive / OneDrive, NOT Git)
+bridge/data/
+bridge/storage_config.json
 bridge/todo.json
 bridge/chat_history.json
 bridge/memory.json

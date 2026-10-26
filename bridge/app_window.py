@@ -18,7 +18,8 @@ import urllib.request
 
 BRIDGE_DIR = os.path.abspath(os.path.dirname(__file__))
 MONITOR_SCRIPT = os.path.join(BRIDGE_DIR, "ai_monitor.py")
-PROFILE_FILE = os.path.join(BRIDGE_DIR, "profile.json")
+STORAGE_CONFIG_FILE = os.path.join(BRIDGE_DIR, "storage_config.json")
+DEFAULT_DATA_DIR = os.path.join(BRIDGE_DIR, "data")
 APP_PROFILE_DIR = os.path.join(BRIDGE_DIR, ".neko_app_profile")
 APP_URL = "http://127.0.0.1:8765/?mode=app"
 STATUS_URL = "http://127.0.0.1:8765/status"
@@ -39,9 +40,22 @@ HOTKEY_MAP = {
 
 
 def get_configured_hotkey() -> str:
-    if os.path.isfile(PROFILE_FILE):
+    data_dir = DEFAULT_DATA_DIR
+    if os.path.isfile(STORAGE_CONFIG_FILE):
         try:
-            with open(PROFILE_FILE, "r", encoding="utf-8") as f:
+            with open(STORAGE_CONFIG_FILE, "r", encoding="utf-8") as sf:
+                scfg = json.load(sf)
+                custom = (scfg.get("data_dir") or "").strip()
+                if custom and os.path.isdir(custom):
+                    data_dir = custom
+        except Exception:
+            pass
+    profile_path = os.path.join(data_dir, "profile.json")
+    if not os.path.isfile(profile_path):
+        profile_path = os.path.join(BRIDGE_DIR, "profile.json")
+    if os.path.isfile(profile_path):
+        try:
+            with open(profile_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 hk = data.get("hotkey", "Alt+N")
                 if hk in HOTKEY_MAP:

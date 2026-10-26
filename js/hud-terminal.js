@@ -99,9 +99,12 @@ class HudTerminal {
     this.elConnOllamaSelect = document.getElementById('conn-ollama-select');
     this.elBtnPullLlama = document.getElementById('btn-pull-llama');
     this.elConnOllamaHint = document.getElementById('conn-ollama-hint');
-    this.elConnBadgeGit = document.getElementById('conn-badge-git');
-    this.elConnGitInfo = document.getElementById('conn-git-info');
-    this.elBtnGitSyncNow = document.getElementById('btn-git-sync-now');
+    this.elConnBadgeStorage = document.getElementById('conn-badge-storage');
+    this.elStorageDirInput = document.getElementById('storage-dir-input');
+    this.elBtnPickStorageDir = document.getElementById('btn-pick-storage-dir');
+    this.elBtnSaveStorageDir = document.getElementById('btn-save-storage-dir');
+    this.elBtnOpenStorageDir = document.getElementById('btn-open-storage-dir');
+    this.elConnStorageHint = document.getElementById('conn-storage-hint');
     this.elQuickLinksChips = document.getElementById('quick-links-chips');
     this.elNewLinkLabel = document.getElementById('new-link-label');
     this.elNewLinkUrl = document.getElementById('new-link-url');
@@ -783,19 +786,39 @@ class HudTerminal {
       });
     }
 
-    if (this.elBtnGitSyncNow) {
-      this.elBtnGitSyncNow.addEventListener('click', async (e) => {
+    if (this.elBtnPickStorageDir) {
+      this.elBtnPickStorageDir.addEventListener('click', async (e) => {
         e.stopPropagation();
         if (!this.actions.connectionsAction) return;
-        this.elBtnGitSyncNow.textContent = '⏳ SYNC IN CORSO...';
-        this.say('🔄 Sincronizzazione Git Casa ↔ Lavoro in corso...');
-        const res = await this.actions.connectionsAction({ action: 'git_sync' });
-        this.elBtnGitSyncNow.textContent = '🔄 SINCRONIZZA ORA';
+        this.elBtnPickStorageDir.textContent = '⏳ Seleziona...';
+        const res = await this.actions.connectionsAction({ action: 'pick_storage_dir' });
+        this.elBtnPickStorageDir.textContent = '📂 Sfoglia...';
+        if (res && !res.cancelled) {
+          if (res.message) this.say(res.message);
+          await this.refreshAllSettingsData();
+        }
+      });
+    }
+
+    if (this.elBtnSaveStorageDir && this.elStorageDirInput) {
+      this.elBtnSaveStorageDir.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!this.actions.connectionsAction) return;
+        const dir = this.elStorageDirInput.value.trim();
+        const res = await this.actions.connectionsAction({ action: 'set_storage_dir', data_dir: dir });
         if (res && res.message) {
           this.say(res.message);
         }
-        const st = await this.actions.connectionsAction({ action: 'status' });
-        if (st && st.connections) this.renderConnectionsState(st.connections);
+        await this.refreshAllSettingsData();
+      });
+    }
+
+    if (this.elBtnOpenStorageDir) {
+      this.elBtnOpenStorageDir.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!this.actions.connectionsAction) return;
+        const res = await this.actions.connectionsAction({ action: 'open_storage_dir' });
+        if (res && res.message) this.say(res.message);
       });
     }
 
@@ -1396,12 +1419,14 @@ class HudTerminal {
       this.elConnOllamaHint.textContent = ol.pull_status.message;
     }
 
-    const git = conn.git || {};
-    if (this.elConnBadgeGit) {
-      this.elConnBadgeGit.textContent = git.ok ? `🟢 Connesso (${git.branch || 'main'})` : '🔴 Non disponibile';
+    const stg = conn.storage || {};
+    if (this.elConnBadgeStorage) {
+      this.elConnBadgeStorage.textContent = stg.is_custom
+        ? `☁️ Cartella Personalizzata (${stg.files_count || 0} file)`
+        : `📂 Locale (${stg.files_count || 0} file)`;
     }
-    if (this.elConnGitInfo) {
-      this.elConnGitInfo.textContent = `Postazione: ${git.computer || 'PC'} · Ultimo sync: ${git.last_commit || 'OK'}`;
+    if (this.elStorageDirInput && stg.data_dir) {
+      this.elStorageDirInput.value = stg.data_dir;
     }
 
     if (Array.isArray(conn.quick_links)) {
