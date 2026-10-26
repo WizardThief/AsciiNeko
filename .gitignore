@@ -1,9 +1,10 @@
-# Python cache & runtime browser profiles
+# Python cache & runtime webview profiles
 __pycache__/
 *.py[cod]
 *$py.class
 bridge/.desktop_layer_profile/
 bridge/.neko_app_profile/
+bridge/.webview_data/
 
 # Local runtime state & private memory folder (synced via Google Drive / OneDrive, NOT Git)
 bridge/data/

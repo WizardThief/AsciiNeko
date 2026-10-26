@@ -1,29 +1,38 @@
 """
-app_window.py - Launcher Applicazione Desktop Neko 3-in-1 (Dashboard + Mini-Widget + Hotkey Globale Alt+N).
+app_window.py - Applicazione Desktop Nativa Neko (pywebview + Server AI Integrato + Hotkey Globale Alt+N).
 Funzionalità:
-  1. Verifica che il server locale `ai_monitor.py` sia attivo su http://127.0.0.1:8765 (avviandolo se spento).
-  2. Apre Neko in una finestra App Desktop dedicata e pulita (`?mode=app`, 1180x780 centrata).
-  3. Registra la scorciatoia globale di Windows scelta dall'utente (di default `Alt + N` per non andare in
-     conflitto con `Alt + Spazio` di Gemini/PowerToys!) e la aggiorna dinamicamente se cambiata nelle Impostazioni.
+  1. Avvia il server locale `ai_monitor` direttamente in-process (o si collega se già attivo su 127.0.0.1:8765),
+     eliminando qualsiasi rischio di disconnessione ("127.0.0.1 ha rifiutato la connessione").
+  2. Apre Neko in una vera finestra desktop nativa tramite `pywebview` (WebView2 nativo di Windows,
+     senza dipendere da finestre browser Edge `--app` esterne).
+  3. Registra la scorciatoia globale di Windows scelta dall'utente (di default `Alt + N`) in un thread dedicato
+     e la aggiorna dinamicamente se cambiata nelle Impostazioni.
 """
 
 import ctypes
 from ctypes import wintypes
 import json
 import os
-import subprocess
 import sys
+import threading
 import time
 import urllib.request
 
+import webview
+
 BRIDGE_DIR = os.path.abspath(os.path.dirname(__file__))
-MONITOR_SCRIPT = os.path.join(BRIDGE_DIR, "ai_monitor.py")
+if BRIDGE_DIR not in sys.path:
+    sys.path.insert(0, BRIDGE_DIR)
+
+import ai_monitor
+
 STORAGE_CONFIG_FILE = os.path.join(BRIDGE_DIR, "storage_config.json")
 DEFAULT_DATA_DIR = os.path.join(BRIDGE_DIR, "data")
-APP_PROFILE_DIR = os.path.join(BRIDGE_DIR, ".neko_app_profile")
-APP_URL = "http://127.0.0.1:8765/?mode=app"
-STATUS_URL = "http://127.0.0.1:8765/status"
-WINDOW_MODE_URL = "http://127.0.0.1:8765/window_mode"
+WEBVIEW_STORAGE_DIR = os.path.join(BRIDGE_DIR, ".webview_data")
+APP_URL = f"http://127.0.0.1:{ai_monitor.PORT}/?mode=app"
+STATUS_URL = f"http://127.0.0.1:{ai_monitor.PORT}/status"
+WINDOW_MODE_URL = f"http://127.0.0.1:{ai_monitor.PORT}/window_mode"
+WINDOW_TITLE = "Neko Desktop — ASCII AI Companion"
 
 user32 = ctypes.windll.user32
 
@@ -32,10 +41,10 @@ MOD_CONTROL = 0x0002
 MOD_NOREPEAT = 0x4000
 
 HOTKEY_MAP = {
-    "Alt+N": (MOD_ALT | MOD_NOREPEAT, 0x4E),       # Alt + N ("Neko" - Default senza conflitti con Gemini!)
-    "Alt+Q": (MOD_ALT | MOD_NOREPEAT, 0x51),       # Alt + Q
+    "Alt+N": (MOD_ALT | MOD_NOREPEAT, 0x4E),           # Alt + N ("Neko" - Default senza conflitti con Gemini!)
+    "Alt+Q": (MOD_ALT | MOD_NOREPEAT, 0x51),           # Alt + Q
     "Ctrl+Space": (MOD_CONTROL | MOD_NOREPEAT, 0x20),  # Ctrl + Spazio
-    "Alt+Z": (MOD_ALT | MOD_NOREPEAT, 0x5A),       # Alt + Z
+    "Alt+Z": (MOD_ALT | MOD_NOREPEAT, 0x5A),           # Alt + Z
 }
 
 
@@ -67,7 +76,7 @@ def get_configured_hotkey() -> str:
 
 def is_server_running() -> bool:
     try:
-        with urllib.request.urlopen(STATUS_URL, timeout=1.2) as resp:
+        with urllib.request.urlopen(STATUS_URL, timeout=1.0) as resp:
             return resp.status == 200
     except Exception:
         return False
@@ -76,20 +85,9 @@ def is_server_running() -> bool:
 def ensure_server_running():
     if is_server_running():
         return True
-    pythonw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
-    if not os.path.isfile(pythonw):
-        pythonw = sys.executable
-    startupinfo = subprocess.STARTUPINFO()
-    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-    subprocess.Popen(
-        [pythonw, MONITOR_SCRIPT],
-        cwd=BRIDGE_DIR,
-        startupinfo=startupinfo,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    ai_monitor.start_background_server()
     for _ in range(25):
-        time.sleep(0.25)
+        time.sleep(0.15)
         if is_server_running():
             return True
     return False
@@ -116,64 +114,7 @@ def find_neko_app_hwnd():
     return found[0] if found else None
 
 
-def find_browser_executable():
-    candidates = [
-        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-        os.path.join(os.environ.get("LOCALAPPDATA", ""), r"Microsoft\Edge\Application\msedge.exe"),
-        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-    ]
-    for path in candidates:
-        if path and os.path.isfile(path):
-            return path
-    return None
-
-
-def launch_app_window():
-    existing_hwnd = find_neko_app_hwnd()
-    if existing_hwnd:
-        if user32.IsIconic(existing_hwnd):
-            user32.ShowWindow(existing_hwnd, 9)
-        user32.SetForegroundWindow(existing_hwnd)
-        trigger_focus_input()
-        return existing_hwnd
-
-    browser_exe = find_browser_executable()
-    screen_w = user32.GetSystemMetrics(0) or 1920
-    screen_h = user32.GetSystemMetrics(1) or 1080
-    win_w, win_h = min(1180, screen_w - 80), min(780, screen_h - 90)
-    win_x = max(20, (screen_w - win_w) // 2)
-    win_y = max(20, (screen_h - win_h) // 2)
-
-    if browser_exe:
-        os.makedirs(APP_PROFILE_DIR, exist_ok=True)
-        subprocess.Popen(
-            [
-                browser_exe,
-                f"--app={APP_URL}",
-                f"--user-data-dir={APP_PROFILE_DIR}",
-                f"--window-size={win_w},{win_h}",
-                f"--window-position={win_x},{win_y}",
-                "--disable-features=Translate,msEdgeSidebarV2",
-                "--no-first-run",
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    else:
-        os.startfile(APP_URL)
-
-    for _ in range(20):
-        time.sleep(0.2)
-        hwnd = find_neko_app_hwnd()
-        if hwnd:
-            user32.SetForegroundWindow(hwnd)
-            return hwnd
-    return None
-
-
-def trigger_focus_input():
+def trigger_focus_input(pywebview_win=None):
     try:
         req = urllib.request.Request(
             WINDOW_MODE_URL,
@@ -184,12 +125,20 @@ def trigger_focus_input():
         urllib.request.urlopen(req, timeout=1.0).read()
     except Exception:
         pass
+    if pywebview_win is not None:
+        try:
+            pywebview_win.evaluate_js(
+                "const el = document.getElementById('ai-input-field'); if (el) { el.focus(); el.select(); }"
+            )
+        except Exception:
+            pass
 
 
-def run_hotkey_loop():
+def run_hotkey_loop(pywebview_win):
     """
     Ascolta in background la scorciatoia globale configurata (default `Alt + N` per evitare conflitti con Gemini).
-    Controlla anche ogni secondo se l'utente ha cambiato scorciatoia dal pannello Impostazioni di Neko!
+    Controlla anche ogni 1.5s se l'utente ha cambiato scorciatoia dal pannello Impostazioni di Neko
+    e vigila che il server HTTP locale sia sempre attivo.
     """
     WM_HOTKEY = 0x0312
     PM_REMOVE = 0x0001
@@ -204,20 +153,25 @@ def run_hotkey_loop():
         while True:
             while user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, PM_REMOVE):
                 if msg.message == WM_HOTKEY and msg.wParam == 1:
+                    try:
+                        pywebview_win.restore()
+                        pywebview_win.show()
+                    except Exception:
+                        pass
                     hwnd = find_neko_app_hwnd()
-                    if not hwnd:
-                        launch_app_window()
-                    else:
+                    if hwnd:
                         if user32.IsIconic(hwnd):
                             user32.ShowWindow(hwnd, 9)
                         user32.SetForegroundWindow(hwnd)
-                        trigger_focus_input()
+                    trigger_focus_input(pywebview_win)
                 user32.TranslateMessage(ctypes.byref(msg))
                 user32.DispatchMessageW(ctypes.byref(msg))
 
             now = time.time()
             if now - last_check > 1.5:
                 last_check = now
+                if not is_server_running():
+                    ai_monitor.start_background_server()
                 new_hk = get_configured_hotkey()
                 if new_hk != current_hk_name:
                     user32.UnregisterHotKey(None, 1)
@@ -230,8 +184,43 @@ def run_hotkey_loop():
         user32.UnregisterHotKey(None, 1)
 
 
-if __name__ == "__main__":
+def main():
+    # Se c'è già una finestra di Neko aperta, portala in primo piano ed esci
+    existing_hwnd = find_neko_app_hwnd()
+    if existing_hwnd:
+        if user32.IsIconic(existing_hwnd):
+            user32.ShowWindow(existing_hwnd, 9)
+        user32.SetForegroundWindow(existing_hwnd)
+        trigger_focus_input()
+        return
+
     ensure_server_running()
-    launch_app_window()
-    if "--no-hotkey" not in sys.argv:
-        run_hotkey_loop()
+
+    screen_w = user32.GetSystemMetrics(0) or 1920
+    screen_h = user32.GetSystemMetrics(1) or 1080
+    win_w, win_h = min(1180, screen_w - 80), min(780, screen_h - 90)
+    win_x = max(20, (screen_w - win_w) // 2)
+    win_y = max(20, (screen_h - win_h) // 2)
+
+    window = webview.create_window(
+        WINDOW_TITLE,
+        APP_URL,
+        width=win_w,
+        height=win_h,
+        x=win_x,
+        y=win_y,
+        min_size=(400, 340),
+        background_color="#070a0f",
+        text_select=True,
+    )
+    ai_monitor.win_conn_manager.pywebview_window = window
+
+    os.makedirs(WEBVIEW_STORAGE_DIR, exist_ok=True)
+    hk_thread = threading.Thread(target=run_hotkey_loop, args=(window,), daemon=True)
+    hk_thread.start()
+
+    webview.start(private_mode=False, storage_path=WEBVIEW_STORAGE_DIR)
+
+
+if __name__ == "__main__":
+    main()

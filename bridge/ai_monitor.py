@@ -1616,6 +1616,7 @@ class WindowAndConnectionsManager:
         self.window_mode = "dashboard"
         self.focus_input_seq = 0
         self.ollama_pull_status = {"active": False, "model": "", "message": ""}
+        self.pywebview_window = None
 
     def _find_app_hwnds(self):
         hwnds = []
@@ -1658,6 +1659,12 @@ class WindowAndConnectionsManager:
 
         if mode == "focus_input":
             self.focus_input_seq += 1
+            if self.pywebview_window is not None:
+                try:
+                    self.pywebview_window.restore()
+                    self.pywebview_window.show()
+                except Exception:
+                    pass
             for hwnd in hwnds:
                 if user32.IsIconic(hwnd):
                     user32.ShowWindow(hwnd, 9)  # SW_RESTORE
@@ -1669,6 +1676,14 @@ class WindowAndConnectionsManager:
             w, h = 480, 420
             x = max(20, screen_w - w - 28)
             y = max(20, screen_h - h - 72)
+            if self.pywebview_window is not None:
+                try:
+                    self.pywebview_window.restore()
+                    self.pywebview_window.resize(w, h)
+                    self.pywebview_window.move(x, y)
+                    self.pywebview_window.on_top = True
+                except Exception:
+                    pass
             for hwnd in hwnds:
                 user32.ShowWindow(hwnd, 9)
                 user32.SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h, SWP_SHOWWINDOW)
@@ -1679,6 +1694,14 @@ class WindowAndConnectionsManager:
         w, h = min(1180, screen_w - 80), min(780, screen_h - 90)
         x = max(20, (screen_w - w) // 2)
         y = max(20, (screen_h - h) // 2)
+        if self.pywebview_window is not None:
+            try:
+                self.pywebview_window.on_top = False
+                self.pywebview_window.restore()
+                self.pywebview_window.resize(w, h)
+                self.pywebview_window.move(x, y)
+            except Exception:
+                pass
         for hwnd in hwnds:
             user32.ShowWindow(hwnd, 9)
             user32.SetWindowPos(hwnd, HWND_NOTOPMOST, x, y, w, h, SWP_SHOWWINDOW)
@@ -3074,6 +3097,17 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
             )
 
         return super().do_GET()
+
+
+def start_background_server():
+    """Avvia il server HTTP locale 127.0.0.1:8765 in un thread daemon nello stesso processo di pywebview."""
+    try:
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), CompanionRequestHandler)
+        t = threading.Thread(target=srv.serve_forever, daemon=True)
+        t.start()
+        return srv
+    except Exception:
+        return None
 
 
 if __name__ == "__main__":
