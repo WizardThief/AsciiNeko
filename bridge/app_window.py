@@ -1,12 +1,10 @@
 """
 app_window.py - Applicazione Desktop Nativa Neko (pywebview + Server AI Integrato + Hotkey Globale Alt+N).
 Funzionalità:
-  1. Avvia il server locale `ai_monitor` direttamente in-process (o si collega se già attivo su 127.0.0.1:8765),
-     eliminando qualsiasi rischio di disconnessione ("127.0.0.1 ha rifiutato la connessione").
-  2. Apre Neko in una vera finestra desktop nativa tramite `pywebview` (WebView2 nativo di Windows,
-     senza dipendere da finestre browser Edge `--app` esterne).
-  3. Registra la scorciatoia globale di Windows scelta dall'utente (di default `Alt + N`) in un thread dedicato
-     e la aggiorna dinamicamente se cambiata nelle Impostazioni.
+  1. Avvia il server locale `ai_monitor` direttamente in-process su 127.0.0.1:8765.
+  2. Apre Neko in una vera finestra desktop nativa tramite `pywebview` (WebView2).
+  3. Quando clicchi la `X` della finestra, Neko si nasconde in background (0% CPU) invece di morire,
+     così premendo `Alt + N` (o la scorciatoia scelta) la finestra riappare istantaneamente in primo piano!
 """
 
 import ctypes
@@ -35,6 +33,22 @@ WINDOW_MODE_URL = f"http://127.0.0.1:{ai_monitor.PORT}/window_mode"
 WINDOW_TITLE = "Neko Desktop — ASCII AI Companion"
 
 user32 = ctypes.windll.user32
+user32.SetWindowPos.argtypes = [
+    wintypes.HWND,
+    wintypes.HWND,
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.c_uint,
+]
+user32.SetWindowPos.restype = wintypes.BOOL
+
+HWND_TOPMOST = wintypes.HWND(-1)
+HWND_NOTOPMOST = wintypes.HWND(-2)
+SWP_NOSIZE = 0x0001
+SWP_NOMOVE = 0x0002
+SWP_SHOWWINDOW = 0x0040
 
 MOD_ALT = 0x0001
 MOD_CONTROL = 0x0002
@@ -93,12 +107,12 @@ def ensure_server_running():
     return False
 
 
-def find_neko_app_hwnd():
+def find_neko_app_hwnd(include_hidden: bool = False):
     found = []
     WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
     def _cb(hwnd, lparam):
-        if user32.IsWindowVisible(hwnd):
+        if include_hidden or user32.IsWindowVisible(hwnd):
             buf = ctypes.create_unicode_buffer(256)
             user32.GetWindowTextW(hwnd, buf, 256)
             title = buf.value or ""
@@ -112,6 +126,23 @@ def find_neko_app_hwnd():
 
     user32.EnumWindows(WNDENUMPROC(_cb), 0)
     return found[0] if found else None
+
+
+def force_foreground_hwnd(hwnd, keep_topmost: bool = False):
+    """Porta la finestra di Neko in primo piano sopra qualsiasi altra app di Windows 11."""
+    if not hwnd:
+        return
+    try:
+        user32.ShowWindow(hwnd, 5)  # SW_SHOW
+        if user32.IsIconic(hwnd):
+            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+        # Forza il salto in cima allo Z-order di Windows tramite TOPMOST temporaneo
+        user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
+        if not keep_topmost:
+            user32.SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
+        user32.SetForegroundWindow(hwnd)
+    except Exception:
+        pass
 
 
 def trigger_focus_input(pywebview_win=None):
@@ -134,6 +165,20 @@ def trigger_focus_input(pywebview_win=None):
             pass
 
 
+def summon_neko_window(pywebview_win):
+    """Mostra, ripristina e porta in primo piano la finestra nativa di Neko."""
+    if pywebview_win is not None:
+        try:
+            pywebview_win.show()
+            pywebview_win.restore()
+        except Exception:
+            pass
+    hwnd = find_neko_app_hwnd(include_hidden=True)
+    is_mini = getattr(ai_monitor.win_conn_manager, "window_mode", "dashboard") == "mini"
+    force_foreground_hwnd(hwnd, keep_topmost=is_mini)
+    trigger_focus_input(pywebview_win)
+
+
 def run_hotkey_loop(pywebview_win):
     """
     Ascolta in background la scorciatoia globale configurata (default `Alt + N` per evitare conflitti con Gemini).
@@ -153,17 +198,7 @@ def run_hotkey_loop(pywebview_win):
         while True:
             while user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, PM_REMOVE):
                 if msg.message == WM_HOTKEY and msg.wParam == 1:
-                    try:
-                        pywebview_win.restore()
-                        pywebview_win.show()
-                    except Exception:
-                        pass
-                    hwnd = find_neko_app_hwnd()
-                    if hwnd:
-                        if user32.IsIconic(hwnd):
-                            user32.ShowWindow(hwnd, 9)
-                        user32.SetForegroundWindow(hwnd)
-                    trigger_focus_input(pywebview_win)
+                    summon_neko_window(pywebview_win)
                 user32.TranslateMessage(ctypes.byref(msg))
                 user32.DispatchMessageW(ctypes.byref(msg))
 
@@ -185,12 +220,10 @@ def run_hotkey_loop(pywebview_win):
 
 
 def main():
-    # Se c'è già una finestra di Neko aperta, portala in primo piano ed esci
-    existing_hwnd = find_neko_app_hwnd()
+    # Se c'è già una finestra di Neko (anche nascosta in background), portala in primo piano ed esci
+    existing_hwnd = find_neko_app_hwnd(include_hidden=True)
     if existing_hwnd:
-        if user32.IsIconic(existing_hwnd):
-            user32.ShowWindow(existing_hwnd, 9)
-        user32.SetForegroundWindow(existing_hwnd)
+        force_foreground_hwnd(existing_hwnd, keep_topmost=False)
         trigger_focus_input()
         return
 
@@ -214,6 +247,14 @@ def main():
         text_select=True,
     )
     ai_monitor.win_conn_manager.pywebview_window = window
+
+    # Quando clicchi la 'X' della finestra, nascondi Neko in background invece di uccidere il processo,
+    # così premendo Alt+N la finestra si riapre all'istante!
+    def on_closing():
+        threading.Thread(target=lambda: window.hide(), daemon=True).start()
+        return False
+
+    window.events.closing += on_closing
 
     os.makedirs(WEBVIEW_STORAGE_DIR, exist_ok=True)
     hk_thread = threading.Thread(target=run_hotkey_loop, args=(window,), daemon=True)
