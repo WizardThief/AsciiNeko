@@ -26,7 +26,7 @@
 
       <div class="top-bar-divider hud-collapsible">│</div>
 
-      <!-- 5 Pulsanti Principali Chiari e Leggibili -->
+      <!-- 4 Pulsanti Principali Chiari e Leggibili -->
       <div class="top-bar-section" id="hud-assistant-section">
         <button class="hud-pill hud-pill-agenda" id="agenda-pill" title="Clicca per leggere i prossimi appuntamenti">
           📅 Agenda: 0
@@ -37,10 +37,7 @@
         <button class="hud-pill hud-pill-proj" id="projects-pill" title="Apri Schede Progetto, Pin Cartelle Server e Archivio Clienti">
           📌 Progetti: 0
         </button>
-        <button class="hud-pill hud-pill-onboard" id="btn-conosciamoci" title="Tutorial Interattivo AI: rispondi alle domande dinamiche per profilare il tuo lavoro">
-          🐾 Conosciamoci
-        </button>
-        <button class="hud-pill hud-pill-conn" id="btn-open-settings" title="Apri Impostazioni, Gestione Memorie, Connessioni, Scorciatoia e Reset">
+        <button class="hud-pill hud-pill-conn" id="btn-open-settings" title="Apri Impostazioni, Conosciamoci, Gestione Memorie, Connessioni, Scorciatoia e Reset">
           ⚙️ Impostazioni &amp; Memorie (<span id="mem-total-badge">0</span>)
         </button>
       </div>
@@ -167,6 +164,17 @@
           <div class="neko-modal-content">
             <!-- SCHEDA 1: 🐾 CONOSCIAMOCI (Tutorial di Profilazione Adattivo AI) -->
             <div class="modal-tab-pane" id="tab-conosciamoci">
+              <!-- Banner mostrato durante il primo avvio (Tutorial Obbligatorio in 5 passi) -->
+              <div class="tutorial-mandatory-banner" id="tutorial-mandatory-banner" style="display: none;">
+                <span style="font-size:18px;">🎓</span>
+                <div style="flex:1;">
+                  <strong id="tutorial-step-title">Configurazione Iniziale di Neko (Passo 1 di 5)</strong>
+                  <div style="font-size:12px; color:#cbd5e1; margin-top:2px;">
+                    Rispondi a queste 5 domande veloci per insegnare a Neko chi sei e che lavoro fai. Al termine si sbloccherà l'app completa!
+                  </div>
+                </div>
+              </div>
+
               <div class="pane-header-row">
                 <div>
                   <h3 class="pane-title">🐾 Tutorial di Profilazione Intelligente (AI in Tempo Reale)</h3>

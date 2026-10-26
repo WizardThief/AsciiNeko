@@ -1106,9 +1106,16 @@ class MemoryAndProjectsManager:
             pass
         return None
 
+    REQUIRED_TUTORIAL_STEPS = 5
+
     def get_onboarding_state(self, category=None, exclude_id=None, generate_ai=False):
         with self._lock:
             answered = self.profile.get("answers", {})
+            ans_count = len(answered)
+            if ans_count >= self.REQUIRED_TUTORIAL_STEPS and not self.profile.get("tutorial_completed"):
+                self.profile["tutorial_completed"] = True
+                self._save_profile()
+            tutorial_completed = bool(self.profile.get("tutorial_completed")) or (ans_count >= self.REQUIRED_TUTORIAL_STEPS)
             categories = [
                 "Identità & Attività",
                 "Lavoro & Strumenti",
@@ -1122,8 +1129,10 @@ class MemoryAndProjectsManager:
                 "categories": categories,
                 "questions": self.ONBOARDING_QUESTIONS,
                 "next_question": next_q,
-                "answered_count": len(answered),
-                "total_questions": max(len(self.ONBOARDING_QUESTIONS), len(answered) + 1),
+                "answered_count": ans_count,
+                "required_steps": self.REQUIRED_TUTORIAL_STEPS,
+                "tutorial_completed": tutorial_completed,
+                "total_questions": max(len(self.ONBOARDING_QUESTIONS), ans_count + 1),
             }
 
     def get_random_question(self, category=None, exclude_id=None, generate_ai=False):
@@ -1246,6 +1255,7 @@ class MemoryAndProjectsManager:
             self.profile["answers"] = {}
             self.profile["traits"] = []
             self.profile["last_ai_question"] = None
+            self.profile["tutorial_completed"] = False
             self._save_profile()
             return self.get_onboarding_state()
 

@@ -56,6 +56,8 @@ class HudTerminal {
     this.elBtnDismissDeadline = document.getElementById('btn-dismiss-deadline');
 
     // TAB 1: Conosciamoci Elements
+    this.elTutorialBanner = document.getElementById('tutorial-mandatory-banner');
+    this.elTutorialStepTitle = document.getElementById('tutorial-step-title');
     this.elOnboardProgress = document.getElementById('onboard-progress-badge');
     this.elBtnRandomQuestion = document.getElementById('btn-random-question');
     this.elOnboardQCat = document.getElementById('onboard-q-cat');
@@ -66,6 +68,7 @@ class HudTerminal {
     this.elOnboardTraits = document.getElementById('onboard-traits-list');
     this.currentOnboardCategory = '';
     this.currentQuestion = null;
+    this.isMandatoryTutorial = false;
 
     // TAB 2: Progetti & Archivio Elements
     this.elTabProjActive = document.getElementById('tab-btn-proj-active');
@@ -196,7 +199,10 @@ class HudTerminal {
 
   async openModalTab(tabId) {
     if (!this.elModalOverlay) return;
-    this.activeModalTab = tabId || 'tab-memorie';
+    if (this.isMandatoryTutorial && tabId && tabId !== 'tab-conosciamoci') {
+      return;
+    }
+    this.activeModalTab = this.isMandatoryTutorial ? 'tab-conosciamoci' : tabId || 'tab-memorie';
     this.elModalOverlay.style.display = 'flex';
 
     // Aggiorna bottoni sidebar e pannelli
@@ -215,7 +221,7 @@ class HudTerminal {
     if (this.elBtnOpenSettings) {
       this.elBtnOpenSettings.classList.toggle(
         'active',
-        ['tab-memorie', 'tab-connessioni', 'tab-impostazioni'].includes(this.activeModalTab)
+        ['tab-conosciamoci', 'tab-memorie', 'tab-connessioni', 'tab-impostazioni'].includes(this.activeModalTab)
       );
     }
 
@@ -224,6 +230,10 @@ class HudTerminal {
 
   closeModal() {
     if (!this.elModalOverlay) return;
+    if (this.isMandatoryTutorial) {
+      this.say('🎓 Completa prima le 5 domande rapide del Tutorial per insegnare a Neko chi sei!');
+      return;
+    }
     this.elModalOverlay.style.display = 'none';
     if (this.elBtnConosciamoci) this.elBtnConosciamoci.classList.remove('active');
     if (this.elProjectsPill) this.elProjectsPill.classList.remove('active');
@@ -1106,8 +1116,50 @@ class HudTerminal {
   renderOnboardingState(onb) {
     if (!onb) return;
     const traits = onb.profile && Array.isArray(onb.profile.traits) ? onb.profile.traits : [];
+    const ansCount = onb.answered_count || 0;
+    const reqSteps = onb.required_steps || 5;
+    const tutDone = Boolean(onb.tutorial_completed) || ansCount >= reqSteps;
+    const wasMandatory = this.isMandatoryTutorial;
+
+    if (!tutDone) {
+      this.isMandatoryTutorial = true;
+      if (this.elModalOverlay) {
+        this.elModalOverlay.classList.add('mandatory-tutorial');
+        this.elModalOverlay.style.display = 'flex';
+      }
+      this.activeModalTab = 'tab-conosciamoci';
+      document.querySelectorAll('[data-modal-tab]').forEach((btn) => {
+        btn.classList.toggle('active', btn.getAttribute('data-modal-tab') === 'tab-conosciamoci');
+      });
+      document.querySelectorAll('.modal-tab-pane').forEach((pane) => {
+        pane.style.display = pane.id === 'tab-conosciamoci' ? 'flex' : 'none';
+      });
+      if (this.elTutorialBanner) {
+        this.elTutorialBanner.style.display = 'flex';
+      }
+      if (this.elTutorialStepTitle) {
+        this.elTutorialStepTitle.textContent = `Configurazione Iniziale di Neko (Passo ${Math.min(reqSteps, ansCount + 1)} di ${reqSteps})`;
+      }
+    } else {
+      this.isMandatoryTutorial = false;
+      if (this.elModalOverlay) {
+        this.elModalOverlay.classList.remove('mandatory-tutorial');
+      }
+      if (this.elTutorialBanner) {
+        this.elTutorialBanner.style.display = 'none';
+      }
+      if (wasMandatory) {
+        this.closeModal();
+        this.say(
+          '🎉 Tutorial iniziale completato! Ora so chi sei e come lavori. Trovi sempre "🐾 Conosciamoci" dentro ⚙️ Impostazioni & Memorie!'
+        );
+      }
+    }
+
     if (this.elOnboardProgress) {
-      this.elOnboardProgress.textContent = `${traits.length} tratti appresi`;
+      this.elOnboardProgress.textContent = tutDone
+        ? `${traits.length} tratti appresi`
+        : `Passo ${Math.min(reqSteps, ansCount + 1)}/${reqSteps}`;
     }
     const q = onb.next_question;
     this.currentQuestion = q;
