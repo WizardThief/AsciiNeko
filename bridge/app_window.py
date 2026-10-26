@@ -19,8 +19,10 @@ import urllib.request
 import webview
 
 BRIDGE_DIR = os.path.abspath(os.path.dirname(__file__))
-if BRIDGE_DIR not in sys.path:
-    sys.path.insert(0, BRIDGE_DIR)
+ROOT_DIR = os.path.abspath(os.path.join(BRIDGE_DIR, ".."))
+for _p in (ROOT_DIR, BRIDGE_DIR):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import ai_monitor
 
@@ -214,13 +216,16 @@ def run_hotkey_loop(pywebview_win):
     current_hk_name = get_configured_hotkey()
     mods, vk = HOTKEY_MAP.get(current_hk_name, HOTKEY_MAP.get("Ctrl+Alt+N", HOTKEY_MAP["Alt+N"]))
     user32.RegisterHotKey(None, 1, mods, vk)
+    # Registra sempre anche Alt+N (ID 2) e Ctrl+Alt+N (ID 3) come alias rapidi
+    user32.RegisterHotKey(None, 2, MOD_ALT | MOD_NOREPEAT, 0x4E)
+    user32.RegisterHotKey(None, 3, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, 0x4E)
 
     msg = wintypes.MSG()
     last_check = time.time()
     try:
         while True:
             while user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, PM_REMOVE):
-                if msg.message == WM_HOTKEY and msg.wParam == 1:
+                if msg.message == WM_HOTKEY and msg.wParam in (1, 2, 3):
                     summon_neko_window(pywebview_win)
                 user32.TranslateMessage(ctypes.byref(msg))
                 user32.DispatchMessageW(ctypes.byref(msg))
@@ -240,6 +245,8 @@ def run_hotkey_loop(pywebview_win):
             time.sleep(0.03)
     finally:
         user32.UnregisterHotKey(None, 1)
+        user32.UnregisterHotKey(None, 2)
+        user32.UnregisterHotKey(None, 3)
 
 
 def main():

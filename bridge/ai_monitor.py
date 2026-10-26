@@ -37,6 +37,12 @@ from typing import Any, Dict, List, Optional, Tuple
 import shutil
 import logging
 
+_BRIDGE_DIR = os.path.abspath(os.path.dirname(__file__))
+_ROOT_DIR = os.path.abspath(os.path.join(_BRIDGE_DIR, ".."))
+for _p in (_ROOT_DIR, _BRIDGE_DIR):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
 from bridge.storage_manager import (
     StorageManager,
     StorageError,
