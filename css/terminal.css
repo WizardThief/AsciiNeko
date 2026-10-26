@@ -162,6 +162,90 @@ html, body {
   background: rgba(14, 165, 233, 0.1);
 }
 
+.hud-pill-todo.has-todos,
+.hud-pill-todo.active {
+  color: #34d399;
+  border-color: rgba(52, 211, 153, 0.45);
+  background: rgba(16, 185, 129, 0.12);
+}
+
+/* Popover Rapido To-Do sotto la Top Bar */
+.hud-todo-popover {
+  position: fixed;
+  top: 58px;
+  left: 190px;
+  width: 360px;
+  max-height: 360px;
+  background: rgba(12, 14, 22, 0.96);
+  border: 1px solid rgba(52, 211, 153, 0.45);
+  border-radius: 10px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(14px);
+  z-index: 60;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.todo-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+  font-weight: 700;
+  color: #34d399;
+  letter-spacing: 0.03em;
+}
+
+.todo-popover-input-row {
+  display: flex;
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.todo-popover-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  overflow-y: auto;
+  max-height: 230px;
+}
+
+.todo-popover-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 7px;
+  font-size: 13px;
+  color: var(--text-bright);
+}
+
+.todo-popover-check {
+  background: rgba(16, 185, 129, 0.16);
+  border: 1px solid rgba(52, 211, 153, 0.45);
+  color: #34d399;
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.todo-popover-check:hover {
+  background: #10b981;
+  color: #05080d;
+}
+
 .hud-pill-mem {
   color: #a78bfa;
   border-color: rgba(139, 92, 246, 0.35);

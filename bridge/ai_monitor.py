@@ -880,124 +880,64 @@ class MemoryAndProjectsManager:
 
     ONBOARDING_QUESTIONS = [
         {
-            "id": "q_role",
-            "category": "Lavoro & Software",
-            "question": "Di cosa ti occupi principalmente nel tuo lavoro di tutti i giorni?",
+            "id": "q_identity",
+            "category": "Identità & Attività",
+            "question": "Ciao! Facciamo conoscenza: come ti chiami e di cosa ti occupi principalmente (lavoro, studio o attività)?",
             "options": [
-                "3D Artist & ArchViz",
-                "Technical Artist & Unreal Engine",
-                "3D Generalist & Animazione",
-                "Visual Designer & Post-Produzione",
+                "Sviluppo Software, Programmazione o IT",
+                "Design, Grafica, Architettura / 3D o Creatività",
+                "Business, Management, Marketing o Consulenza",
+                "Studio, Ricerca o Libera Professione",
             ],
-            "trait_prefix": "Ruolo principale",
+            "trait_prefix": "Identità e attività principale",
         },
         {
-            "id": "q_software",
-            "category": "Lavoro & Software",
-            "question": "Quali sono i software principali che tieni aperti ogni giorno?",
+            "id": "q_tools",
+            "category": "Lavoro & Strumenti",
+            "question": "Quali sono i programmi, gli strumenti o le piattaforme che usi di più ogni giorno sul PC?",
             "options": [
-                "3ds Max + Corona / V-Ray + Photoshop",
-                "3ds Max + Unreal Engine + Blender + Photoshop",
-                "Blender + Unreal Engine + Substance",
-                "Unreal Engine + DaVinci + VS Code",
+                "Editor di codice, Terminale, Git e strumenti di sviluppo",
+                "Software grafici, 3D, CAD o montaggio video",
+                "Browser, Suite Office / Google Workspace, Notion e Mail",
+                "Un mix di software tecnici, gestionali e creativi",
             ],
-            "trait_prefix": "Software usati quotidianamente",
+            "trait_prefix": "Strumenti usati quotidianamente",
         },
         {
-            "id": "q_deliverables",
-            "category": "Lavoro & Software",
-            "question": "Quali sono gli output o le consegne che prepari più spesso?",
-            "options": [
-                "Render statici fotorealistici per clienti",
-                "Scene interattive / Animazioni in Unreal & 3ds Max",
-                "Modelli 3D ottimizzati, FBX e materiali",
-                "Immagini post-prodotte e presentazioni cliente",
-            ],
-            "trait_prefix": "Consegne tipiche",
-        },
-        {
-            "id": "q_hours",
-            "category": "Routine & Orari",
-            "question": "Qual è la tua fascia oraria di lavoro abituale?",
-            "options": [
-                "9:00 - 18:00 (Briefing alle 9:00)",
-                "9:30 - 19:00 (Mattina creativa, pomeriggio call/revisioni)",
-                "Orario flessibile basato sulle consegne",
-                "Mattina focus 3D pesante, pomeriggio post e clienti",
-            ],
-            "trait_prefix": "Orari e routine di lavoro",
-        },
-        {
-            "id": "q_breaks",
-            "category": "Routine & Orari",
-            "question": "Come preferisci gestire il focus e le pause mentre lavori?",
-            "options": [
-                "Sessioni lunghe (50-60 min) con pausa caffè",
-                "Sprint Pomodoro da 25 minuti",
-                "Non interrompermi quando faccio render/3D, avvisami solo per le call",
-                "Ricordami di staccare gli occhi ogni 90 minuti",
-            ],
-            "trait_prefix": "Gestione focus e pause",
-        },
-        {
-            "id": "q_end_day",
-            "category": "Routine & Orari",
-            "question": "A fine giornata lavorativa cosa ti è più comodo che ti ricordi?",
-            "options": [
-                "Fare il punto dei To-Do per domani mattina",
-                "Sincronizzare i dati Casa ↔ Lavoro e salvare le versioni",
-                "Controllare se ci sono progetti conclusi da archiviare",
-                "Segnare le ultime note o richieste arrivate dai clienti",
-            ],
-            "trait_prefix": "Routine di fine giornata",
-        },
-        {
-            "id": "q_server_workflow",
+            "id": "q_projects",
             "category": "Clienti & Progetti",
-            "question": "Dove vivono di solito le cartelle dei tuoi progetti?",
+            "question": "Su che tipo di progetti, clienti o obiettivi ti stai concentrando in questo periodo?",
             "options": [
-                "Su Server NAS in ufficio (cartelle complesse per Anno/Cliente)",
-                "Misto: Server di rete in studio + disco locale a casa",
-                "Cartelle divise in 01_Ref, 02_3D, 03_Render, 04_Post",
-                "Server condiviso + repository Git / Cloud per gli script",
+                "Progetti per clienti con scadenze e revisioni da tracciare",
+                "Sviluppo di prodotti, app o progetti personali",
+                "Gestione operativa di task, scadenze e riunioni",
+                "Studio, formazione o ricerca su nuovi argomenti",
             ],
-            "trait_prefix": "Organizzazione cartelle progetto",
+            "trait_prefix": "Focus progetti e attività",
         },
         {
-            "id": "q_client_notes",
-            "category": "Clienti & Progetti",
-            "question": "Quali informazioni sui clienti vuoi che io tenga sempre d'occhio?",
+            "id": "q_routine",
+            "category": "Routine & Orari",
+            "question": "Qual è la cosa in cui un assistente sulla scrivania ti farebbe più comodo durante la giornata?",
             "options": [
-                "Gusti estetici e stile (es. minimale, caldo, contrastato)",
-                "Formati richiesti, risoluzioni, inquadrature e scadenze",
-                "Correzioni ricorrenti da non dimenticare prima della consegna",
-                "Tutto: stile preferito, regole tecniche e note sulle revisioni",
+                "Ricordarmi impegni, call e To-Do senza farmi perdere il filo",
+                "Tenere traccia delle note e regole di ogni progetto o cliente",
+                "Aiutarmi al volo con riassunti, bozze, calcoli o problemi tecnici",
+                "Organizzare la giornata al mattino e fare il punto a fine lavoro",
             ],
-            "trait_prefix": "Dettagli chiave da ricordare sui clienti",
+            "trait_prefix": "Supporto prioritario richiesto a Neko",
         },
         {
-            "id": "q_neko_tone",
+            "id": "q_style",
             "category": "Stile & Preferenze",
-            "question": "Come preferisci che ti risponda Neko durante la giornata?",
+            "question": "Come preferisci che Neko comunichi e interagisca con te?",
             "options": [
                 "Diretto, sintetico e super pratico (2-3 righe)",
                 "Organizzato per punti elenco chiari e azionabili",
-                "Simpatico e amichevole ma sempre conciso",
-                "Proattivo: proponimi subito il bottone o l'azione giusta",
+                "Amichevole e propositivo, suggerendo subito l'azione giusta",
+                "Tecnico, preciso e focalizzato sulla soluzione",
             ],
-            "trait_prefix": "Stile di comunicazione preferito per Neko",
-        },
-        {
-            "id": "q_priorities",
-            "category": "Stile & Preferenze",
-            "question": "Quando hai tante task aperte contemporaneamente, a cosa dai priorità?",
-            "options": [
-                "Scadenze e revisioni urgenti dei clienti",
-                "Lanciare subito i render/calcoli lunghi e poi fare il resto",
-                "Sbrigare prima i task rapidi da 10 minuti per pulire la lista",
-                "Seguire l'ordine degli appuntamenti in Agenda",
-            ],
-            "trait_prefix": "Criterio di priorità nelle task",
+            "trait_prefix": "Stile di comunicazione preferito",
         },
     ]
 
@@ -1013,11 +953,12 @@ class MemoryAndProjectsManager:
         self.profile = _load_json(
             PROFILE_FILE,
             {
-                "name": "Diego",
+                "name": "",
                 "answers": {},
                 "traits": [],
                 "quick_links": list(self.DEFAULT_QUICK_LINKS),
                 "active_project_id": "",
+                "last_ai_question": None,
             },
         )
         if "answers" not in self.profile or not isinstance(self.profile["answers"], dict):
@@ -1055,35 +996,160 @@ class MemoryAndProjectsManager:
             if not isinstance(self.archive, list):
                 self.archive = []
 
-    # --- LIVELLO 1: PROFILO UTENTE & INTERVISTA "🐾 CONOSCIAMOCI" ---
+    # --- LIVELLO 1: PROFILO UTENTE & TUTORIAL DI PROFILAZIONE ADATTIVO AI ("🐾 CONOSCIAMOCI") ---
     def _rebuild_traits(self):
         traits = []
         q_map = {q["id"]: q for q in self.ONBOARDING_QUESTIONS}
         for qid, ans_obj in self.profile.get("answers", {}).items():
+            ai_summary = (ans_obj.get("ai_trait") or "").strip()
+            if ai_summary:
+                traits.append(ai_summary)
+                continue
             ans_text = (ans_obj.get("answer") or "").strip()
             if not ans_text:
                 continue
-            prefix = q_map[qid]["trait_prefix"] if qid in q_map else ans_obj.get("question", "Nota profilo")
+            prefix = q_map[qid]["trait_prefix"] if qid in q_map else ans_obj.get("trait_prefix") or ans_obj.get("category", "Profilo")
             traits.append(f"{prefix}: {ans_text}")
         self.profile["traits"] = traits
 
-    def get_onboarding_state(self, category=None, exclude_id=None):
+    def _call_ollama_profiling(self, latest_question: str = "", latest_answer: str = "", category_hint: str = ""):
+        """
+        Usa il modello locale Ollama (es. qwen2.5:7b) in tempo reale per:
+        1. Sintetizzare l'ultima risposta dell'utente in un tratto di memoria chiaro e universale (`extracted_trait`).
+        2. Generare una nuova domanda di profilazione su misura per il lavoro/vita dell'utente (`next_question`)
+           con 4 opzioni cliccabili pertinenti.
+        """
+        try:
+            # Scegli il modello attivo o cerca il primo disponibile
+            req_tags = urllib.request.Request(f"{OLLAMA_BASE}/api/tags", method="GET")
+            with urllib.request.urlopen(req_tags, timeout=1.5) as r_tags:
+                models_data = json.loads(r_tags.read().decode("utf-8")).get("models", [])
+                model_names = [m.get("name", "") for m in models_data if m.get("name")]
+            chat_models = [
+                m for m in model_names if not any(x in m.lower() for x in ("embed", "nomic", "bge", "clef"))
+            ]
+            chat_models.sort(key=lambda n: (0 if n.lower().startswith("qwen2.5") else 1, n.lower()))
+            model = self.profile.get("preferred_model") or (chat_models[0] if chat_models else "")
+            if not model:
+                return None
+
+            existing_traits = list(self.profile.get("traits", []))
+            answered_questions = [
+                f"- D: {v.get('question', '')} -> R: {v.get('answer', '')}"
+                for v in list(self.profile.get("answers", {}).values())[-8:]
+            ]
+            context_str = "\n".join(answered_questions) if answered_questions else "Nessuna risposta precedente."
+            cat_instruction = (
+                f"Concentra la prossima domanda sul tema '{category_hint}'."
+                if category_hint
+                else "Scegli l'aspetto più utile da scoprire ora per profilare al meglio l'utente (il suo lavoro specifico, come organizza le attività, che strumenti usa, quali sono i suoi obiettivi o preferenze)."
+            )
+
+            prompt = (
+                "Sei il motore di profilazione intelligente di Neko, un assistente AI personale da scrivania.\n"
+                "Il tuo compito è conoscere l'utente passo dopo passo (qualunque sia il suo lavoro o percorso: programmatore, designer, medico, studente, artigiano, manager, ecc.) senza dare nulla per scontato.\n\n"
+                f"STORICO RISPOSTE GIÀ DATE DALL'UTENTE:\n{context_str}\n\n"
+            )
+            if latest_answer:
+                prompt += (
+                    f"ULTIMA DOMANDA FATTA: {latest_question}\n"
+                    f"ULTIMA RISPOSTA DELL'UTENTE: {latest_answer}\n\n"
+                )
+            prompt += (
+                f"{cat_instruction}\n"
+                "Rispondi ESCLUSIVAMENTE con un oggetto JSON valido (nessun testo fuori dal JSON) con questa struttura esatta:\n"
+                "{\n"
+                '  "extracted_trait": "Sintesi chiara e concisa in terza persona di ciò che hai appena imparato dall\'ultima risposta (es. \'Professione: Architetto specializzato in ristrutturazioni\' oppure \'Strumenti chiave: Python, VS Code e Docker\'). Lascia stringa vuota se non c\'è un\'ultima risposta",\n'
+                '  "category": "Una tra: Identità & Attività | Lavoro & Strumenti | Clienti & Progetti | Routine & Orari | Stile & Preferenze",\n'
+                '  "trait_prefix": "Titolo breve del nuovo aspetto indagato (es. Flusso di lavoro quotidiano)",\n'
+                '  "question": "Una domanda naturale, curiosa e specifica basata su quello che l\'utente ti ha già detto (non ripetere domande già fatte!)",\n'
+                '  "options": ["Opzione rapida 1 su misura", "Opzione rapida 2 su misura", "Opzione rapida 3 su misura", "Opzione rapida 4 su misura"]\n'
+                "}"
+            )
+
+            payload = {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "format": "json",
+                "stream": False,
+            }
+            req = urllib.request.Request(
+                f"{OLLAMA_BASE}/api/chat",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=12.0) as resp:
+                raw = json.loads(resp.read().decode("utf-8")).get("message", {}).get("content", "").strip()
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict) and parsed.get("question"):
+                    opts = parsed.get("options")
+                    if not isinstance(opts, list) or len(opts) < 2:
+                        opts = [
+                            "Sì, esattamente così",
+                            "In parte, dipende dal progetto",
+                            "Preferisco gestire questo aspetto in modo flessibile",
+                            "Ti spiego meglio a parole mie qui sotto",
+                        ]
+                    return {
+                        "extracted_trait": (parsed.get("extracted_trait") or "").strip(),
+                        "next_question": {
+                            "id": f"q_ai_{int(time.time() * 1000)}",
+                            "category": (parsed.get("category") or category_hint or "Profilo Su Misura AI").strip(),
+                            "question": parsed["question"].strip(),
+                            "options": [str(o).strip() for o in opts[:4] if str(o).strip()],
+                            "trait_prefix": (parsed.get("trait_prefix") or "Profilo").strip(),
+                            "ai_generated": True,
+                        },
+                    }
+        except Exception:
+            pass
+        return None
+
+    def get_onboarding_state(self, category=None, exclude_id=None, generate_ai=False):
         with self._lock:
             answered = self.profile.get("answers", {})
-            categories = ["Lavoro & Software", "Routine & Orari", "Clienti & Progetti", "Stile & Preferenze"]
-            next_q = self.get_random_question(category=category, exclude_id=exclude_id)
+            categories = [
+                "Identità & Attività",
+                "Lavoro & Strumenti",
+                "Clienti & Progetti",
+                "Routine & Orari",
+                "Stile & Preferenze",
+            ]
+            next_q = self.get_random_question(category=category, exclude_id=exclude_id, generate_ai=generate_ai)
             return {
                 "profile": self.profile,
                 "categories": categories,
                 "questions": self.ONBOARDING_QUESTIONS,
                 "next_question": next_q,
                 "answered_count": len(answered),
-                "total_questions": len(self.ONBOARDING_QUESTIONS),
+                "total_questions": max(len(self.ONBOARDING_QUESTIONS), len(answered) + 1),
             }
 
-    def get_random_question(self, category=None, exclude_id=None):
+    def get_random_question(self, category=None, exclude_id=None, generate_ai=False):
         with self._lock:
             answered = self.profile.get("answers", {})
+
+            # 1. Se l'utente ha chiesto esplicitamente una nuova domanda AI (o se ha già risposto alle prime domande base)
+            if generate_ai and len(answered) >= 1:
+                ai_res = self._call_ollama_profiling(category_hint=category or "")
+                if ai_res and ai_res.get("next_question"):
+                    self.profile["last_ai_question"] = ai_res["next_question"]
+                    self._save_profile()
+                    return ai_res["next_question"]
+
+            # 2. Se c'è già una domanda AI generata dopo l'ultima risposta e non stiamo chiedendo di cambiarla
+            cached_ai_q = self.profile.get("last_ai_question")
+            if (
+                cached_ai_q
+                and isinstance(cached_ai_q, dict)
+                and cached_ai_q.get("id") != exclude_id
+                and cached_ai_q.get("id") not in answered
+                and (not category or cached_ai_q.get("category") == category)
+            ):
+                return cached_ai_q
+
+            # 3. Altrimenti proponi in ordine le domande seme universali non ancora risposte
             pool = [
                 q
                 for q in self.ONBOARDING_QUESTIONS
@@ -1096,25 +1162,14 @@ class MemoryAndProjectsManager:
 
             unanswered = [q for q in pool if q["id"] not in answered]
             if unanswered:
-                idx = int(time.time() * 1000) % len(unanswered)
-                return unanswered[idx]
+                return unanswered[0]
 
-            # Se ha già risposto a tutte le domande base, proponi una domanda curiosa contestuale!
-            active_projs = [p for p in self.projects if p.get("status", "active") == "active"]
-            if active_projs:
-                proj = active_projs[0]
-                return {
-                    "id": f"q_ctx_{proj['id']}",
-                    "category": category or "Clienti & Progetti",
-                    "question": f"Sul progetto attivo '{proj['name']}', c'è una regola o preferenza del cliente {proj.get('client') or ''} da non dimenticare?",
-                    "options": [
-                        "Vuole stile minimale e pulito",
-                        "Attenzione massima a luci e materiali realistici",
-                        "Consegna file ordinati sul Server con naming preciso",
-                        "Richiede spesso anteprime veloci prima del render finale",
-                    ],
-                    "trait_prefix": f"Regola progetto {proj['name']}",
-                }
+            # 4. Se tutte le domande base sono state risposte, genera una domanda su misura con l'AI!
+            ai_res = self._call_ollama_profiling(category_hint=category or "")
+            if ai_res and ai_res.get("next_question"):
+                self.profile["last_ai_question"] = ai_res["next_question"]
+                self._save_profile()
+                return ai_res["next_question"]
 
             idx = int(time.time() * 1000) % len(pool)
             return pool[idx]
@@ -1126,23 +1181,43 @@ class MemoryAndProjectsManager:
 
         with self._lock:
             q_obj = next((q for q in self.ONBOARDING_QUESTIONS if q["id"] == question_id), None)
+            cached_ai_q = self.profile.get("last_ai_question")
+            if not q_obj and isinstance(cached_ai_q, dict) and cached_ai_q.get("id") == question_id:
+                q_obj = cached_ai_q
+
             cat = category or (q_obj["category"] if q_obj else "Profilo")
             q_txt = question_text or (q_obj["question"] if q_obj else question_id)
+            t_pref = q_obj.get("trait_prefix", cat) if q_obj else cat
+
             self.profile["answers"][question_id] = {
                 "category": cat,
                 "question": q_txt,
+                "trait_prefix": t_pref,
                 "answer": clean_ans,
+                "ai_trait": "",
                 "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
             }
+
+            # Elabora in tempo reale con Ollama per sintetizzare il tratto e generare la prossima domanda su misura!
+            ai_res = self._call_ollama_profiling(
+                latest_question=q_txt,
+                latest_answer=clean_ans,
+                category_hint="",
+            )
+            if ai_res:
+                if ai_res.get("extracted_trait"):
+                    self.profile["answers"][question_id]["ai_trait"] = ai_res["extracted_trait"]
+                if ai_res.get("next_question"):
+                    self.profile["last_ai_question"] = ai_res["next_question"]
+
             self._rebuild_traits()
             self._save_profile()
 
-            # Se la domanda riguardava un progetto attivo (q_ctx_proj_...), aggiungi la nota anche al progetto!
             if question_id.startswith("q_ctx_"):
                 proj_id = question_id[len("q_ctx_") :]
                 self.add_project_note(proj_id, clean_ans)
 
-            return self.get_onboarding_state(category=cat, exclude_id=question_id)
+            return self.get_onboarding_state(category=None, exclude_id=question_id)
 
     def delete_onboarding_answer(self, question_id: str):
         with self._lock:
@@ -1170,6 +1245,7 @@ class MemoryAndProjectsManager:
         with self._lock:
             self.profile["answers"] = {}
             self.profile["traits"] = []
+            self.profile["last_ai_question"] = None
             self._save_profile()
             return self.get_onboarding_state()
 
@@ -2058,7 +2134,7 @@ class OllamaLocalBridge:
             return "📊 Impossibile leggere la lista dettagliata dei processi in questo istante."
 
     def _parse_natural_date_time(self, text: str):
-        """Estrae data e ora da frasi come 'domani alle 15:30', 'oggi alle 18', '2026-10-28 14:00'."""
+        """Estrae data e ora da frasi come 'stasera alle 18', 'domani alle 15:30', '2026-10-28 14:00'."""
         now = datetime.now()
         low = text.lower()
         target_date = now.date()
@@ -2084,8 +2160,30 @@ class OllamaLocalBridge:
             target_date = now.date() + timedelta(days=2)
         elif "domani" in low:
             target_date = now.date() + timedelta(days=1)
+        else:
+            weekdays_it = {
+                "lunedì": 0, "lunedi": 0,
+                "martedì": 1, "martedi": 1,
+                "mercoledì": 2, "mercoledi": 2,
+                "giovedì": 3, "giovedi": 3,
+                "venerdì": 4, "venerdi": 4,
+                "sabato": 5,
+                "domenica": 6,
+            }
+            for w_name, w_idx in weekdays_it.items():
+                if re.search(rf"\b{w_name}\b", low):
+                    days_ahead = (w_idx - now.weekday()) % 7
+                    if days_ahead == 0:
+                        days_ahead = 7
+                    target_date = now.date() + timedelta(days=days_ahead)
+                    break
 
         hour, minute = 9, 0
+        if "stasera" in low:
+            hour = 20
+        elif "pomeriggio" in low:
+            hour = 15
+
         m_time = re.search(r"(?:alle|ore|\b)(\d{1,2})[:\.](\d{2})\b", low)
         m_hour_only = re.search(r"\b(?:alle|ore)\s+(\d{1,2})\b", low)
         if m_time:
@@ -2095,16 +2193,25 @@ class OllamaLocalBridge:
             hour = min(23, max(0, int(m_hour_only.group(1))))
             minute = 0
 
-        # Pulisci il titolo rimuovendo parole temporali
+        # Pulisci il titolo rimuovendo parole temporali e formule di cortesia ("puoi ricordarmi che stasera alle 18 devo...")
         clean_title = re.sub(
-            r"\b(oggi|domani|dopodomani|alle\s+\d{1,2}([:\.]\d{2})?|ore\s+\d{1,2}([:\.]\d{2})?|\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}(/\d{2,4})?)\b",
+            r"^(?:puoi\s+)?(?:ricordarmi|ricordami|mi\s+ricordi|metti\s+sul\s+calendario|metti\s+su\s+google\s+calend[ae]r|aggiungi\s+su\s+google\s+calend[ae]r|aggiungi\s+sul\s+calendario|segna\s+in\s+agenda|segna\s+sul\s+calendario|fissa\s+in\s+agenda|fissa)\s*(?:che|di|:)?\s*",
             "",
             text,
             flags=re.IGNORECASE,
         )
-        clean_title = re.sub(r"\s+", " ", clean_title).strip(" -:,")
+        clean_title = re.sub(
+            r"\b(oggi|stasera|domani|dopodomani|luned[iì]|marted[iì]|mercoled[iì]|gioved[iì]|venerd[iì]|sabato|domenica|alle\s+\d{1,2}([:\.]\d{2})?|ore\s+\d{1,2}([:\.]\d{2})?|\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}(/\d{2,4})?|su\s+google\s+calend[ae]r|sul\s+google\s+calend[ae]r|sul\s+calendario|in\s+agenda)\b",
+            "",
+            clean_title,
+            flags=re.IGNORECASE,
+        )
+        clean_title = re.sub(r"^\s*(?:che\s+)?(?:devo\s+|bisogna\s+)?", "", clean_title, flags=re.IGNORECASE)
+        clean_title = re.sub(r"\s+", " ", clean_title).strip(" -:,?!")
         if not clean_title:
             clean_title = "Impegno a calendario"
+        else:
+            clean_title = clean_title[0].upper() + clean_title[1:]
 
         return datetime(target_date.year, target_date.month, target_date.day, hour, minute), clean_title
 
@@ -2127,6 +2234,8 @@ class OllamaLocalBridge:
         elif upcoming:
             nxt = upcoming[0]
             parts.append(f"📅 **Oggi nessun impegno.** Prossimo: {nxt['day_label']} {nxt['time_label']} — {nxt['title']}")
+        elif cal_state.get("configured"):
+            parts.append("📅 **Agenda (Google Calendar connesso):** Nessun impegno in programma nei prossimi 7 giorni.")
         else:
             parts.append("📅 **Agenda:** Nessun evento in programma (apri `🔌 CONNESSIONI` per collegare Google Calendar).")
 
@@ -2153,6 +2262,82 @@ class OllamaLocalBridge:
 
         parts.append(f"💻 **Sistema ({COMPUTER_NAME}):** CPU {cpu}% · RAM {ram}% · Modello: {self.active_model or 'Ollama'}")
         return "\n".join(parts)
+
+    def _execute_llm_action_tags(self, raw_reply: str, user_prompt: str):
+        """
+        Intercetta ed esegue davvero i tag d'azione emessi da Ollama (qwen2.5:7b):
+          - [[ACTION:CALENDAR | YYYY-MM-DD HH:MM | Titolo impegno]]
+          - [[ACTION:TODO | Testo task]]
+          - [[ACTION:MEMORY | Fatto da ricordare]]
+        """
+        extra_actions = []
+        appended_notes = []
+        tag_pattern = re.compile(r"\[\[\s*ACTION\s*:\s*([A-Z_]+)\s*\|\s*(.*?)\s*\]\]", re.IGNORECASE | re.DOTALL)
+
+        for match in tag_pattern.finditer(raw_reply or ""):
+            act_type = match.group(1).strip().upper()
+            payload_str = match.group(2).strip()
+
+            if act_type in ("CALENDAR", "EVENT", "AGENDA"):
+                parts = [p.strip() for p in payload_str.split("|", 1)]
+                if len(parts) == 2:
+                    dt_raw, title_raw = parts[0], parts[1]
+                    try:
+                        dt_start = datetime.strptime(dt_raw[:16], "%Y-%m-%d %H:%M")
+                    except Exception:
+                        dt_start, _ = self._parse_natural_date_time(dt_raw + " " + title_raw)
+                    ev_title = title_raw or "Impegno"
+                else:
+                    dt_start, ev_title = self._parse_natural_date_time(payload_str)
+
+                ev = self.calendar.add_event(ev_title, dt_start)
+                appended_notes.append(
+                    f"📅 *Salvato in Agenda per il **{dt_start.strftime('%d/%m/%Y alle %H:%M')}**: **{ev['title']}***"
+                )
+                extra_actions.append(
+                    {
+                        "label": "📅 + Salva su Google Calendar Web",
+                        "url": ev["gcal_url"],
+                    }
+                )
+                if any(k in (user_prompt or "").lower() for k in ("google calendar", "google calender")):
+                    try:
+                        WindowsPCActions.open_target(ev["gcal_url"])
+                    except Exception:
+                        pass
+
+            elif act_type == "TODO":
+                task_txt = payload_str.replace("|", " ").strip()
+                if task_txt:
+                    todos = self.load_todos()
+                    if task_txt.lower() not in [t.lower() for t in todos]:
+                        todos.append(task_txt)
+                        self.save_todos(todos)
+                    appended_notes.append(f"✅ *Aggiunto ai To-Do: **{task_txt}***")
+                    # Se il messaggio dell'utente conteneva un orario preciso (es. "stasera alle 18"), segnalo anche in Agenda!
+                    if re.search(r"\b(alle\s+\d{1,2}|ore\s+\d{1,2})\b", (user_prompt or "").lower()):
+                        dt_start, _ = self._parse_natural_date_time(user_prompt)
+                        ev = self.calendar.add_event(task_txt, dt_start)
+                        appended_notes.append(
+                            f"📅 *Fissato anche in Agenda per il **{dt_start.strftime('%d/%m/%Y alle %H:%M')}***"
+                        )
+                        extra_actions.append(
+                            {
+                                "label": "📅 + Salva su Google Calendar Web",
+                                "url": ev["gcal_url"],
+                            }
+                        )
+
+            elif act_type == "MEMORY":
+                mem_txt = payload_str.replace("|", " ").strip()
+                if mem_txt:
+                    self.add_memory(mem_txt)
+                    appended_notes.append(f"🧠 *Salvato in Memoria: **{mem_txt}***")
+
+        clean_reply = tag_pattern.sub("", raw_reply or "").strip()
+        if appended_notes:
+            clean_reply = (clean_reply + "\n\n" + "\n".join(appended_notes)).strip()
+        return clean_reply, extra_actions
 
     def _finish_reply(self, prompt_text, reply_text, model_name="LOCAL-TOOL", actions=None, skip_smart_hooks=False):
         final_actions = list(actions or [])
@@ -2249,11 +2434,18 @@ class OllamaLocalBridge:
             if not arg:
                 if not todos:
                     return self._finish_reply(
-                        text, "📝 La tua lista To-Do è vuota! Scrivi `todo: <cosa da fare>` per aggiungere."
+                        text, "📝 La tua lista To-Do è vuota! Scrivi `todo: <cosa da fare>` (o usa il pulsante `✅ To-Do` in alto) per aggiungere."
                     )
                 formatted = " | ".join([f"[{i+1}] {t}" for i, t in enumerate(todos)])
+                todo_actions = [
+                    {"label": f"✅ Completa #{i+1}: {t[:22]}", "complete_todo_idx": i}
+                    for i, t in enumerate(todos[:4])
+                ]
                 return self._finish_reply(
-                    text, f"📝 To-Do attivi ({len(todos)}): {formatted} (usa `todo done 1` o `todo clear`)"
+                    text,
+                    f"📝 **To-Do attivi ({len(todos)}):** {formatted}",
+                    "TODO",
+                    actions=todo_actions,
                 )
             elif arg.lower() in ("clear", "pulisci", "reset"):
                 self.save_todos([])
@@ -2271,7 +2463,13 @@ class OllamaLocalBridge:
                 return self._finish_reply(text, f"✅ Aggiunto alla To-Do list (#{len(todos)}): \"{arg}\"")
 
         # 4. Gestione Memoria a Lungo Termine (/mem, "ricorda che...", "ricordati che...", "nota: ...")
-        if low.startswith(("/mem", "ricorda che ", "ricordati che ", "memorizza ", "nota: ", "salva in memoria")):
+        # Se però contiene un orario ("alle 18", "stasera alle", "domani alle"), è un promemoria a calendario e non una memoria statica!
+        has_time_ref = bool(
+            re.search(r"\b(alle\s+\d{1,2}|ore\s+\d{1,2}|stasera|domani|dopodomani)\b", low)
+        )
+        if not has_time_ref and low.startswith(
+            ("/mem", "ricorda che ", "ricordati che ", "memorizza ", "nota: ", "salva in memoria")
+        ):
             if low in ("/mem", "/mem list", "memoria"):
                 mems = self.get_memories()
                 if not mems:
@@ -2304,9 +2502,34 @@ class OllamaLocalBridge:
                     text, f"🧠 Miau! Me lo sono segnato in memoria: **\"{entry['text']}\"** (Totale note: {len(self.get_memories())})"
                 )
 
-        # 5. Gestione Calendario & Google Calendar (/cal, "che impegni ho...", "fissa/aggiungi impegno...")
+        # 5. Gestione Calendario & Google Calendar (/cal, "che impegni ho...", "fissa/aggiungi impegno...", "ricordami che stasera alle 18...")
+        is_explicit_cal_add = (
+            low.startswith(("/cal add ", "cal add ", "aggiungi impegno", "aggiungi evento", "fissa appuntamento", "fissa call"))
+            or any(
+                p in low
+                for p in (
+                    "metti sul calendario",
+                    "metti in calendario",
+                    "metti su google calendar",
+                    "metti su google calender",
+                    "aggiungi su google calendar",
+                    "aggiungi su google calender",
+                    "aggiungi sul calendario",
+                    "segna sul calendario",
+                    "segna in agenda",
+                )
+            )
+            or (
+                has_time_ref
+                and any(
+                    p in low
+                    for p in ("ricordarmi", "ricordami", "ricordati", "mi ricordi", "avvisami", "promemoria")
+                )
+            )
+        )
         if (
-            low.startswith(("/cal", "cal:", "calendario", "agenda"))
+            is_explicit_cal_add
+            or low.startswith(("/cal", "cal:", "calendario", "agenda"))
             or any(
                 p in low
                 for p in (
@@ -2314,10 +2537,6 @@ class OllamaLocalBridge:
                     "cosa ho in calendario",
                     "prossimi appuntamenti",
                     "prossimi impegni",
-                    "aggiungi impegno",
-                    "aggiungi evento",
-                    "fissa appuntamento",
-                    "fissa call",
                 )
             )
         ):
@@ -2337,27 +2556,50 @@ class OllamaLocalBridge:
                 return self._finish_reply(text, "⚠️ Evento locale non trovato.")
 
             # Creazione nuovo impegno
-            is_add = low.startswith(("/cal add ", "cal add ", "aggiungi impegno", "aggiungi evento", "fissa appuntamento", "fissa call"))
-            if is_add:
+            if is_explicit_cal_add:
                 raw_ev = text
-                for pref in ("/cal add ", "cal add ", "aggiungi impegno:", "aggiungi impegno", "aggiungi evento:", "aggiungi evento", "fissa appuntamento:", "fissa appuntamento", "fissa:"):
+                for pref in (
+                    "/cal add ",
+                    "cal add ",
+                    "aggiungi impegno:",
+                    "aggiungi impegno",
+                    "aggiungi evento:",
+                    "aggiungi evento",
+                    "fissa appuntamento:",
+                    "fissa appuntamento",
+                    "fissa:",
+                ):
                     if low.startswith(pref):
-                        raw_ev = text[len(prefix) if False else len(pref) :].strip()
+                        raw_ev = text[len(pref) :].strip()
                         break
                 if raw_ev.lower().startswith("fissa "):
                     raw_ev = raw_ev[6:].strip()
                 dt_start, ev_title = self._parse_natural_date_time(raw_ev)
                 ev = self.calendar.add_event(ev_title, dt_start)
-                g_note = " (sincronizzato anche su Google Calendar API!)" if ev.get("created_on_google") else ""
+                wants_gcal = any(k in low for k in ("google calendar", "google calender"))
+                if wants_gcal:
+                    try:
+                        WindowsPCActions.open_target(ev["gcal_url"])
+                    except Exception:
+                        pass
+                g_note = (
+                    " (sincronizzato anche su Google Calendar API!)"
+                    if ev.get("created_on_google")
+                    else (
+                        " — ho anche aperto la scheda precompilata di **Google Calendar** per confermarlo!"
+                        if wants_gcal
+                        else ""
+                    )
+                )
                 actions = [
                     {
-                        "label": "📅 + Aggiungi su Google Calendar Web",
+                        "label": "📅 + Salva su Google Calendar Web",
                         "url": ev["gcal_url"],
                     }
                 ]
                 return self._finish_reply(
                     text,
-                    f"📅 Impegno salvato in agenda per il **{dt_start.strftime('%d/%m/%Y alle %H:%M')}**: **\"{ev['title']}\"**{g_note}",
+                    f"📅 Impegno registrato in agenda per il **{dt_start.strftime('%d/%m/%Y alle %H:%M')}**: **\"{ev['title']}\"**{g_note}",
                     "CALENDAR",
                     actions=actions,
                 )
@@ -2370,7 +2612,7 @@ class OllamaLocalBridge:
                 hint = (
                     " (Clicca su `📅 AGENDA` in alto per collegare il link `.ics` di Google Calendar o scrivi `/cal add domani alle 15:00 Call con Marco`!)"
                     if not cal_st.get("configured")
-                    else ""
+                    else " (Google Calendar `.ics` è connesso correttamente; scrivi ad es. *'Ricordami domani alle 15 call'* per aggiungere un impegno!)"
                 )
                 return self._finish_reply(text, f"📅 Nessun impegno nei prossimi 7 giorni!{hint}", "CALENDAR")
 
@@ -2468,16 +2710,16 @@ class OllamaLocalBridge:
                     "PROJECTS",
                 )
 
-        # 9. Richiesta al Modello LLM Locale (Ollama) con Cronologia Conversazionale + Contesto Memoria & Agenda
+        # 9. Richiesta al Modello LLM Locale (Ollama) con Cronologia Conversazionale + Action Tags Esecutivi
         if not self.ollama_online:
             self._fetch_models()
 
         model_to_use = requested_model or self.active_model
         if not model_to_use:
-            actions = [{"label": "⬇️ Scarica Modello llama3.2 (Consigliato)", "pull_ollama_model": "llama3.2"}]
+            actions = [{"label": "⬇️ Scarica Modello qwen2.5:7b (Consigliato)", "pull_ollama_model": "qwen2.5:7b"}]
             return self._finish_reply(
                 text,
-                "⚠️ Ollama è attivo ma non hai ancora scaricato un modello LLM locale! Clicca sul pulsante qui sotto (o apri `🔌 CONNESSIONI`) per scaricare **`llama3.2`** con 1 click. Intanto ho analizzato il tuo messaggio per Progetti e Memoria!",
+                "⚠️ Ollama è attivo ma non hai ancora scaricato un modello LLM locale! Clicca sul pulsante qui sotto (o apri `🔌 CONNESSIONI`) per scaricare **`qwen2.5:7b`** con 1 click.",
                 "OFFLINE",
                 actions=actions,
             )
@@ -2493,11 +2735,11 @@ class OllamaLocalBridge:
             active_projs = proj_state.get("projects", [])
 
             context_blocks = [
-                f"Data e ora attuali: {now_dt.strftime('%A %d/%m/%Y, ore %H:%M')}.",
+                f"Data e ora attuali: {now_dt.strftime('%Y-%m-%d %H:%M')} ({now_dt.strftime('%A %d/%m/%Y')}).",
                 f"Postazione PC: {COMPUTER_NAME} (CPU {cpu}%, RAM {ram}%).",
             ]
             if traits:
-                context_blocks.append("Profilo base di Diego (da 'Conosciamoci'): " + " | ".join(traits[:10]))
+                context_blocks.append("Profilo Utente (da 'Conosciamoci'): " + " | ".join(traits[:12]))
             if active_projs:
                 proj_summaries = []
                 for p in active_projs[:6]:
@@ -2507,7 +2749,7 @@ class OllamaLocalBridge:
                 context_blocks.append("Progetti ATTIVI in corso (Memoria Calda): " + " || ".join(proj_summaries))
             if mems:
                 context_blocks.append(
-                    "Fatti e preferenze generali che ricordi sull'utente (Diego): "
+                    "Fatti e preferenze generali che ricordi sull'utente: "
                     + " | ".join([m["text"] for m in mems[-12:]])
                 )
             if todos:
@@ -2519,10 +2761,18 @@ class OllamaLocalBridge:
                 )
 
             system_prompt = (
-                "Sei Neko AI, il gatto-assistente personale da scrivania di Diego. "
+                "Sei Neko AI, il gatto-assistente personale da scrivania dell'utente. "
                 "Vivi nella sua App Desktop su Windows. Rispondi sempre in italiano in modo naturale, "
-                "intelligente, concreto e conciso (2-4 frasi ben formattate). "
-                "Ricorda il contesto della conversazione e i dati seguenti:\n"
+                "intelligente, concreto e conciso (2-4 frasi ben formattate).\n\n"
+                "REGOLA FONDAMENTALE PER ESEGUIRE AZIONI REALI (CALENDARIO, TO-DO, MEMORIA):\n"
+                "Non fingere MAI di aver aggiunto un evento in calendario o un To-Do senza inserire il tag d'azione reale!\n"
+                "- Se l'utente ti chiede di segnare un impegno/promemoria in calendario o agenda (anche se risponde semplicemente 'sì' o 'mettilo sul calendario' riferendosi al turno precedente!), DEVI aggiungere a fine messaggio:\n"
+                "  [[ACTION:CALENDAR | YYYY-MM-DD HH:MM | Titolo impegno]]\n"
+                "- Se l'utente ti chiede di aggiungere una cosa da fare nella lista To-Do (task senza orario specifico), DEVI aggiungere a fine messaggio:\n"
+                "  [[ACTION:TODO | Testo sintetico della task]]\n"
+                "- Se l'utente ti comunica un'informazione importante su chi è, sul suo lavoro o una regola da ricordare sempre, aggiungi a fine messaggio:\n"
+                "  [[ACTION:MEMORY | Sintesi chiara del fatto da ricordare]]\n\n"
+                "Contesto attuale:\n"
                 + "\n".join(context_blocks)
             )
 
@@ -2550,7 +2800,8 @@ class OllamaLocalBridge:
             with urllib.request.urlopen(req, timeout=45.0) as resp:
                 res_data = json.loads(resp.read().decode("utf-8"))
                 msg = res_data.get("message", {}).get("content", "").strip()
-                return self._finish_reply(text, msg or "Miao! Fatto!", model_to_use)
+                clean_msg, llm_actions = self._execute_llm_action_tags(msg or "Miao! Fatto!", text)
+                return self._finish_reply(text, clean_msg, model_to_use, actions=llm_actions)
         except Exception as e:
             return self._finish_reply(
                 text, f"⚠️ Errore connessione Ollama ({model_to_use}): {str(e)}", model_to_use
@@ -2784,6 +3035,7 @@ class SystemStateMonitor:
                 "ollama_pull": self.win_conn.ollama_pull_status,
                 "memory_count": len(mems) + traits_count + proj_notes_count,
                 "todo_count": len(todos),
+                "todos_list": list(todos[:15]),
                 "projects_count": len(p_state.get("projects", [])),
                 "archive_count": len(p_state.get("archive", [])),
                 "stale_projects_count": len(p_state.get("stale_projects", [])),
@@ -2880,7 +3132,10 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
             category = body.get("category") or None
             if action == "random":
                 exclude_id = body.get("exclude_id") or None
-                st = mem_proj_manager.get_onboarding_state(category=category, exclude_id=exclude_id)
+                gen_ai = bool(body.get("generate_ai", True))
+                st = mem_proj_manager.get_onboarding_state(
+                    category=category, exclude_id=exclude_id, generate_ai=gen_ai
+                )
                 return self._send_json({"ok": True, "onboarding": st})
             # Default: save answer
             qid = body.get("question_id", "")

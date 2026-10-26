@@ -319,6 +319,9 @@ class SystemBridge {
     if (typeof data.todo_count === 'number') {
       this.state.system.todoCount = data.todo_count;
     }
+    if (Array.isArray(data.todos_list)) {
+      this.state.system.todosList = data.todos_list;
+    }
     if (typeof data.projects_count === 'number') {
       this.state.system.projectsCount = data.projects_count;
     }

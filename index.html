@@ -26,15 +26,18 @@
 
       <div class="top-bar-divider hud-collapsible">│</div>
 
-      <!-- 4 Pulsanti Principali Chiari e Leggibili -->
+      <!-- 5 Pulsanti Principali Chiari e Leggibili -->
       <div class="top-bar-section" id="hud-assistant-section">
         <button class="hud-pill hud-pill-agenda" id="agenda-pill" title="Clicca per leggere i prossimi appuntamenti">
           📅 Agenda: 0
         </button>
+        <button class="hud-pill hud-pill-todo" id="todo-pill" title="Clicca per aprire la lista rapida dei tuoi To-Do (aggiungi o spunta con 1 click)">
+          ✅ To-Do: 0
+        </button>
         <button class="hud-pill hud-pill-proj" id="projects-pill" title="Apri Schede Progetto, Pin Cartelle Server e Archivio Clienti">
           📌 Progetti: 0
         </button>
-        <button class="hud-pill hud-pill-onboard" id="btn-conosciamoci" title="Rispondi alle domande rapide per insegnare a Neko chi sei e come lavori">
+        <button class="hud-pill hud-pill-onboard" id="btn-conosciamoci" title="Tutorial Interattivo AI: rispondi alle domande dinamiche per profilare il tuo lavoro">
           🐾 Conosciamoci
         </button>
         <button class="hud-pill hud-pill-conn" id="btn-open-settings" title="Apri Impostazioni, Gestione Memorie, Connessioni, Scorciatoia e Reset">
@@ -73,6 +76,24 @@
         <button class="deadline-toast-close" id="btn-dismiss-deadline" title="Nascondi notifica">×</button>
       </div>
       <div class="deadline-toast-body" id="deadline-toast-content"></div>
+    </div>
+
+    <!-- Popover Rapido To-Do (apribile con 1 click su "✅ To-Do" nella Top Bar) -->
+    <div class="hud-todo-popover" id="hud-todo-popover" style="display: none;">
+      <div class="todo-popover-header">
+        <span>✅ LISTA RAPIDA TO-DO (<span id="quick-todo-count">0</span>)</span>
+        <button type="button" class="deadline-toast-close" id="btn-close-todo-popover" title="Chiudi">×</button>
+      </div>
+      <div class="todo-popover-input-row">
+        <input
+          type="text"
+          id="quick-todo-input"
+          class="modal-input"
+          placeholder="Nuova task veloce (premi Invio)..."
+        />
+        <button type="button" class="term-btn btn-accent" id="btn-quick-todo-add">+</button>
+      </div>
+      <div class="todo-popover-list" id="quick-todo-list"></div>
     </div>
 
     <!-- Pulsante flottante di ripristino quando l'HUD è in modalità ZEN -->
@@ -144,27 +165,28 @@
 
           <!-- Contenuto Principale a Destra -->
           <div class="neko-modal-content">
-            <!-- SCHEDA 1: 🐾 CONOSCIAMOCI -->
+            <!-- SCHEDA 1: 🐾 CONOSCIAMOCI (Tutorial di Profilazione Adattivo AI) -->
             <div class="modal-tab-pane" id="tab-conosciamoci">
               <div class="pane-header-row">
                 <div>
-                  <h3 class="pane-title">🐾 Insegna a Neko chi sei e come lavori</h3>
-                  <p class="pane-desc">Rispondi con un click o scrivi liberamente. Queste informazioni formano il tuo <strong>Profilo Base</strong> sempre attivo.</p>
+                  <h3 class="pane-title">🐾 Tutorial di Profilazione Intelligente (AI in Tempo Reale)</h3>
+                  <p class="pane-desc">Rispondi liberamente o scegli un'opzione: <strong>Neko analizza le tue risposte in tempo reale con l'AI</strong> per capire chi sei, che lavoro fai e formulare domande su misura per te.</p>
                 </div>
                 <div style="display:flex; align-items:center; gap:8px;">
-                  <span class="drawer-count-badge" id="onboard-progress-badge">0/10 risposte</span>
+                  <span class="drawer-count-badge" id="onboard-progress-badge">0 tratti appresi</span>
                   <button type="button" class="term-btn btn-accent" id="btn-random-question">
-                    🎲 Fammi un'altra domanda
+                    🎲 Nuova domanda su misura (AI)
                   </button>
                 </div>
               </div>
 
               <div class="onboard-cat-tabs" id="onboard-cat-tabs">
-                <button type="button" class="onboard-cat-btn active" data-onboard-cat="">Tutte le categorie</button>
-                <button type="button" class="onboard-cat-btn" data-onboard-cat="Lavoro & Software">💻 Lavoro &amp; Software</button>
-                <button type="button" class="onboard-cat-btn" data-onboard-cat="Routine & Orari">⏰ Routine &amp; Orari</button>
-                <button type="button" class="onboard-cat-btn" data-onboard-cat="Clienti & Progetti">🤝 Clienti &amp; Progetti</button>
-                <button type="button" class="onboard-cat-btn" data-onboard-cat="Stile & Preferenze">🎨 Stile &amp; Preferenze</button>
+                <button type="button" class="onboard-cat-btn active" data-onboard-cat="">✨ Automatico (AI)</button>
+                <button type="button" class="onboard-cat-btn" data-onboard-cat="Identità & Attività">👤 Chi sono &amp; Attività</button>
+                <button type="button" class="onboard-cat-btn" data-onboard-cat="Lavoro & Strumenti">💻 Lavoro &amp; Strumenti</button>
+                <button type="button" class="onboard-cat-btn" data-onboard-cat="Clienti & Progetti">🤝 Progetti &amp; Obiettivi</button>
+                <button type="button" class="onboard-cat-btn" data-onboard-cat="Routine & Orari">⏰ Routine &amp; Giornata</button>
+                <button type="button" class="onboard-cat-btn" data-onboard-cat="Stile & Preferenze">🎨 Stile Assistente</button>
               </div>
 
               <div class="onboard-question-card" id="onboard-question-card">
@@ -465,6 +487,9 @@
           </button>
           <button class="ai-chip" data-ai-cmd="/cal" title="Mostra i prossimi appuntamenti del tuo Calendario">
             📅 Agenda
+          </button>
+          <button class="ai-chip" data-ai-cmd="/todo" title="Mostra e completa con 1 click i tuoi To-Do attivi">
+            ✅ To-Do
           </button>
           <button class="ai-chip" data-ai-cmd="Riassumi gli appunti" title="Legge e riassume ciò che hai appena copiato con Ctrl+C">
             📋 Riassumi Appunti

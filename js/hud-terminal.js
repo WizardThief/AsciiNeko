@@ -30,11 +30,20 @@ class HudTerminal {
 
     // Top Bar Pills & Buttons
     this.elAgendaPill = document.getElementById('agenda-pill');
+    this.elTodoPill = document.getElementById('todo-pill');
     this.elProjectsPill = document.getElementById('projects-pill');
     this.elBtnConosciamoci = document.getElementById('btn-conosciamoci');
     this.elBtnOpenSettings = document.getElementById('btn-open-settings');
     this.elMemTotalBadge = document.getElementById('mem-total-badge');
     this.elBtnWindowMode = document.getElementById('btn-window-mode');
+
+    // Quick To-Do Popover
+    this.elTodoPopover = document.getElementById('hud-todo-popover');
+    this.elBtnCloseTodoPopover = document.getElementById('btn-close-todo-popover');
+    this.elQuickTodoInput = document.getElementById('quick-todo-input');
+    this.elBtnQuickTodoAdd = document.getElementById('btn-quick-todo-add');
+    this.elQuickTodoList = document.getElementById('quick-todo-list');
+    this.elQuickTodoCount = document.getElementById('quick-todo-count');
 
     // Control Hub Modal
     this.elModalOverlay = document.getElementById('neko-modal-overlay');
@@ -123,6 +132,7 @@ class HudTerminal {
 
     // Dirty-checking cache for 60 FPS zero-allocation updates
     this._lastAgendaKey = null;
+    this._lastTodoKey = null;
     this._lastMemKey = null;
     this._lastProjKey = null;
     this._lastOnboardKey = null;
@@ -550,17 +560,75 @@ class HudTerminal {
       });
     }
 
-    // --- 1. EVENTI TAB "🐾 CONOSCIAMOCI" ---
+    // Popover Rapido To-Do nella Top Bar
+    if (this.elTodoPill && this.elTodoPopover) {
+      this.elTodoPill.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const willOpen = this.elTodoPopover.style.display === 'none';
+        this.elTodoPopover.style.display = willOpen ? 'flex' : 'none';
+        this.elTodoPill.classList.toggle('active', willOpen);
+        if (willOpen) {
+          const list = (this.state.system && this.state.system.todosList) || [];
+          this.renderQuickTodoPopover(list);
+          if (this.elQuickTodoInput) this.elQuickTodoInput.focus();
+        }
+      });
+    }
+
+    if (this.elBtnCloseTodoPopover && this.elTodoPopover) {
+      this.elBtnCloseTodoPopover.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.elTodoPopover.style.display = 'none';
+        if (this.elTodoPill) this.elTodoPill.classList.remove('active');
+      });
+    }
+
+    const addQuickTodo = async () => {
+      if (!this.elQuickTodoInput || !this.actions.settingsAction) return;
+      const text = this.elQuickTodoInput.value.trim();
+      if (!text) return;
+      this.elQuickTodoInput.value = '';
+      const res = await this.actions.settingsAction({ action: 'add_todo', text });
+      if (res && Array.isArray(res.todos)) {
+        if (this.state.system) {
+          this.state.system.todosList = res.todos;
+          this.state.system.todoCount = res.todos.length;
+        }
+        this.renderQuickTodoPopover(res.todos);
+        this.say(`✅ Aggiunto ai To-Do: "${text}"`);
+      }
+    };
+
+    if (this.elBtnQuickTodoAdd) {
+      this.elBtnQuickTodoAdd.addEventListener('click', (e) => {
+        e.stopPropagation();
+        addQuickTodo();
+      });
+    }
+    if (this.elQuickTodoInput) {
+      this.elQuickTodoInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          addQuickTodo();
+        }
+      });
+    }
+
+    // --- 1. EVENTI TAB "🐾 CONOSCIAMOCI" (Tutorial Adattivo AI) ---
     document.querySelectorAll('[data-onboard-cat]').forEach((btn) => {
       btn.addEventListener('click', async (e) => {
         e.stopPropagation();
         document.querySelectorAll('[data-onboard-cat]').forEach((b) => b.classList.remove('active'));
         btn.classList.add('active');
         this.currentOnboardCategory = btn.getAttribute('data-onboard-cat') || '';
+        if (this.elOnboardQText) {
+          this.elOnboardQText.textContent = '🧠 Neko sta formulando una domanda su misura con l\'AI...';
+        }
         if (this.actions.conosciamociAction) {
           const res = await this.actions.conosciamociAction({
             action: 'random',
-            category: this.currentOnboardCategory
+            category: this.currentOnboardCategory,
+            generate_ai: true
           });
           if (res && res.onboarding) this.renderOnboardingState(res.onboarding);
         }
@@ -572,11 +640,17 @@ class HudTerminal {
         e.stopPropagation();
         if (!this.actions.conosciamociAction) return;
         const excludeId = this.currentQuestion ? this.currentQuestion.id : '';
+        this.elBtnRandomQuestion.textContent = '⏳ Generazione AI...';
+        if (this.elOnboardQText) {
+          this.elOnboardQText.textContent = '🧠 Neko sta elaborando una nuova domanda personalizzata sul tuo profilo...';
+        }
         const res = await this.actions.conosciamociAction({
           action: 'random',
           category: this.currentOnboardCategory,
-          exclude_id: excludeId
+          exclude_id: excludeId,
+          generate_ai: true
         });
+        this.elBtnRandomQuestion.textContent = '🎲 Nuova domanda su misura (AI)';
         if (res && res.onboarding) this.renderOnboardingState(res.onboarding);
       });
     }
@@ -584,6 +658,12 @@ class HudTerminal {
     const saveCurrentOnboardAnswer = async (answerText) => {
       const clean = (answerText || '').trim();
       if (!clean || !this.currentQuestion || !this.actions.conosciamociAction) return;
+      if (this.elOnboardQText) {
+        this.elOnboardQText.textContent = '🧠 Neko sta analizzando la tua risposta con l\'AI e preparando la prossima domanda...';
+      }
+      if (this.elOnboardOptions) {
+        this.elOnboardOptions.innerHTML = '';
+      }
       const res = await this.actions.conosciamociAction({
         action: 'answer',
         question_id: this.currentQuestion.id,
@@ -594,7 +674,7 @@ class HudTerminal {
       if (this.elOnboardInput) this.elOnboardInput.value = '';
       if (res && res.onboarding) {
         this.renderOnboardingState(res.onboarding);
-        this.say(`🐾 Grazie! Ho memorizzato nel tuo Profilo Base: "${clean}".`);
+        this.say(`🐾 Perfetto! Ho analizzato la tua risposta e aggiornato il tuo Profilo Utente.`);
       }
     };
 
@@ -982,16 +1062,58 @@ class HudTerminal {
     }
   }
 
-  // --- RENDERING TAB 1: "🐾 CONOSCIAMOCI" ---
+  // --- RENDERING POPOVER RAPIDO TO-DO ---
+  renderQuickTodoPopover(todos) {
+    const list = Array.isArray(todos) ? todos : [];
+    if (this.elQuickTodoCount) {
+      this.elQuickTodoCount.textContent = String(list.length);
+    }
+    if (!this.elQuickTodoList) return;
+    if (list.length === 0) {
+      this.elQuickTodoList.innerHTML =
+        '<div style="color:var(--text-muted); font-size:12.5px; padding:6px 2px;">🎉 Tutte le task sono completate! Scrivi qui sopra per aggiungerne una.</div>';
+      return;
+    }
+    this.elQuickTodoList.innerHTML = '';
+    list.forEach((txt, idx) => {
+      const row = document.createElement('div');
+      row.className = 'todo-popover-item';
+      row.innerHTML = `
+        <span style="flex:1; word-break:break-word;">${this.escapeHtml(txt)}</span>
+        <button type="button" class="todo-popover-check" title="Segna come completato">✓ Fatto</button>
+      `;
+      const btn = row.querySelector('.todo-popover-check');
+      if (btn) {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (!this.actions.settingsAction) return;
+          const res = await this.actions.settingsAction({ action: 'delete_todo', index: idx });
+          if (res && Array.isArray(res.todos)) {
+            if (this.state.system) {
+              this.state.system.todosList = res.todos;
+              this.state.system.todoCount = res.todos.length;
+            }
+            this.renderQuickTodoPopover(res.todos);
+            this.say(`✅ Task completata: "${txt}"!`);
+          }
+        });
+      }
+      this.elQuickTodoList.appendChild(row);
+    });
+  }
+
+  // --- RENDERING TAB 1: "🐾 CONOSCIAMOCI" (Tutorial Adattivo AI) ---
   renderOnboardingState(onb) {
     if (!onb) return;
+    const traits = onb.profile && Array.isArray(onb.profile.traits) ? onb.profile.traits : [];
     if (this.elOnboardProgress) {
-      this.elOnboardProgress.textContent = `${onb.answered_count || 0}/${onb.total_questions || 10} risposte`;
+      this.elOnboardProgress.textContent = `${traits.length} tratti appresi`;
     }
     const q = onb.next_question;
     this.currentQuestion = q;
     if (q) {
-      if (this.elOnboardQCat) this.elOnboardQCat.textContent = `🐾 ${q.category || 'Profilo'}`;
+      const aiBadge = q.ai_generated ? ' ✨ (Domanda AI su misura)' : '';
+      if (this.elOnboardQCat) this.elOnboardQCat.textContent = `🐾 ${q.category || 'Profilo'}${aiBadge}`;
       if (this.elOnboardQText) this.elOnboardQText.textContent = q.question || '';
       if (this.elOnboardOptions) {
         this.elOnboardOptions.innerHTML = '';
@@ -1003,6 +1125,11 @@ class HudTerminal {
           btn.addEventListener('click', async (e) => {
             e.stopPropagation();
             if (!this.actions.conosciamociAction) return;
+            if (this.elOnboardQText) {
+              this.elOnboardQText.textContent =
+                '🧠 Neko sta analizzando la tua risposta con l\'AI e preparando la prossima domanda su misura...';
+            }
+            this.elOnboardOptions.innerHTML = '';
             const res = await this.actions.conosciamociAction({
               action: 'answer',
               question_id: q.id,
@@ -1012,7 +1139,7 @@ class HudTerminal {
             });
             if (res && res.onboarding) {
               this.renderOnboardingState(res.onboarding);
-              this.say(`🐾 Perfetto! Ho salvato nel tuo profilo: "${opt}".`);
+              this.say(`🐾 Perfetto! Ho aggiornato il tuo profilo e generato la prossima domanda.`);
             }
           });
           this.elOnboardOptions.appendChild(btn);
@@ -1020,11 +1147,10 @@ class HudTerminal {
       }
     }
 
-    const traits = onb.profile && Array.isArray(onb.profile.traits) ? onb.profile.traits : [];
     if (this.elOnboardTraits) {
       if (traits.length === 0) {
         this.elOnboardTraits.innerHTML =
-          '<span class="text-muted">Clicca su una delle opzioni qui sopra per creare la memoria di base di Neko!</span>';
+          '<span class="text-muted">Rispondi alla domanda qui sopra: l\'AI sintetizzerà qui chi sei e cosa fai!</span>';
       } else {
         this.elOnboardTraits.innerHTML = traits
           .map((t) => `<span class="trait-pill">✓ ${this.escapeHtml(t)}</span>`)
@@ -1537,6 +1663,19 @@ class HudTerminal {
           if (res && res.ok) {
             this.say(`🧠 Salvato nella Memoria di Neko: "${act.save_memory}"`);
           }
+        } else if (act.complete_todo_idx !== undefined && this.actions.settingsAction) {
+          const res = await this.actions.settingsAction({
+            action: 'delete_todo',
+            index: act.complete_todo_idx
+          });
+          if (res && Array.isArray(res.todos)) {
+            if (this.state.system) {
+              this.state.system.todosList = res.todos;
+              this.state.system.todoCount = res.todos.length;
+            }
+            this.renderQuickTodoPopover(res.todos);
+            this.say(`✅ Task completata! Restano ${res.todos.length} To-Do attivi.`);
+          }
         } else if (act.pull_ollama_model && this.actions.connectionsAction) {
           this.openModalTab('tab-connessioni');
           const res = await this.actions.connectionsAction({
@@ -1688,6 +1827,18 @@ class HudTerminal {
         this.elAgendaPill.title = nxt
           ? `Prossimo impegno: ${nxt.day_label} ${nxt.time_label} — ${nxt.title}`
           : "Clicca per vedere l'Agenda o apri ⚙️ Impostazioni & Memorie -> Connessioni per collegare Google Calendar";
+      }
+    }
+
+    const todoCount = this.state.system ? this.state.system.todoCount || 0 : 0;
+    const todosList = this.state.system && Array.isArray(this.state.system.todosList) ? this.state.system.todosList : [];
+    const todoKey = `${todoCount}:${todosList.join('|')}`;
+    if (this.elTodoPill && this._lastTodoKey !== todoKey) {
+      this._lastTodoKey = todoKey;
+      this.elTodoPill.textContent = `✅ TO-DO: ${todoCount}`;
+      this.elTodoPill.classList.toggle('has-todos', todoCount > 0);
+      if (this.elTodoPopover && this.elTodoPopover.style.display !== 'none') {
+        this.renderQuickTodoPopover(todosList);
       }
     }
 
