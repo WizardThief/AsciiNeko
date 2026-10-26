@@ -139,6 +139,18 @@ class HudTerminal {
     this.sentCommands = [];
     this.cmdCursor = -1;
 
+    // Se la finestra era rimasta bloccata piccola da un vecchio test Mini, ripristinala subito a 1180x780
+    try {
+      if (window.outerWidth > 0 && (window.outerWidth < 650 || window.outerHeight < 480)) {
+        const sw = window.screen.availWidth || 1920;
+        const sh = window.screen.availHeight || 1080;
+        const w = Math.min(1180, sw - 80);
+        const h = Math.min(780, sh - 90);
+        window.resizeTo(w, h);
+        window.moveTo(Math.max(20, Math.floor((sw - w) / 2)), Math.max(20, Math.floor((sh - h) / 2)));
+      }
+    } catch (e) {}
+
     this.bindEvents();
     this.loadInitialHistory();
   }
@@ -450,14 +462,31 @@ class HudTerminal {
       });
     }
 
-    // Toggle Modalità Mini-Widget Always-on-Top (`🗕 MINI` <-> `🗖 ESPANDI`)
+    // Toggle Modalità Compatta / Mini-Widget (`🗕 Compatta` <-> `🗖 Finestra Grande`)
     if (this.elBtnWindowMode) {
       this.elBtnWindowMode.addEventListener('click', async (e) => {
         e.stopPropagation();
         this.miniWidgetMode = !this.miniWidgetMode;
         if (this.miniWidgetMode) this.closeModal();
         document.body.classList.toggle('mini-widget-mode', this.miniWidgetMode);
-        this.elBtnWindowMode.textContent = this.miniWidgetMode ? '🗖 ESPANDI' : '🗕 MINI';
+        this.elBtnWindowMode.textContent = this.miniWidgetMode ? '🗖 Finestra Grande' : '🗕 Compatta';
+
+        try {
+          const sw = window.screen.availWidth || 1920;
+          const sh = window.screen.availHeight || 1080;
+          if (this.miniWidgetMode) {
+            const w = 480;
+            const h = 420;
+            window.resizeTo(w, h);
+            window.moveTo(Math.max(20, sw - w - 28), Math.max(20, sh - h - 48));
+          } else {
+            const w = Math.min(1180, sw - 80);
+            const h = Math.min(780, sh - 90);
+            window.resizeTo(w, h);
+            window.moveTo(Math.max(20, Math.floor((sw - w) / 2)), Math.max(20, Math.floor((sh - h) / 2)));
+          }
+        } catch (err) {}
+
         if (this.actions.setWindowMode) {
           await this.actions.setWindowMode(this.miniWidgetMode ? 'mini' : 'dashboard');
         }

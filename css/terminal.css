@@ -1109,6 +1109,9 @@ html, body {
 
 /* --- 4. Modalità Mini-Widget Always-on-Top (`body.mini-widget-mode`) --- */
 body.mini-widget-mode .hud-collapsible,
+body.mini-widget-mode #hud-assistant-section,
+body.mini-widget-mode .top-bar-divider,
+body.mini-widget-mode .ai-term-header,
 body.mini-widget-mode .ai-quick-chips,
 body.mini-widget-mode .neko-drawer,
 body.mini-widget-mode .chat-history-panel,
@@ -1117,32 +1120,32 @@ body.mini-widget-mode .neko-modal-overlay {
 }
 
 body.mini-widget-mode .hud-layer {
-  padding: 6px 8px;
+  padding: 8px 10px;
+  gap: 8px;
 }
 
 body.mini-widget-mode .hud-top-bar {
-  width: 100%;
-  justify-content: space-between;
-  padding: 4px 8px;
+  width: auto;
+  align-self: flex-end;
+  padding: 4px 10px;
 }
 
 body.mini-widget-mode .ai-terminal-dock {
   width: 100%;
   max-width: 100%;
-}
-
-body.mini-widget-mode .ai-term-header {
-  padding: 4px 8px;
+  padding: 8px 10px;
 }
 
 body.mini-widget-mode .ai-term-body {
-  padding: 6px 8px;
-  gap: 5px;
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+  gap: 6px;
 }
 
 body.mini-widget-mode .ai-output-line {
-  font-size: 12px;
-  max-height: 44px;
+  font-size: 12.5px;
+  max-height: 48px;
   overflow-y: auto;
 }
 

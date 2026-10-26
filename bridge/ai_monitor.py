@@ -1557,8 +1557,18 @@ class WindowAndConnectionsManager:
         screen_w = user32.GetSystemMetrics(0) or 1920
         screen_h = user32.GetSystemMetrics(1) or 1080
         SWP_SHOWWINDOW = 0x0040
-        HWND_TOPMOST = -1
-        HWND_NOTOPMOST = -2
+        user32.SetWindowPos.argtypes = [
+            wintypes.HWND,
+            wintypes.HWND,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_uint,
+        ]
+        user32.SetWindowPos.restype = wintypes.BOOL
+        HWND_TOPMOST = wintypes.HWND(-1)
+        HWND_NOTOPMOST = wintypes.HWND(-2)
 
         if mode == "focus_input":
             self.focus_input_seq += 1
@@ -1570,9 +1580,9 @@ class WindowAndConnectionsManager:
 
         if mode == "mini":
             self.window_mode = "mini"
-            w, h = 400, 250
-            x = max(20, screen_w - w - 24)
-            y = max(20, screen_h - h - 68)
+            w, h = 480, 420
+            x = max(20, screen_w - w - 28)
+            y = max(20, screen_h - h - 72)
             for hwnd in hwnds:
                 user32.ShowWindow(hwnd, 9)
                 user32.SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h, SWP_SHOWWINDOW)
