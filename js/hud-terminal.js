@@ -748,8 +748,8 @@ class HudTerminal {
       this.elBtnPullLlama.addEventListener('click', async (e) => {
         e.stopPropagation();
         if (!this.actions.connectionsAction) return;
-        this.say('⬇️ Avvio download automatico del modello locale `llama3.2` in background...');
-        const res = await this.actions.connectionsAction({ action: 'pull_model', model: 'llama3.2' });
+        this.say('⬇️ Avvio download automatico del modello locale `qwen2.5:7b` in background...');
+        const res = await this.actions.connectionsAction({ action: 'pull_model', model: 'qwen2.5:7b' });
         if (res && res.connections) this.renderConnectionsState(res.connections);
       });
     }

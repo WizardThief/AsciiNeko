@@ -1829,11 +1829,23 @@ class OllamaLocalBridge:
                         chat_models.append(name)
                     else:
                         other_models.append(name)
+                # Ordina i modelli chat dando priorità a qwen2.5:7b (veloce, leggero in VRAM e ottimo in italiano)
+                chat_models.sort(
+                    key=lambda n: (
+                        0 if n.lower().startswith("qwen2.5") else (1 if "llama3" in n.lower() else 2),
+                        n.lower(),
+                    )
+                )
                 models = chat_models + other_models
                 self.models = models
                 self.ollama_online = True
-                if models and (not self.active_model or self.active_model not in chat_models and chat_models):
-                    self.active_model = chat_models[0] if chat_models else models[0]
+                pref = self.mem_proj.profile.get("preferred_model", "")
+                if pref and pref in chat_models:
+                    self.active_model = pref
+                elif chat_models and (not self.active_model or self.active_model not in chat_models or (chat_models[0].lower().startswith("qwen2.5") and not self.active_model.lower().startswith("qwen2.5"))):
+                    self.active_model = chat_models[0]
+                elif models and not self.active_model:
+                    self.active_model = models[0]
                 return True
         except Exception:
             self.ollama_online = False
@@ -2855,9 +2867,12 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
                 model = (body.get("model") or "").strip()
                 if model:
                     ollama_bridge.active_model = model
+                    with mem_proj_manager._lock:
+                        mem_proj_manager.profile["preferred_model"] = model
+                        mem_proj_manager._save_profile()
                 return self._send_json({"ok": True, "connections": win_conn_manager.get_connections_state()})
             if action == "pull_model":
-                model = (body.get("model") or "llama3.2").strip()
+                model = (body.get("model") or "qwen2.5:7b").strip()
                 pull_st = win_conn_manager.start_ollama_pull(model)
                 return self._send_json(
                     {"ok": True, "pull_status": pull_st, "connections": win_conn_manager.get_connections_state()}
