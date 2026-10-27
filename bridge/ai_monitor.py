@@ -25,6 +25,7 @@ import json
 import math
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -56,13 +57,33 @@ from bridge.retrieval import (
     build_ollama_payload,
     inject_ollama_options,
 )
+from bridge.instinct_engine import (
+    InstinctEngine,
+    get_instinct_engine,
+)
 from bridge.telemetry import (
     TelemetryService,
     get_telemetry_service,
     parse_window_title,
 )
 from bridge.task_engine import TaskEngine
-from bridge.skill_registry import SkillRegistry
+from bridge.skill_registry import (
+    SkillRegistry,
+    evolve_project_to_playbook,
+    create_project_from_playbook,
+    inspect_project_quality_gate,
+    list_playbooks,
+)
+try:
+    from bridge.hooks_runner import (
+        HooksRunner,
+        get_hooks_runner,
+        cleanup_intermarine_logo_memory,
+    )
+except ImportError:
+    HooksRunner = None
+    get_hooks_runner = None
+    cleanup_intermarine_logo_memory = None
 
 logger = logging.getLogger("neko.ai_monitor")
 
@@ -1766,6 +1787,14 @@ class MemoryAndProjectsManager:
         self.archive = _load_json(ARCHIVE_FILE, [])
         if not isinstance(self.archive, list):
             self.archive = []
+        self.data_dir = data_dir or DATA_DIR
+        self.storage_manager = get_storage_manager(data_dir=self.data_dir)
+
+    def cleanup_intermarine_logo_memory(self) -> bool:
+        """Idempotent startup cleanup consolidating tentative Intermarine logo into confirmed rule."""
+        if cleanup_intermarine_logo_memory:
+            return cleanup_intermarine_logo_memory(data_dir=self.data_dir, storage_manager=self.storage_manager)
+        return False
 
     def _save_profile(self):
         seen_traits = set()
@@ -2165,7 +2194,7 @@ class MemoryAndProjectsManager:
         with self._lock:
             if "pinned_traits" not in self.profile or not isinstance(self.profile["pinned_traits"], list):
                 self.profile["pinned_traits"] = []
-            sm = get_storage_manager()
+            sm = self.storage_manager
             # Try to pin in SQLite by ID
             sm.pin_memory(trait_id, pinned=pinned)
             # Also update SQLite by matching text
@@ -2193,7 +2222,7 @@ class MemoryAndProjectsManager:
         if not clean_text:
             return False
         with self._lock:
-            sm = get_storage_manager()
+            sm = self.storage_manager
             with sm.transaction() as conn:
                 conn.execute(
                     "UPDATE memories SET text = ?, updated_at = ? WHERE id = ? OR text = ?",
@@ -2214,7 +2243,7 @@ class MemoryAndProjectsManager:
 
     def delete_profile_trait(self, trait_id: str):
         with self._lock:
-            sm = get_storage_manager()
+            sm = self.storage_manager
             sm.delete_memory(trait_id)
             with sm.transaction() as conn:
                 conn.execute(
@@ -2247,7 +2276,7 @@ class MemoryAndProjectsManager:
             self.profile["tutorial_snoozed"] = False
             self._save_profile()
             try:
-                sm = get_storage_manager()
+                sm = self.storage_manager
                 with sm.transaction() as conn:
                     conn.execute("DELETE FROM memories WHERE source = 'profile'")
             except Exception:
@@ -2263,7 +2292,7 @@ class MemoryAndProjectsManager:
             self._save_archive()
             self._save_profile()
             try:
-                sm = get_storage_manager()
+                sm = self.storage_manager
                 with sm.transaction() as conn:
                     conn.execute("DELETE FROM projects")
             except Exception:
@@ -2958,11 +2987,15 @@ class OllamaLocalBridge:
     - Azioni rapide sul PC (App, File, Appunti, To-Do, Briefing)
     """
 
-    def __init__(self, calendar_mgr: Optional[CalendarManager] = None, mem_proj_mgr: Optional[MemoryAndProjectsManager] = None, model: str = "", memory_manager: Optional[MemoryAndProjectsManager] = None, data_dir: str = ""):
+    def __init__(self, calendar_mgr: Optional[CalendarManager] = None, mem_proj_mgr: Optional[MemoryAndProjectsManager] = None, model: str = "", memory_manager: Optional[MemoryAndProjectsManager] = None, data_dir: str = "", instinct_engine: Optional[InstinctEngine] = None, hooks_runner: Optional[Any] = None):
         if data_dir:
             _apply_data_dir(data_dir)
+        self.data_dir = data_dir
         self.calendar = calendar_mgr if calendar_mgr is not None else CalendarManager()
-        self.mem_proj = mem_proj_mgr if mem_proj_mgr is not None else (memory_manager if memory_manager is not None else MemoryAndProjectsManager())
+        self.mem_proj = mem_proj_mgr if mem_proj_mgr is not None else (memory_manager if memory_manager is not None else (MemoryAndProjectsManager(data_dir=data_dir) if data_dir else MemoryAndProjectsManager()))
+        self.instinct_engine = instinct_engine or (get_instinct_engine(data_dir=self.data_dir, storage_manager=self.storage) if get_instinct_engine else None)
+        self.budget_manager = TokenBudgetManager()
+        self.hooks_runner = hooks_runner or (get_hooks_runner(data_dir=data_dir or DATA_DIR, storage_manager=self.storage, mem_proj_manager=self.mem_proj, instinct_engine=self.instinct_engine) if get_hooks_runner else None)
         self.models = [model] if model else []
         self.active_model = model or ""
         self.is_generating = False
@@ -2977,7 +3010,7 @@ class OllamaLocalBridge:
     @property
     def storage(self):
         try:
-            return get_storage_manager()
+            return get_storage_manager(data_dir=self.data_dir)
         except Exception:
             return None
 
@@ -3052,7 +3085,7 @@ class OllamaLocalBridge:
             self.chat_history = []
             _save_json(CHAT_HISTORY_FILE, self.chat_history)
             try:
-                get_storage_manager().clear_chat_history()
+                get_storage_manager(data_dir=self.data_dir).clear_chat_history()
             except Exception:
                 pass
 
@@ -3062,7 +3095,7 @@ class OllamaLocalBridge:
         with self._lock:
             # Sync to SQLite
             try:
-                get_storage_manager().append_chat_turn(user_text, reply_text, model=model_used, actions=actions)
+                get_storage_manager(data_dir=self.data_dir).append_chat_turn(user_text, reply_text, model=model_used, actions=actions)
             except Exception as e:
                 logger.warning(f"StorageManager chat turn sync error: {e}")
 
@@ -3101,7 +3134,7 @@ class OllamaLocalBridge:
         and backfills any missing memories from SQLite to disk.
         """
         try:
-            sm = get_storage_manager()
+            sm = get_storage_manager(data_dir=self.data_dir)
 
             # Normalize self.memories if it's a dict {"pinned": [...], "recent": [...]}
             if isinstance(self.memories, dict):
@@ -3227,7 +3260,7 @@ class OllamaLocalBridge:
             if not pinned and any(k in clean.lower() for k in ("sempre", "regola", "ufficiale", "logo", "mai")):
                 pinned = True
 
-            sm = get_storage_manager()
+            sm = get_storage_manager(data_dir=self.data_dir)
             try:
                 mid = sm.upsert_memory(
                     clean,
@@ -3241,6 +3274,19 @@ class OllamaLocalBridge:
                 logger.warning(f"StorageManager add_memory error: {e}")
                 mid = f"mem_{int(time.time() * 1000)}"
 
+            # Verifica tramite HooksRunner se la nuova memoria confuta/conferma una memoria provvisoria esistente
+            if hasattr(self, "hooks_runner") and self.hooks_runner:
+                try:
+                    upsert_res = self.hooks_runner.evaluate_memory_upsert(
+                        new_fact=clean,
+                        project_id=project_id,
+                    )
+                    if upsert_res:
+                        self.memories = _load_json(MEMORY_FILE, [])
+                        return upsert_res
+                except Exception as ex:
+                    logger.debug(f"evaluate_memory_upsert in add_memory error: {ex}")
+
             for m in self.memories:
                 if m.get("text", "").lower() == clean.lower() or m.get("id") == mid:
                     m["id"] = mid
@@ -3249,6 +3295,11 @@ class OllamaLocalBridge:
                     if pinned and not m.get("pinned"):
                         m["pinned"] = True
                     _save_json(MEMORY_FILE, self.memories)
+                    if hasattr(self, "hooks_runner") and self.hooks_runner:
+                        try:
+                            self.hooks_runner.emit_post_chat(chat_text="", response_text="", memory_added=m)
+                        except Exception:
+                            pass
                     return m
 
             entry = {
@@ -3261,6 +3312,11 @@ class OllamaLocalBridge:
             }
             self.memories.append(entry)
             _save_json(MEMORY_FILE, self.memories)
+            if hasattr(self, "hooks_runner") and self.hooks_runner:
+                try:
+                    self.hooks_runner.emit_post_chat(chat_text="", response_text="", memory_added=entry)
+                except Exception:
+                    pass
             return entry
 
     def pin_memory(self, memory_id: str, pinned: bool = True) -> bool:
@@ -3274,7 +3330,7 @@ class OllamaLocalBridge:
             if found:
                 _save_json(MEMORY_FILE, self.memories)
             try:
-                sm = get_storage_manager()
+                sm = get_storage_manager(data_dir=self.data_dir)
                 sm.pin_memory(memory_id, pinned=pinned)
                 with sm.transaction() as conn:
                     conn.execute(
@@ -3299,7 +3355,7 @@ class OllamaLocalBridge:
             if found:
                 _save_json(MEMORY_FILE, self.memories)
             try:
-                sm = get_storage_manager()
+                sm = get_storage_manager(data_dir=self.data_dir)
                 with sm.transaction() as conn:
                     conn.execute(
                         "UPDATE memories SET text = ?, updated_at = ? WHERE id = ? OR text = ?",
@@ -3323,7 +3379,7 @@ class OllamaLocalBridge:
                     _save_json(MEMORY_FILE, self.memories)
                     if removed_id:
                         try:
-                            sm = get_storage_manager()
+                            sm = get_storage_manager(data_dir=self.data_dir)
                             sm.delete_memory(removed_id)
                             with sm.transaction() as conn:
                                 conn.execute("DELETE FROM memories WHERE id = ? OR text = ?", (removed_id, removed_text))
@@ -3336,7 +3392,7 @@ class OllamaLocalBridge:
             self.memories = [m for m in self.memories if q not in m.get("text", "").lower() and q != m.get("id", "").lower()]
             if len(self.memories) < before:
                 _save_json(MEMORY_FILE, self.memories)
-                sm = get_storage_manager()
+                sm = get_storage_manager(data_dir=self.data_dir)
                 for m in to_remove:
                     mid = m.get("id")
                     mtext = m.get("text")
@@ -3970,6 +4026,11 @@ class OllamaLocalBridge:
                 )
 
         self._append_chat_turn(prompt_text, final_reply, model_name, actions=final_actions)
+        if hasattr(self, "hooks_runner") and self.hooks_runner:
+            try:
+                self.hooks_runner.emit_post_chat(chat_text=prompt_text, response_text=final_reply)
+            except Exception:
+                pass
         return {
             "reply": final_reply,
             "model": model_name,
@@ -4012,6 +4073,101 @@ class OllamaLocalBridge:
         if low in ("/sys", "/cpu", "top cpu", "top ram", "status"):
             top_info = self.get_top_processes()
             return self._finish_reply(text, f"[SISTEMA: CPU {cpu}% | RAM {ram}%] {top_info}")
+
+        # 2b. Pruning Istinti e Regole Scadute (/prune)
+        if low in ("/prune", "prune", "/prune instincts", "/prune istinti"):
+            ie = getattr(self, "instinct_engine", None) or get_instinct_engine()
+            pruned_count = ie.prune_expired_instincts()
+            remaining = len(ie.get_all_instincts())
+            return self._finish_reply(
+                text,
+                f"🧹 Pruning completato: rimossi {pruned_count} istinti scaduti/a bassa confidenza. Istinti attivi rimanenti: {remaining}."
+            )
+
+        # 2c. Valutazione e Deduplicazione Apprendimento (/learn-eval)
+        if low in ("/learn-eval", "learn-eval", "/learneval", "learn eval"):
+            hr = getattr(self, "hooks_runner", None) or (get_hooks_runner(data_dir=self.data_dir or DATA_DIR) if get_hooks_runner else None)
+            if hr:
+                hr.cleanup_intermarine_logo_memory()
+                mems = self.get_memories()
+                for m in mems:
+                    hr.evaluate_memory_upsert(m.get("text", ""), m.get("project_id"))
+            return self._finish_reply(
+                text,
+                "🧠 **Valutazione Apprendimento (/learn-eval):** Memorie analizzate, consolidate e deduplicate. Regole ufficiali sincronizzate in memoria!"
+            )
+
+        # 2d. Salvataggio Checkpoint Sessione (/save-session)
+        if low in ("/save-session", "save-session", "/savesession", "save session", "/salva-sessione"):
+            hr = getattr(self, "hooks_runner", None) or (get_hooks_runner(data_dir=self.data_dir or DATA_DIR) if get_hooks_runner else None)
+            ckpt = hr.save_session_checkpoint() if hr else {}
+            proj_name = ckpt.get("active_project_name") or "Nessun progetto specifico"
+            task_t = ckpt.get("active_task_title") or "Nessun task attivo"
+            hint = ckpt.get("next_step_hint") or "Continua dove avevi interrotto"
+            return self._finish_reply(
+                text,
+                f"💾 **Sessione salvata con successo!**\n- **Progetto:** {proj_name}\n- **Task:** {task_t}\n- **Punto di ripresa:** {hint}"
+            )
+
+        # 2e. Ripristino Checkpoint Sessione (/resume-session)
+        if low in ("/resume-session", "resume-session", "/resumesession", "resume session", "/riprendi-sessione"):
+            hr = getattr(self, "hooks_runner", None) or (get_hooks_runner(data_dir=self.data_dir or DATA_DIR) if get_hooks_runner else None)
+            ckpt = hr.resume_session_checkpoint() if hr else None
+            if ckpt:
+                proj_name = ckpt.get("active_project_name") or "Progetto"
+                task_t = ckpt.get("active_task_title") or "Attività in corso"
+                hint = ckpt.get("next_step_hint") or ""
+                return self._finish_reply(
+                    text,
+                    f"📂 **Sessione ripristinata!**\n- **Progetto:** {proj_name}\n- **Task:** {task_t}\n- 💡 **Suggerimento:** {hint}"
+                )
+            return self._finish_reply(
+                text,
+                "ℹ️ Nessun checkpoint di sessione salvato trovato in memoria."
+            )
+
+        # 2f. Skill Evolver Playbook Generation (/evolve [project_id])
+        if low.startswith("/evolve") or low == "evolve":
+            arg = text[7:].strip() if low.startswith("/evolve") else text[6:].strip()
+            if not arg:
+                active_p = mem_proj_manager.get_active_project() if hasattr(mem_proj_manager, "get_active_project") else None
+                arg = (active_p.get("id") if active_p else None) or "proj_nave_intermarine"
+            sr = get_skill_registry()
+            try:
+                playbook = sr.evolve_project_to_playbook(arg)
+                p_name = playbook.get("name", arg)
+                tasks_cnt = len(playbook.get("task_sequence", []))
+                tech_str = ", ".join(playbook.get("tech_stack", [])) or "Standard"
+                return self._finish_reply(
+                    text,
+                    f"🧬 **Playbook evoluto con successo!**\n- **Playbook ID:** `{playbook.get('id')}`\n- **Nome:** {p_name}\n- **Attività sequenziate:** {tasks_cnt}\n- **Tech Stack:** {tech_str}\n- **File:** `skills/playbook_{playbook.get('slug')}.json`"
+                )
+            except Exception as e:
+                return self._finish_reply(text, f"⚠️ Errore durante l'evoluzione del playbook per '{arg}': {e}")
+
+        # 2g. Pre-Delivery Quality Gate (/quality-gate [project_id])
+        if low.startswith("/quality-gate") or low.startswith("/quality_gate") or low in ("quality-gate", "quality_gate"):
+            arg = ""
+            if low.startswith("/quality-gate"):
+                arg = text[13:].strip()
+            elif low.startswith("/quality_gate"):
+                arg = text[13:].strip()
+            if not arg:
+                active_p = mem_proj_manager.get_active_project() if hasattr(mem_proj_manager, "get_active_project") else None
+                arg = (active_p.get("id") if active_p else None) or "proj_nave_intermarine"
+            try:
+                report = inspect_project_quality_gate(arg)
+                score = report.get("readiness_score", 0)
+                label = report.get("status_label", "UNKNOWN")
+                summary = report.get("task_summary", {})
+                recs = report.get("recommendations", [])
+                recs_text = "\n".join(f"- {r}" for r in recs) if recs else "- Nessuna azione necessaria."
+                return self._finish_reply(
+                    text,
+                    f"🛡️ **Pre-Delivery Quality Gate — {report.get('project_name', arg)}**\n- **Readiness Score:** {score}/100\n- **Stato:** `{label}`\n- **Task completati:** {summary.get('done', 0)}/{summary.get('total', 0)} ({summary.get('completion_pct', 0)}%)\n\n**Raccomandazioni:**\n{recs_text}"
+                )
+            except Exception as e:
+                return self._finish_reply(text, f"⚠️ Errore durante l'ispezione del Quality Gate per '{arg}': {e}")
 
         # 3. Gestione To-Do List (/todo, todo: ..., todo done N)
         if low.startswith("/todo") or low.startswith("todo"):
@@ -4315,7 +4471,7 @@ class OllamaLocalBridge:
         self.is_generating = True
         try:
             now_dt = datetime.now()
-            sm = get_storage_manager()
+            sm = get_storage_manager(data_dir=self.data_dir)
             todos = self.get_todos(as_strings=True)
             upcoming = self.calendar.get_upcoming_events(days_ahead=3)
             raw_traits = self.mem_proj.profile.get("traits", [])
@@ -4402,6 +4558,17 @@ class OllamaLocalBridge:
                     + " | ".join([f"{e['day_label']} {e['time_label']} {e['title']}" for e in upcoming[:6]])
                 )
 
+            # R1: Istinti Operativi e Linee Guida (Instinct Engine v2.1)
+            ie = getattr(self, "instinct_engine", None) or get_instinct_engine()
+            raw_instincts = ie.get_all_instincts() if hasattr(ie, "get_all_instincts") else []
+            active_instincts = budget_mgr.fit_instincts(raw_instincts, active_project_id=active_proj_id)
+            if active_instincts:
+                inst_lines = [
+                    f"- [{i.get('domain', 'workflow')}] {i.get('trigger')} -> {i.get('action')} (confidenza: {int(float(i.get('confidence', 0.5))*100)}%)"
+                    for i in active_instincts[:8]
+                ]
+                context_blocks.append("Linee Guida & Istinti Operativi Attivi:\n" + "\n".join(inst_lines))
+
             system_prompt = (
                 "Sei Neko AI, il gatto-assistente personale da scrivania dell'utente. "
                 "Vivi nella sua App Desktop su Windows. Rispondi sempre in italiano in modo naturale, "
@@ -4409,6 +4576,7 @@ class OllamaLocalBridge:
                 "ANTI-PAPPAGALLO / COMUNICAZIONE NATURALE:\n"
                 "- Il profilo utente, gli strumenti software (3ds Max, Blender, Unreal Engine, Rust, Three.js) e le competenze sono conoscenza di fondo implicita.\n"
                 "- NON ripetere o elencare MAI lo stack software o la professione dell'utente a ogni turno se non espressamente richiesto o direttamente pertinente!\n"
+                "- Rispetta rigorosamente le 'Linee Guida & Istinti Operativi Attivi' (es. vincoli di colore per loghi e pipeline di export 3D) quando formuli la risposta.\n"
                 "- Rispondi in modo diretto, cordiale e conciso alla domanda specifica.\n\n"
                 "REGOLA FONDAMENTALE PER ESEGUIRE AZIONI REALI (CALENDARIO, TO-DO, MEMORIA, PROGETTI, SKILL):\n"
                 "Non fingere MAI di aver aggiunto un evento, To-Do o progetto senza inserire il tag d'azione reale a fine messaggio!\n"
@@ -4525,17 +4693,24 @@ class SystemStateMonitor:
         calendar: CalendarManager,
         mem_proj: MemoryAndProjectsManager,
         win_conn: WindowAndConnectionsManager,
+        instinct_engine: Optional[InstinctEngine] = None,
+        hooks_runner: Optional[Any] = None,
     ):
         self.audio = audio
         self.ollama = ollama
         self.calendar = calendar
         self.mem_proj = mem_proj
         self.win_conn = win_conn
+        self.instinct_engine = instinct_engine or getattr(ollama, "instinct_engine", None) or get_instinct_engine()
+        self.hooks_runner = hooks_runner or getattr(ollama, "hooks_runner", None) or (get_hooks_runner(data_dir=DATA_DIR, storage_manager=get_storage_manager(), mem_proj_manager=mem_proj, instinct_engine=self.instinct_engine) if get_hooks_runner else None)
         self.telemetry = get_telemetry_service(
             ollama_host=OLLAMA_BASE,
             vram_threshold_pct=85.0,
             afk_threshold_sec=300.0,
+            hooks_runner=self.hooks_runner,
         )
+        if hasattr(self.telemetry, "set_hooks_runner") and self.hooks_runner:
+            self.telemetry.set_hooks_runner(self.hooks_runner)
         self.cpu_percent = 12.0
         self.ram_percent = 38.0
         self.ai_working = False
@@ -4784,6 +4959,8 @@ class SystemStateMonitor:
                 "task_visualizer": active_task["visualizer"] if active_task else "",
                 "task_status": active_task["status"] if active_task else "IDLE",
                 "task_title": active_task["title"] if active_task else "",
+                "context_mode": getattr(self, "active_context_mode", "operativo"),
+                "active_context_mode": getattr(self, "active_context_mode", "operativo"),
                 "synthesis_candidates": synthesis_candidates,
                 "cpu": telem_data.get("cpu_percent", self.cpu_percent),
                 "ram": telem_data.get("ram_percent", self.ram_percent),
@@ -4830,6 +5007,23 @@ class SystemStateMonitor:
                 "calendar_sync_status": cal_sync_status,
                 "calendar_events": cal_events,
                 "todo_deadlines": todo_deadlines,
+                "window_task_suggestion": (getattr(self, "hooks_runner", None) or getattr(self.ollama, "hooks_runner", None) or (get_hooks_runner() if get_hooks_runner else None)).get_window_task_suggestion() if (getattr(self, "hooks_runner", None) or getattr(self.ollama, "hooks_runner", None) or get_hooks_runner) else None,
+                "session_checkpoint": (getattr(self, "hooks_runner", None) or getattr(self.ollama, "hooks_runner", None) or (get_hooks_runner() if get_hooks_runner else None)).get_session_checkpoint() if (getattr(self, "hooks_runner", None) or getattr(self.ollama, "hooks_runner", None) or get_hooks_runner) else None,
+                "instincts": (getattr(self, "instinct_engine", None) or getattr(self.ollama, "instinct_engine", None) or get_instinct_engine()).get_all_instincts(),
+                "instinct_count": len((getattr(self, "instinct_engine", None) or getattr(self.ollama, "instinct_engine", None) or get_instinct_engine()).get_all_instincts()),
+                "context_budget": (getattr(self.ollama, "budget_manager", None) or TokenBudgetManager()).compute_context_breakdown(
+                    system_prompt="Sei Neko AI, assistente desktop personale.",
+                    profile=self.mem_proj.profile,
+                    skills=self.mem_proj.get_skills_learned(),
+                    instincts=(getattr(self.ollama, "budget_manager", None) or TokenBudgetManager()).fit_instincts(
+                        (getattr(self, "instinct_engine", None) or getattr(self.ollama, "instinct_engine", None) or get_instinct_engine()).get_all_instincts(),
+                        active_project_id=(active_proj.get("id") if active_proj else None),
+                    ),
+                    memories=mems,
+                    projects=p_state.get("projects", []),
+                    todos=todos,
+                    chat_history=self.ollama.chat_history[-15:] if hasattr(self.ollama, "chat_history") else [],
+                ),
                 "timestamp": time.time(),
             }
         snap.update(self.audio.get_audio_state())
@@ -4839,9 +5033,14 @@ class SystemStateMonitor:
 audio_capture = WindowsAudioCapture()
 calendar_manager = CalendarManager()
 mem_proj_manager = MemoryAndProjectsManager()
-ollama_bridge = OllamaLocalBridge(calendar_manager, mem_proj_manager)
+hooks_runner = get_hooks_runner(data_dir=DATA_DIR, storage_manager=get_storage_manager(), mem_proj_manager=mem_proj_manager) if get_hooks_runner else None
+ollama_bridge = OllamaLocalBridge(calendar_manager, mem_proj_manager, hooks_runner=hooks_runner)
 win_conn_manager = WindowAndConnectionsManager(ollama_bridge, calendar_manager, mem_proj_manager)
-monitor = SystemStateMonitor(audio_capture, ollama_bridge, calendar_manager, mem_proj_manager, win_conn_manager)
+monitor = SystemStateMonitor(audio_capture, ollama_bridge, calendar_manager, mem_proj_manager, win_conn_manager, hooks_runner=hooks_runner)
+
+# Startup idempotent cleanup for Intermarine logo memory (live runtime only, guarded in unit tests)
+if cleanup_intermarine_logo_memory and not ("unittest" in sys.modules or any("test" in str(a).lower() for a in sys.argv)):
+    cleanup_intermarine_logo_memory(DATA_DIR, get_storage_manager())
 
 
 class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
@@ -5403,6 +5602,221 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
                 return self._send_json({"ok": True, "subtasks": subtasks, "todos": ollama_bridge.load_todos(as_strings=False)})
             return self._send_json({"ok": False, "error": f"Azione non valida: {action}"})
 
+        # --- Instinct Engine Endpoints (Requirement R1) ---
+        if self.path.startswith("/api/instincts/action") or self.path.startswith("/api/instincts"):
+            try:
+                if not isinstance(body, dict):
+                    raise ValueError("Payload JSON non valido o non dizionario")
+                ie = getattr(ollama_bridge, "instinct_engine", None) or get_instinct_engine()
+                raw_action = body.get("action", "add")
+                api_actions = {"add", "confirm", "promote", "prune", "delete", "remove"}
+                if raw_action in api_actions:
+                    action_verb = raw_action
+                    action_text = (
+                        body.get("action_text")
+                        or body.get("action_rule")
+                        or body.get("rule")
+                        or body.get("instinct_action")
+                        or body.get("action_content")
+                        or body.get("text", "")
+                    )
+                else:
+                    action_verb = "add"
+                    action_text = raw_action
+
+                if action_verb == "add":
+                    trigger_text = body.get("trigger", "")
+                    if not trigger_text or not str(trigger_text).strip():
+                        raise ValueError("Trigger cannot be empty")
+                    if not action_text or not str(action_text).strip():
+                        raise ValueError("Action cannot be empty")
+                    raw_conf = body.get("confidence", 0.50)
+                    try:
+                        conf_val = float(raw_conf)
+                    except (ValueError, TypeError):
+                        raise ValueError(f"Invalid confidence value: {raw_conf}")
+                    scope_val = body.get("scope", "project")
+                    if scope_val not in ("project", "global"):
+                        raise ValueError(f"Invalid scope: '{scope_val}'. Must be 'project' or 'global'")
+                    proj_id = body.get("project_id")
+                    dom_val = body.get("domain", "workflow")
+                    try:
+                        u_cnt = int(body.get("use_count", 1))
+                    except (ValueError, TypeError):
+                        u_cnt = 1
+                    inst_id = body.get("id") or body.get("instinct_id")
+                    entry = ie.add_instinct(
+                        trigger=trigger_text,
+                        action=action_text,
+                        confidence=conf_val,
+                        scope=scope_val,
+                        project_id=proj_id,
+                        domain=dom_val,
+                        use_count=u_cnt,
+                        instinct_id=inst_id,
+                    )
+                    return self._send_json({
+                        "ok": bool(entry),
+                        "status": "ok" if entry else "error",
+                        "action": "add",
+                        "instinct": entry,
+                        "instincts": ie.get_all_instincts(),
+                    })
+                elif action_verb == "confirm":
+                    inst_id = body.get("id") or body.get("instinct_id")
+                    if not inst_id:
+                        raise KeyError("Missing instinct 'id' parameter for confirm")
+                    entry = ie.confirm_instinct(inst_id)
+                    return self._send_json({
+                        "ok": bool(entry),
+                        "status": "ok" if entry else "error",
+                        "action": "confirm",
+                        "instinct": entry,
+                        "instincts": ie.get_all_instincts(),
+                    })
+                elif action_verb == "promote":
+                    inst_id = body.get("id") or body.get("instinct_id")
+                    if not inst_id:
+                        raise KeyError("Missing instinct 'id' parameter for promote")
+                    entry = ie.promote_instinct(inst_id)
+                    return self._send_json({
+                        "ok": bool(entry),
+                        "status": "ok" if entry else "error",
+                        "action": "promote",
+                        "instinct": entry,
+                        "instincts": ie.get_all_instincts(),
+                    })
+                elif action_verb == "prune":
+                    try:
+                        max_age = float(body.get("max_age_days", 14.0))
+                    except (ValueError, TypeError):
+                        max_age = 14.0
+                    try:
+                        min_conf = float(body.get("min_confidence", 0.35))
+                    except (ValueError, TypeError):
+                        min_conf = 0.35
+                    pruned_count = ie.prune_expired_instincts(max_age_days=max_age, min_confidence=min_conf)
+                    return self._send_json({
+                        "ok": True,
+                        "status": "ok",
+                        "action": "prune",
+                        "pruned_count": pruned_count,
+                        "instincts": ie.get_all_instincts(),
+                    })
+                elif action_verb in ("delete", "remove"):
+                    inst_id = body.get("id") or body.get("instinct_id")
+                    if not inst_id:
+                        raise KeyError("Missing instinct 'id' parameter for delete")
+                    ok = ie.delete_instinct(inst_id)
+                    return self._send_json({
+                        "ok": ok,
+                        "status": "ok" if ok else "error",
+                        "action": "delete",
+                        "instincts": ie.get_all_instincts(),
+                    })
+                return self._send_json({
+                    "ok": False,
+                    "status": "error",
+                    "message": f"Azione non valida: {raw_action}",
+                    "error": f"Azione non valida: {raw_action}",
+                }, status=400)
+            except (ValueError, KeyError, sqlite3.IntegrityError, Exception) as e:
+                return self._send_json({
+                    "ok": False,
+                    "status": "error",
+                    "message": str(e),
+                    "error": str(e),
+                }, status=400)
+
+        # --- Session Checkpoint Endpoints (Requirement R2 / F15, F16) ---
+        if self.path.startswith("/api/session/action") or self.path.startswith("/api/session"):
+            hr = getattr(ollama_bridge, "hooks_runner", None) or (get_hooks_runner(data_dir=DATA_DIR) if get_hooks_runner else None)
+            if not hr:
+                return self._send_json({"ok": False, "status": "error", "error": "HooksRunner non disponibile"}, status=500)
+            action = body.get("action", "resume")
+            if action == "save":
+                ckpt = hr.save_session_checkpoint(
+                    active_project_id=body.get("active_project_id"),
+                    active_project_name=body.get("active_project_name"),
+                    active_task_id=body.get("active_task_id"),
+                    active_task_title=body.get("active_task_title"),
+                    active_view=body.get("active_view", "projects"),
+                    next_step_hint=body.get("next_step_hint", ""),
+                )
+                return self._send_json({"ok": True, "status": "ok", "action": "save", "checkpoint": ckpt})
+            elif action == "resume":
+                ckpt = hr.resume_session_checkpoint()
+                return self._send_json({"ok": True, "status": "ok", "action": "resume", "checkpoint": ckpt})
+            elif action == "dismiss":
+                res = hr.dismiss_session_checkpoint()
+                return self._send_json({"ok": True, "status": "ok", "action": "dismiss", "checkpoint": None})
+            return self._send_json({"ok": False, "status": "error", "message": f"Azione non valida: {action}"}, status=400)
+
+        # --- Context Mode Endpoint (Requirement R4 / F22) ---
+        if self.path.startswith("/api/context_mode"):
+            raw_mode = body.get("mode") if body.get("mode") is not None else body.get("context_mode")
+            mode = str(raw_mode or "").strip().lower()
+            if not mode:
+                mode = "operativo"
+            if mode not in ("operativo", "project_manager", "knowledge_curator"):
+                if "curator" in mode or "knowledge" in mode or mode == "know":
+                    mode = "knowledge_curator"
+                elif "pm" in mode or "proj" in mode or "manag" in mode:
+                    mode = "project_manager"
+                else:
+                    mode = "operativo"
+            monitor.active_context_mode = mode
+            return self._send_json({"ok": True, "status": "ok", "context_mode": mode, "active_mode": mode})
+
+        # --- Milestone 3 Endpoints (Playbooks & Quality Gate) ---
+        if self.path.startswith("/api/projects/evolve"):
+            try:
+                pid = body.get("project_id") or body.get("id")
+                if not pid:
+                    return self._send_json({"ok": False, "status": "error", "error": "project_id is required"}, status=400)
+                d_dir = body.get("data_dir")
+                sr = SkillRegistry(data_dir=d_dir) if d_dir else get_skill_registry()
+                slug = body.get("slug")
+                pb = sr.evolve_project_to_playbook(project_id=pid, slug=slug, data_dir=d_dir)
+                return self._send_json({"ok": True, "status": "ok", "playbook": pb})
+            except Exception as e:
+                logger.error(f"Error in /api/projects/evolve: {e}", exc_info=True)
+                return self._send_json({"ok": False, "status": "error", "error": str(e)}, status=400)
+
+        if self.path.startswith("/api/projects/from-playbook") or self.path.startswith("/api/projects/instantiate"):
+            try:
+                slug = body.get("playbook_slug") or body.get("playbook_id") or body.get("slug")
+                p_name = body.get("project_name") or body.get("name")
+                if not slug or not p_name:
+                    return self._send_json({"ok": False, "status": "error", "error": "playbook_slug and project_name are required"}, status=400)
+                d_dir = body.get("data_dir")
+                sr = SkillRegistry(data_dir=d_dir) if d_dir else get_skill_registry()
+                client = body.get("client", "")
+                start_date = body.get("start_date")
+                res = sr.create_project_from_playbook(
+                    playbook_slug=slug,
+                    project_name=p_name,
+                    client=client,
+                    start_date=start_date,
+                    data_dir=d_dir,
+                )
+                return self._send_json(res, status=400 if not res.get("ok") else 200)
+            except Exception as e:
+                logger.error(f"Error in /api/projects/from-playbook: {e}", exc_info=True)
+                return self._send_json({"ok": False, "status": "error", "error": str(e)}, status=400)
+
+        if self.path.startswith("/api/projects/quality_gate") or self.path.startswith("/api/projects/quality-gate"):
+            try:
+                pid = body.get("project_id") or body.get("id")
+                if not pid:
+                    return self._send_json({"ok": False, "status": "error", "error": "project_id is required"}, status=400)
+                d_dir = body.get("data_dir")
+                report = inspect_project_quality_gate(project_id=pid, data_dir=d_dir)
+                return self._send_json({"ok": True, "status": "ok", "quality_gate": report})
+            except Exception as e:
+                logger.error(f"Error in /api/projects/quality_gate: {e}", exc_info=True)
+                return self._send_json({"ok": False, "status": "error", "error": str(e)}, status=400)
+
         self.send_response(404)
         self.end_headers()
 
@@ -5413,8 +5827,41 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         client_id = self._extract_client_id()
+        if self.path.startswith("/api/playbooks"):
+            sr = get_skill_registry()
+            pbs = sr.list_playbooks()
+            return self._send_json({"ok": True, "status": "ok", "playbooks": pbs, "count": len(pbs)})
+
+        if self.path.startswith("/api/projects/quality_gate") or self.path.startswith("/api/projects/quality-gate"):
+            try:
+                pid = "proj_nave_intermarine"
+                if "project_id=" in self.path:
+                    pid = self.path.split("project_id=")[1].split("&")[0]
+                report = inspect_project_quality_gate(project_id=pid)
+                return self._send_json({"ok": True, "status": "ok", "quality_gate": report})
+            except Exception as e:
+                logger.error(f"Error in GET /api/projects/quality_gate: {e}", exc_info=True)
+                return self._send_json({"ok": False, "status": "error", "error": str(e)}, status=400)
+
+        if self.path.startswith("/api/context_mode"):
+            mode = getattr(monitor, "active_context_mode", "operativo")
+            return self._send_json({"ok": True, "status": "ok", "context_mode": mode, "active_mode": mode})
+
+        if self.path.startswith("/api/session"):
+            hr = getattr(ollama_bridge, "hooks_runner", None) or (get_hooks_runner(data_dir=DATA_DIR) if get_hooks_runner else None)
+            ckpt = hr.get_session_checkpoint() if hr else None
+            return self._send_json({"ok": True, "status": "ok", "checkpoint": ckpt})
         if self.path.startswith("/api/colorsafe"):
             return self._send_json({"ok": True, "color_safe_mode": bool(mem_proj_manager.profile.get("color_safe_mode", False))})
+
+        if self.path.startswith("/api/instincts"):
+            ie = getattr(ollama_bridge, "instinct_engine", None) or get_instinct_engine()
+            return self._send_json({
+                "ok": True,
+                "status": "ok",
+                "instincts": ie.get_all_instincts(),
+                "instinct_count": len(ie.get_all_instincts()),
+            })
 
         if self.path.startswith("/api/task/active"):
             te = get_task_engine()

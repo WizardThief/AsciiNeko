@@ -511,8 +511,12 @@ def parse_window_title(title: str, proc_name: str = "") -> Dict[str, Any]:
 class WindowAndAFKTracker:
     """Inspects Win32 foreground window and tracks AFK idle duration."""
 
-    def __init__(self, afk_threshold_seconds: float = 300.0):
+    def __init__(self, afk_threshold_seconds: float = 300.0, hooks_runner: Optional[Any] = None):
         self.afk_threshold_seconds = afk_threshold_seconds
+        self.hooks_runner = hooks_runner
+        self._prev_win_title = ""
+        self._prev_app_name = ""
+        self._afk_emitted = False
         self.current_window = {
             "app_name": "Desktop",
             "window_title": "",
@@ -529,6 +533,10 @@ class WindowAndAFKTracker:
         self.project_time_today: Dict[str, float] = {}
         self._last_tick_time = time.time()
         self._lock = threading.Lock()
+
+    def set_hooks_runner(self, runner: Any) -> None:
+        """Sets the HooksRunner instance for window and AFK transition notifications."""
+        self.hooks_runner = runner
 
     def get_afk_idle_seconds(self) -> float:
         """Returns seconds since last user input via Win32 GetLastInputInfo."""
@@ -635,6 +643,29 @@ class WindowAndAFKTracker:
                     key = f"{app}: {proj}" if app != "Application" else proj
                     self.project_time_today[key] = self.project_time_today.get(key, 0.0) + dt
 
+        # Lifecycle Hook notifications (Window switch & AFK transition)
+        runner = self.hooks_runner
+        if runner:
+            cur_app = win_info.get("app_name", "")
+            cur_title = win_info.get("window_title", "")
+            if (cur_app != self._prev_app_name or cur_title != self._prev_win_title) and (cur_app or cur_title):
+                self._prev_app_name = cur_app
+                self._prev_win_title = cur_title
+                try:
+                    runner.emit_window_switch(win_info)
+                except Exception as ex:
+                    logger.debug(f"HooksRunner window_switch error: {ex}")
+
+            if is_afk or idle_sec >= self.afk_threshold_seconds:
+                if not self._afk_emitted:
+                    self._afk_emitted = True
+                    try:
+                        runner.emit_idle_or_exit(reason="afk")
+                    except Exception as ex:
+                        logger.debug(f"HooksRunner idle_or_exit error: {ex}")
+            else:
+                self._afk_emitted = False
+
         return win_info, is_afk, idle_sec
 
     def get_summary(self) -> Dict[str, Any]:
@@ -662,17 +693,24 @@ class TelemetryService:
         ollama_host: str = "http://127.0.0.1:11434",
         vram_threshold_pct: float = 85.0,
         afk_threshold_sec: float = 300.0,
+        hooks_runner: Optional[Any] = None,
     ):
         self.collector = HardwareTelemetryCollector()
         self.guard = DynamicVRAMGuard(
             ollama_host=ollama_host,
             threshold_percent=vram_threshold_pct,
         )
-        self.tracker = WindowAndAFKTracker(afk_threshold_seconds=afk_threshold_sec)
+        self.tracker = WindowAndAFKTracker(afk_threshold_seconds=afk_threshold_sec, hooks_runner=hooks_runner)
+        self.hooks_runner = hooks_runner
 
         self._lock = threading.Lock()
         self._running = False
         self._thread: Optional[threading.Thread] = None
+
+    def set_hooks_runner(self, runner: Any) -> None:
+        """Sets the HooksRunner instance on service and internal tracker."""
+        self.hooks_runner = runner
+        self.tracker.set_hooks_runner(runner)
 
         # Cached state snapshot
         self._snapshot: Dict[str, Any] = {
@@ -774,6 +812,7 @@ def get_telemetry_service(
     ollama_host: str = "http://127.0.0.1:11434",
     vram_threshold_pct: float = 85.0,
     afk_threshold_sec: float = 300.0,
+    hooks_runner: Optional[Any] = None,
 ) -> TelemetryService:
     """Returns the process-wide TelemetryService singleton and starts its loop."""
     global _TELEMETRY_INSTANCE
@@ -783,8 +822,11 @@ def get_telemetry_service(
                 ollama_host=ollama_host,
                 vram_threshold_pct=vram_threshold_pct,
                 afk_threshold_sec=afk_threshold_sec,
+                hooks_runner=hooks_runner,
             )
             _TELEMETRY_INSTANCE.start()
+        elif hooks_runner and _TELEMETRY_INSTANCE.hooks_runner is None:
+            _TELEMETRY_INSTANCE.set_hooks_runner(hooks_runner)
         return _TELEMETRY_INSTANCE
 
 

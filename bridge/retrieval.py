@@ -36,6 +36,7 @@ BUDGET_PINNED_AND_DCC = 450
 BUDGET_DYNAMIC_MEMORIES = 800
 BUDGET_CONVERSATION_HISTORY = 600
 BUDGET_CLIPBOARD = 400
+BUDGET_INSTINCTS = 300
 
 DEFAULT_LAMBDA = 0.05
 PINNED_LAMBDA = 0.00
@@ -349,6 +350,7 @@ class TokenBudgetManager:
         budget_memories: int = BUDGET_DYNAMIC_MEMORIES,
         budget_history: int = BUDGET_CONVERSATION_HISTORY,
         budget_clipboard: int = BUDGET_CLIPBOARD,
+        budget_instincts: int = BUDGET_INSTINCTS,
     ):
         self.target_num_ctx = target_num_ctx
         self.min_headroom = min_headroom
@@ -358,6 +360,7 @@ class TokenBudgetManager:
         self.budget_memories = budget_memories
         self.budget_history = budget_history
         self.budget_clipboard = budget_clipboard
+        self.budget_instincts = budget_instincts
 
     def fit_clipboard(self, clipboard_text: str, available_tokens: int) -> str:
         """Truncates clipboard text to fit allocated token quota."""
@@ -417,6 +420,164 @@ class TokenBudgetManager:
             accumulated += cost
 
         return list(reversed(selected))
+
+    def fit_instincts(
+        self,
+        instincts: List[Dict[str, Any]],
+        active_project_id: Optional[str] = None,
+        available_tokens: Optional[int] = None,
+        as_tuple: bool = False,
+    ) -> Any:
+        """
+        Filters and fits instincts conforming to:
+        - scope == 'global' AND confidence >= 0.55
+        - scope == 'project' AND project_id == active_project_id
+        Sorted by confidence descending, then use_count descending.
+        Fits within budget_instincts (default: 300 tokens) or available_tokens.
+        Returns list of fitted instincts (or tuple (list, tokens) if as_tuple=True).
+        """
+        if not instincts:
+            return ([], 0) if as_tuple else []
+
+        eligible: List[Dict[str, Any]] = []
+        for inst in instincts:
+            if not isinstance(inst, dict):
+                continue
+            scope = inst.get("scope", "global")
+            try:
+                conf = float(inst.get("confidence", 0.5))
+            except (ValueError, TypeError):
+                conf = 0.5
+            proj = inst.get("project_id")
+
+            if scope == "global" and conf >= 0.55:
+                eligible.append(inst)
+            elif scope == "project" and active_project_id and proj == active_project_id:
+                eligible.append(inst)
+
+        # Sort descending by confidence, then use_count
+        eligible.sort(
+            key=lambda x: (float(x.get("confidence", 0.0)), int(x.get("use_count", 0))),
+            reverse=True,
+        )
+
+        cap = self.budget_instincts if available_tokens is None else min(self.budget_instincts, available_tokens)
+        selected: List[Dict[str, Any]] = []
+        accumulated = 0
+
+        for inst in eligible:
+            trig = inst.get("trigger", "")
+            act = inst.get("action", "")
+            dom = inst.get("domain", "workflow")
+            repr_str = f"[{dom}] {trig}: {act}"
+            cost = estimate_tokens(repr_str) + 2
+            if accumulated + cost <= cap:
+                selected.append(inst)
+                accumulated += cost
+            elif not selected:
+                if cap >= 10:
+                    selected.append(inst)
+                    accumulated += cost
+                break
+            else:
+                break
+
+        if as_tuple:
+            return selected, accumulated
+        return selected
+
+    def compute_context_breakdown(
+        self,
+        system_prompt: Any = "",
+        profile: Any = None,
+        skills: Any = None,
+        instincts: Any = None,
+        memories: Any = None,
+        projects: Any = None,
+        todos: Any = None,
+        chat_history: Any = None,
+    ) -> Dict[str, Any]:
+        """
+        Computes exact token counts and percentages for categories:
+        system, profile_and_skills, instincts, memories, projects_and_todos, chat_history.
+        """
+        def _to_text(obj: Any) -> str:
+            if obj is None:
+                return ""
+            if isinstance(obj, str):
+                return obj
+            if isinstance(obj, list):
+                parts = []
+                for item in obj:
+                    if isinstance(item, str):
+                        parts.append(item)
+                    elif isinstance(item, dict):
+                        pieces = [
+                            str(item.get(k)) for k in (
+                                "text", "content", "trigger", "action", "name",
+                                "title", "note", "notes", "client", "traits"
+                            ) if item.get(k) is not None
+                        ]
+                        parts.append(" ".join(pieces) if pieces else str(item))
+                    else:
+                        parts.append(str(item))
+                return " ".join(parts)
+            if isinstance(obj, dict):
+                parts = []
+                for k, v in obj.items():
+                    if isinstance(v, (str, int, float)):
+                        parts.append(f"{k}: {v}")
+                    elif isinstance(v, (list, dict)):
+                        parts.append(f"{k}: {_to_text(v)}")
+                return " ".join(parts)
+            return str(obj)
+
+        sys_tokens = estimate_tokens(_to_text(system_prompt))
+        prof_tokens = estimate_tokens(_to_text(profile))
+        skill_tokens = estimate_tokens(_to_text(skills))
+        profile_and_skills_tokens = prof_tokens + skill_tokens
+
+        inst_tokens = estimate_tokens(_to_text(instincts))
+        mem_tokens = estimate_tokens(_to_text(memories))
+
+        proj_tokens = estimate_tokens(_to_text(projects))
+        todo_tokens = estimate_tokens(_to_text(todos))
+        projects_and_todos_tokens = proj_tokens + todo_tokens
+
+        chat_tokens = estimate_tokens(_to_text(chat_history))
+
+        breakdown = {
+            "system": sys_tokens,
+            "profile_and_skills": profile_and_skills_tokens,
+            "instincts": inst_tokens,
+            "memories": mem_tokens,
+            "projects_and_todos": projects_and_todos_tokens,
+            "chat_history": chat_tokens,
+        }
+
+        total_budget = self.target_num_ctx  # 8192
+        used_tokens = sum(breakdown.values())
+        usage_pct = round((used_tokens / total_budget) * 100, 1) if total_budget > 0 else 0.0
+
+        percentages = {
+            k: round((v / total_budget) * 100, 1) if total_budget > 0 else 0.0
+            for k, v in breakdown.items()
+        }
+
+        return {
+            "total_budget": total_budget,
+            "max_prompt_budget": self.max_prompt_budget,
+            "used_tokens": used_tokens,
+            "usage_pct": usage_pct,
+            "breakdown": breakdown,
+            "percentages": percentages,
+            "system": sys_tokens,
+            "profile_and_skills": profile_and_skills_tokens,
+            "instincts": inst_tokens,
+            "memories": mem_tokens,
+            "projects_and_todos": projects_and_todos_tokens,
+            "chat_history": chat_tokens,
+        }
 
     def _fit_pinned_traits(
         self, pinned_traits: Optional[List[Any]], budget_tokens: int = 450

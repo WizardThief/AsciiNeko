@@ -224,6 +224,24 @@ class StorageManager:
         actions_json TEXT DEFAULT '[]'
     );
     CREATE INDEX IF NOT EXISTS idx_chat_ts ON chat_history(timestamp);
+
+    -- 11. Instincts (Continuous Learning v2.1)
+    CREATE TABLE IF NOT EXISTS instincts (
+        id TEXT PRIMARY KEY,
+        trigger TEXT NOT NULL,
+        action TEXT NOT NULL,
+        confidence REAL NOT NULL CHECK(confidence >= 0.30 AND confidence <= 0.95),
+        scope TEXT NOT NULL CHECK(scope IN ('project', 'global')),
+        project_id TEXT,
+        domain TEXT NOT NULL,
+        use_count INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_instincts_scope ON instincts(scope);
+    CREATE INDEX IF NOT EXISTS idx_instincts_project ON instincts(project_id);
+    CREATE INDEX IF NOT EXISTS idx_instincts_conf ON instincts(confidence);
     """
 
     def __init__(self, db_path: Optional[str] = None, data_dir: Optional[str] = None):
@@ -289,6 +307,8 @@ class StorageManager:
             except Exception:
                 pass
             self._local.conn = None
+
+    close = close_connection
 
     def init_db(self):
         """Executes full DDL schema in a safe transaction."""
@@ -939,6 +959,147 @@ class StorageManager:
             conn.execute("DELETE FROM chat_history")
             return True
 
+    # =========================================================================
+    # INSTINCTS STORAGE METHODS (Continuous Learning v2.1)
+    # =========================================================================
+
+    def get_all_instincts(self) -> List[Dict[str, Any]]:
+        """Reads all instincts from SQLite, ordered by confidence DESC, use_count DESC."""
+        conn = self.get_connection()
+        rows = conn.execute(
+            "SELECT * FROM instincts ORDER BY confidence DESC, use_count DESC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def save_instinct(self, instinct: Dict[str, Any]) -> None:
+        """Inserts or updates an instinct record in SQLite."""
+        with self.transaction() as conn:
+            proj_id = instinct.get("project_id")
+            if proj_id:
+                try:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO projects (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                        (proj_id, proj_id, time.time(), time.time()),
+                    )
+                except Exception:
+                    pass
+            raw_conf = float(instinct.get("confidence", 0.5))
+            clamped_conf = round(max(0.30, min(0.95, raw_conf)), 4)
+            conn.execute(
+                """
+                INSERT INTO instincts (id, trigger, action, confidence, scope, project_id, domain, use_count, created_at, last_seen_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    trigger = excluded.trigger,
+                    action = excluded.action,
+                    confidence = excluded.confidence,
+                    scope = excluded.scope,
+                    project_id = excluded.project_id,
+                    domain = excluded.domain,
+                    use_count = excluded.use_count,
+                    created_at = excluded.created_at,
+                    last_seen_at = excluded.last_seen_at
+                """,
+                (
+                    str(instinct["id"]),
+                    str(instinct["trigger"]),
+                    str(instinct["action"]),
+                    clamped_conf,
+                    str(instinct.get("scope", "global")),
+                    instinct.get("project_id"),
+                    str(instinct.get("domain", "workflow")),
+                    int(instinct.get("use_count", 0)),
+                    str(instinct.get("created_at", datetime.now().isoformat())),
+                    str(instinct.get("last_seen_at", datetime.now().isoformat())),
+                ),
+            )
+
+    def delete_instinct(self, instinct_id: str) -> bool:
+        """Deletes an instinct by ID from SQLite."""
+        with self.transaction() as conn:
+            cur = conn.execute("DELETE FROM instincts WHERE id = ?", (instinct_id,))
+            return cur.rowcount > 0
+
+    def prune_instincts(self, max_age_days: float = 14.0, min_confidence: float = 0.35) -> int:
+        """
+        Prunes instincts with confidence <= min_confidence and age > max_age_days.
+        Returns count of pruned instincts.
+        """
+        all_inst = self.get_all_instincts()
+        now = time.time()
+        max_age_sec = max_age_days * 86400.0
+        to_delete = []
+        for inst in all_inst:
+            conf = float(inst.get("confidence", 0.5))
+            if conf > min_confidence:
+                continue
+            # Parse created_at or last_seen_at
+            ts_val = None
+            c_at = inst.get("created_at")
+            if isinstance(c_at, (int, float)):
+                ts_val = float(c_at)
+            elif isinstance(c_at, str):
+                try:
+                    ts_val = float(c_at)
+                except ValueError:
+                    try:
+                        ts_val = datetime.fromisoformat(c_at).timestamp()
+                    except Exception:
+                        try:
+                            ts_val = datetime.strptime(c_at, "%Y-%m-%d %H:%M:%S").timestamp()
+                        except Exception:
+                            ts_val = now
+            if ts_val is not None and (now - ts_val) >= max_age_sec:
+                to_delete.append(inst["id"])
+
+        if not to_delete:
+            return 0
+
+        with self.transaction() as conn:
+            cur = conn.execute(
+                f"DELETE FROM instincts WHERE id IN ({','.join(['?']*len(to_delete))})",
+                tuple(to_delete)
+            )
+            return cur.rowcount
+
+
+class AtomicJsonStore:
+    """
+    Encapsulates atomic JSON read/write persistence for a specific file path
+    using StorageManager's msvcrt locking, tmp file replace, and .corrupt.bak backup.
+    """
+
+    def __init__(
+        self,
+        file_path: str,
+        default: Any = None,
+        storage_manager: Optional[StorageManager] = None,
+    ):
+        self.file_path = os.path.abspath(file_path)
+        self.default = default if default is not None else []
+        self._lock = threading.RLock()
+        self._sm = storage_manager
+
+    @property
+    def storage_manager(self) -> StorageManager:
+        if self._sm is None:
+            self._sm = get_storage_manager()
+        return self._sm
+
+    def load(self, default: Any = None) -> Any:
+        with self._lock:
+            def_val = default if default is not None else self.default
+            return self.storage_manager.atomic_load_json(self.file_path, default=def_val)
+
+    read = load
+
+    def save(self, data: Any) -> bool:
+        with self._lock:
+            return self.storage_manager.atomic_save_json(self.file_path, data)
+
+    write = save
+
+
 
 # Global Module Singleton Accessor
 _global_storage_manager: Optional[StorageManager] = None
@@ -946,11 +1107,16 @@ _global_storage_lock = threading.Lock()
 
 
 def get_storage_manager(data_dir: Optional[str] = None) -> StorageManager:
-    """Returns the process-wide StorageManager singleton."""
+    """Returns the process-wide StorageManager singleton, or a scoped StorageManager for custom data_dir."""
     global _global_storage_manager
+    if data_dir is not None:
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"))
+        if os.path.abspath(data_dir) != base_dir:
+            return StorageManager(data_dir=data_dir)
     with _global_storage_lock:
         if _global_storage_manager is None:
             _global_storage_manager = StorageManager(data_dir=data_dir)
         elif data_dir and os.path.abspath(data_dir) != os.path.abspath(_global_storage_manager.data_dir):
             _global_storage_manager.set_data_dir(data_dir)
         return _global_storage_manager
+

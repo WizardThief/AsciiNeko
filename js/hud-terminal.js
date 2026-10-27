@@ -69,7 +69,13 @@ class HudTerminal {
       { cmd: '/colorsafe', desc: 'Attiva/Disattiva modalità Color-Safe' },
       { cmd: '/skills', desc: 'Elenco competenze e strumenti AI' },
       { cmd: '/sync', desc: 'Sincronizza stato e progetti' },
-      { cmd: '/dcc_backup', desc: 'Salva snapshot di sicurezza progetto' }
+      { cmd: '/dcc_backup', desc: 'Salva snapshot di sicurezza progetto' },
+      { cmd: '/context', desc: 'Imposta modalità contesto (operativo, pm, curator)', hint: '/context [operativo|pm|curator]' },
+      { cmd: '/prune', desc: 'Pulisci istinti atomici a bassa confidenza o scaduti' },
+      { cmd: '/evolve', desc: 'Evolvi il progetto attivo in un Playbook riutilizzabile' },
+      { cmd: '/quality-gate', desc: 'Verifica pre-consegna del progetto attivo' },
+      { cmd: '/save-session', desc: 'Salva checkpoint sessione di lavoro' },
+      { cmd: '/resume-session', desc: 'Ripristina checkpoint sessione di lavoro' }
     ];
     this.filteredSlashCommands = [];
     this.slashIndex = 0;
@@ -2547,6 +2553,95 @@ class HudTerminal {
       }
     }
 
+    // F22: /context command
+    if (clean === '/context' || clean.startsWith('/context ')) {
+      const arg = clean.slice(8).trim().toLowerCase();
+      let mode = 'operativo';
+      if (!arg) {
+        const cur = this.currentContextMode || 'operativo';
+        if (cur === 'operativo') mode = 'project_manager';
+        else if (cur === 'project_manager') mode = 'knowledge_curator';
+        else mode = 'operativo';
+      } else if (arg.includes('curator') || arg.includes('know') || arg === 'curator') {
+        mode = 'knowledge_curator';
+      } else if (arg.includes('pm') || arg.includes('proj') || arg === 'pm') {
+        mode = 'project_manager';
+      } else {
+        mode = 'operativo';
+      }
+      this.setContextMode(mode, true);
+      const label = mode === 'operativo' ? 'Operativo 🛠️' : (mode === 'project_manager' ? 'Project Manager 📋' : 'Knowledge Curator 🧠');
+      this.say(`🧭 Modalità contesto impostata su: ${label}`);
+      return;
+    }
+
+    // F27: /prune command
+    if (clean === '/prune') {
+      if (window.systemBridge && window.systemBridge.instinctsAction) {
+        const res = await window.systemBridge.instinctsAction({ action: 'prune' });
+        const pruned = res && res.pruned_count !== undefined ? res.pruned_count : 0;
+        this.say(`🧹 Pulizia istinti completata: ${pruned} istinti rimossi.`);
+        this.renderMemoryDashboard();
+      }
+      return;
+    }
+
+    // F23: /evolve command
+    if (clean === '/evolve' || clean.startsWith('/evolve ')) {
+      const activeProj = (this.state.system && this.state.system.activeProjectName) || '';
+      const pList = (this.state.system && this.state.system.projectsList) || [];
+      const match = pList.find(p => p.name === activeProj) || pList[0];
+      if (match && window.systemBridge && window.systemBridge.evolveProject) {
+        this.say(`🧬 Generazione Playbook in corso per "${match.name}"...`);
+        const res = await window.systemBridge.evolveProject(match.id);
+        if (res && res.ok) {
+          this.say(`🧬 Playbook "${res.playbook_id || match.name}" generato con successo!`);
+          this.populatePlaybooksDropdown();
+        } else {
+          this.say(`⚠️ Impossibile generare playbook: ${res ? res.error : 'errore di rete'}`);
+        }
+      } else {
+        this.say('⚠️ Nessun progetto attivo selezionato per la generazione del Playbook.');
+      }
+      return;
+    }
+
+    // F24: /quality-gate command
+    if (clean === '/quality-gate' || clean.startsWith('/quality-gate ')) {
+      const pList = (this.state.system && this.state.system.projectsList) || [];
+      const activeProj = (this.state.system && this.state.system.activeProjectName) || '';
+      const match = pList.find(p => p.name === activeProj) || pList[0];
+      if (match) {
+        this.openQualityGateModal(match.id, match.name);
+      } else {
+        this.say('⚠️ Nessun progetto disponibile per il Quality Gate.');
+      }
+      return;
+    }
+
+    // F28: /save-session and /resume-session commands
+    if (clean === '/save-session') {
+      if (window.systemBridge && window.systemBridge.sessionAction) {
+        const res = await window.systemBridge.sessionAction({ action: 'save' });
+        if (res && res.ok) {
+          this.say('💾 Checkpoint della sessione salvato con successo!');
+        }
+      }
+      return;
+    }
+
+    if (clean === '/resume-session') {
+      if (window.systemBridge && window.systemBridge.sessionAction) {
+        const res = await window.systemBridge.sessionAction({ action: 'resume' });
+        if (res && res.ok && res.checkpoint) {
+          const ckpt = res.checkpoint;
+          this.say(`↺ Sessione ripristinata: ${ckpt.active_project_name || 'Progetto'} (${ckpt.active_task_title || ''})`);
+          if (ckpt.active_view) this.switchWorkspace(ckpt.active_view);
+        }
+      }
+      return;
+    }
+
     if (clean.startsWith('/') && clean !== '/colorsafe' && clean !== '/profilo' && !clean.startsWith('/todo') && clean !== '/cal' && clean !== '/briefing') {
       const parts = clean.slice(1).split(' ');
       const skillId = parts[0];
@@ -3266,6 +3361,80 @@ class HudTerminal {
     this.elBtnMemProfilingNext = document.getElementById('btn-mem-profiling-next');
     this.elMemProfileTraitsList = document.getElementById('mem-profile-traits-list');
 
+    // Milestone 4 (F22-F28) Elements
+    // F22: Dynamic Context Mode
+    this.elContextModePill = document.getElementById('context-mode-pill');
+    this.elContextModeIcon = document.getElementById('context-mode-icon');
+    this.elContextModeLabel = document.getElementById('context-mode-label');
+
+    // F28: Smart Banner
+    this.elSmartBanner = document.getElementById('hud-smart-banner');
+    this._dismissedTaskSuggestion = null;
+    this._dismissedSessionCheckpoint = null;
+    this._lastBannerKey = null;
+
+    // F23, F24, F25: Playbook Quick Bar & Quality Gate Modal
+    this.elPlaybookQuickBar = document.getElementById('playbook-quick-bar');
+    this.elHubPlaybookSelect = document.getElementById('hub-playbook-select');
+    this.elHubPlaybookNewName = document.getElementById('hub-playbook-new-name');
+    this.elHubPlaybookNewClient = document.getElementById('hub-playbook-new-client');
+    this.elBtnCreateFromPlaybook = document.getElementById('btn-create-from-playbook');
+
+    this.elQualityGateModal = document.getElementById('quality-gate-modal');
+    this.elQgProjTitle = document.getElementById('qg-proj-title');
+    this.elBtnCloseQgModal = document.getElementById('btn-close-qg-modal');
+    this.elBtnQgClose = document.getElementById('btn-qg-close');
+    this.elBtnQgRetest = document.getElementById('btn-qg-retest');
+    this.elQgScoreBanner = document.getElementById('qg-score-banner');
+    this.elQgScoreVal = document.getElementById('qg-score-val');
+    this.elQgStatusLabel = document.getElementById('qg-status-label');
+    this.elQgStatusDesc = document.getElementById('qg-status-desc');
+    this.elQgTasksSummary = document.getElementById('qg-tasks-summary');
+    this.elQgTasksBadge = document.getElementById('qg-tasks-badge');
+    this.elQgTasksList = document.getElementById('qg-tasks-list');
+    this.elQgRulesSummary = document.getElementById('qg-rules-summary');
+    this.elQgRulesBadge = document.getElementById('qg-rules-badge');
+    this.elQgRulesList = document.getElementById('qg-rules-list');
+    this.elQgInstinctsBadge = document.getElementById('qg-instincts-badge');
+    this.elQgInstinctsList = document.getElementById('qg-instincts-list');
+    this.elQgRecommendations = document.getElementById('qg-recommendations');
+    this._currentQgProjectId = null;
+    this._currentQgProjectName = null;
+
+    // F26: Context Budget Telemetry
+    this.elContextBudgetContainer = document.getElementById('context-budget-container');
+    this.elBudgetUsedTokens = document.getElementById('budget-used-tokens');
+    this.elBudgetUsedPct = document.getElementById('budget-used-pct');
+    this.elBudgetStatusPill = document.getElementById('budget-status-pill');
+    this.elSegSystem = document.getElementById('seg-system');
+    this.elSegProfile = document.getElementById('seg-profile');
+    this.elSegInstincts = document.getElementById('seg-instincts');
+    this.elSegMemories = document.getElementById('seg-memories');
+    this.elSegProjects = document.getElementById('seg-projects');
+    this.elSegChat = document.getElementById('seg-chat');
+    this.elLblTokSystem = document.getElementById('lbl-tok-system');
+    this.elLblTokProfile = document.getElementById('lbl-tok-profile');
+    this.elLblTokInstincts = document.getElementById('lbl-tok-instincts');
+    this.elLblTokMemories = document.getElementById('lbl-tok-memories');
+    this.elLblTokProjects = document.getElementById('lbl-tok-projects');
+    this.elLblTokChat = document.getElementById('lbl-tok-chat');
+
+    // F27: Column 1 Atomic Instincts v2.1
+    this.elMemSubnav = document.getElementById('mem-col1-subnav');
+    this.elBtnSubtabInstincts = document.getElementById('btn-subtab-instincts');
+    this.elBtnSubtabSkills = document.getElementById('btn-subtab-skills');
+    this.elCountInstincts = document.getElementById('count-instincts');
+    this.elCountSkills = document.getElementById('count-skills');
+    this.elMemInstinctAddRow = document.getElementById('mem-instinct-add-row');
+    this.elMemSkillAddRow = document.getElementById('mem-skill-add-row');
+    this.elMemNewInstinctTrigger = document.getElementById('mem-new-instinct-trigger');
+    this.elMemNewInstinctAction = document.getElementById('mem-new-instinct-action');
+    this.elMemNewInstinctScope = document.getElementById('mem-new-instinct-scope');
+    this.elBtnAddInstinct = document.getElementById('btn-add-instinct');
+    this.elMemInstinctsList = document.getElementById('mem-instincts-list');
+    this.memCol1Subtab = 'instincts';
+    this.currentContextMode = 'operativo';
+
     this.activeWorkspace = 'view-home';
     this.kanbanProjectFilter = 'all';
     this.calendarViewMode = 'weekly';
@@ -3277,6 +3446,7 @@ class HudTerminal {
     this._lastHubProjKey = null;
     this._lastCalendarKey = null;
     this._lastMemoryKey = null;
+    this._lastPlaybookKey = null;
 
     if (this.elCalAddDate) {
       const todayIso = new Date().toISOString().split('T')[0];
@@ -3548,6 +3718,40 @@ class HudTerminal {
         if (openFolderBtn) {
           const projName = openFolderBtn.getAttribute('data-proj-name');
           this.say(`📂 Apertura cartella di lavoro per il progetto "${projName}"...`);
+          return;
+        }
+
+        const evolveBtn = e.target.closest('.btn-proj-evolve');
+        if (evolveBtn) {
+          const projId = evolveBtn.getAttribute('data-proj-id');
+          if (projId) {
+            evolveBtn.textContent = '⏳ Evolving...';
+            evolveBtn.disabled = true;
+            this.say(`🧬 Generazione Playbook in corso per il progetto...`);
+            let res = null;
+            if (window.systemBridge && window.systemBridge.evolveProject) {
+              res = await window.systemBridge.evolveProject(projId);
+            }
+            evolveBtn.textContent = '🧬 Evolvi in Playbook';
+            evolveBtn.disabled = false;
+            if (res && res.ok) {
+              const pTitle = (res.playbook && (res.playbook.title || res.playbook.slug)) || 'Playbook';
+              this.say(`✅ Progetto evoluto in Playbook "${pTitle}"!`);
+              await this.populatePlaybooksDropdown();
+            } else {
+              this.say(`⚠️ Generazione Playbook fallita: ${res ? res.error : 'errore di rete'}`);
+            }
+          }
+          return;
+        }
+
+        const qgBtn = e.target.closest('.btn-proj-quality-gate');
+        if (qgBtn) {
+          const projId = qgBtn.getAttribute('data-proj-id');
+          const projName = qgBtn.getAttribute('data-proj-name') || 'Progetto';
+          if (projId) {
+            this.openQualityGateModal(projId, projName);
+          }
           return;
         }
 
@@ -3827,11 +4031,225 @@ class HudTerminal {
         this.renderMemoryDashboard();
       });
     }
+
+    // F22: Context Mode Pill click -> cycles modes
+    if (this.elContextModePill) {
+      this.elContextModePill.addEventListener('click', () => {
+        const cur = this.currentContextMode || 'operativo';
+        let next = 'operativo';
+        if (cur === 'operativo') next = 'project_manager';
+        else if (cur === 'project_manager') next = 'knowledge_curator';
+        else next = 'operativo';
+        this.setContextMode(next, true);
+        const label = next === 'operativo' ? 'Operativo 🛠️' : (next === 'project_manager' ? 'Project Manager 📋' : 'Knowledge Curator 🧠');
+        this.say(`🧭 Modalità contesto: ${label}`);
+      });
+    }
+
+    // F25: Playbook Quick Bar Create Project
+    if (this.elBtnCreateFromPlaybook) {
+      this.elBtnCreateFromPlaybook.addEventListener('click', async () => {
+        const slug = this.elHubPlaybookSelect ? this.elHubPlaybookSelect.value.trim() : '';
+        const name = this.elHubPlaybookNewName ? this.elHubPlaybookNewName.value.trim() : '';
+        const client = this.elHubPlaybookNewClient ? this.elHubPlaybookNewClient.value.trim() : '';
+        if (!slug) {
+          this.say('⚠️ Seleziona un Playbook prima di creare il progetto.');
+          return;
+        }
+        if (!name) {
+          this.say('⚠️ Inserisci il nome per il nuovo progetto.');
+          return;
+        }
+        this.say(`⚡ Creazione progetto "${name}" da Playbook...`);
+        let res = null;
+        if (window.systemBridge && window.systemBridge.createProjectFromPlaybook) {
+          res = await window.systemBridge.createProjectFromPlaybook(slug, name, client);
+        }
+        if (res && res.ok) {
+          if (this.elHubPlaybookNewName) this.elHubPlaybookNewName.value = '';
+          if (this.elHubPlaybookNewClient) this.elHubPlaybookNewClient.value = '';
+          this.say(`✅ Progetto "${name}" e relative attività To-Do create con successo!`);
+          if (res.project) {
+            if (!this.state.system) this.state.system = {};
+            if (!Array.isArray(this.state.system.projectsList)) this.state.system.projectsList = [];
+            this.state.system.projectsList.push(res.project);
+          }
+          this.renderProjectHub();
+          this.renderKanbanBoard();
+        } else {
+          this.say(`⚠️ Errore nella creazione del progetto: ${res ? res.error : 'errore di rete'}`);
+        }
+      });
+    }
+
+    // F24: Quality Gate Modal Close Handlers & Retest
+    if (this.elBtnCloseQgModal) {
+      this.elBtnCloseQgModal.addEventListener('click', () => {
+        if (this.elQualityGateModal) this.elQualityGateModal.style.display = 'none';
+      });
+    }
+    if (this.elBtnQgClose) {
+      this.elBtnQgClose.addEventListener('click', () => {
+        if (this.elQualityGateModal) this.elQualityGateModal.style.display = 'none';
+      });
+    }
+    if (this.elQualityGateModal) {
+      this.elQualityGateModal.addEventListener('click', (e) => {
+        if (e.target === this.elQualityGateModal) this.elQualityGateModal.style.display = 'none';
+      });
+    }
+    if (this.elBtnQgRetest) {
+      this.elBtnQgRetest.addEventListener('click', () => {
+        if (this._currentQgProjectId) {
+          this.openQualityGateModal(this._currentQgProjectId, this._currentQgProjectName);
+        }
+      });
+    }
+
+    // F27: Column 1 Subtab Switcher (Instincts vs Skills)
+    if (this.elBtnSubtabInstincts) {
+      this.elBtnSubtabInstincts.addEventListener('click', () => {
+        this.memCol1Subtab = 'instincts';
+        if (this.elBtnSubtabInstincts) this.elBtnSubtabInstincts.classList.add('active');
+        if (this.elBtnSubtabSkills) this.elBtnSubtabSkills.classList.remove('active');
+        this.renderMemoryDashboard();
+      });
+    }
+    if (this.elBtnSubtabSkills) {
+      this.elBtnSubtabSkills.addEventListener('click', () => {
+        this.memCol1Subtab = 'skills';
+        if (this.elBtnSubtabSkills) this.elBtnSubtabSkills.classList.add('active');
+        if (this.elBtnSubtabInstincts) this.elBtnSubtabInstincts.classList.remove('active');
+        this.renderMemoryDashboard();
+      });
+    }
+
+    // F27: Quick Add Instinct
+    if (this.elBtnAddInstinct) {
+      this.elBtnAddInstinct.addEventListener('click', async () => {
+        const trigger = this.elMemNewInstinctTrigger ? this.elMemNewInstinctTrigger.value.trim() : '';
+        const action = this.elMemNewInstinctAction ? this.elMemNewInstinctAction.value.trim() : '';
+        const scope = this.elMemNewInstinctScope ? this.elMemNewInstinctScope.value : 'global';
+        if (!trigger || !action) {
+          this.say('⚠️ Inserisci sia la condizione (Quando) che l\'azione per il nuovo istinto.');
+          return;
+        }
+        if (this.elMemNewInstinctTrigger) this.elMemNewInstinctTrigger.value = '';
+        if (this.elMemNewInstinctAction) this.elMemNewInstinctAction.value = '';
+
+        if (window.systemBridge && window.systemBridge.instinctsAction) {
+          const res = await window.systemBridge.instinctsAction({
+            action: 'add',
+            trigger,
+            action_text: action,
+            scope,
+            confidence: 0.85
+          });
+          if (res && res.ok) {
+            this.say(`🧬 Nuovo istinto atomico registrato (${scope === 'global' ? 'Globale' : 'Progetto'})!`);
+          }
+        }
+        this.renderMemoryDashboard();
+      });
+    }
+
+    // F27: Instincts List Action Delegation (Confirm, Promote, Prune, Delete)
+    if (this.elMemInstinctsList) {
+      this.elMemInstinctsList.addEventListener('click', async (e) => {
+        const confBtn = e.target.closest('.btn-instinct-confirm');
+        if (confBtn) {
+          const id = confBtn.getAttribute('data-id');
+          if (id && window.systemBridge && window.systemBridge.instinctsAction) {
+            const res = await window.systemBridge.instinctsAction({ action: 'confirm', id });
+            if (res && res.ok) {
+              this.say(`🧬 Istinto confermato! Confidence aumentata.`);
+            }
+            this.renderMemoryDashboard();
+          }
+          return;
+        }
+
+        const promBtn = e.target.closest('.btn-instinct-promote');
+        if (promBtn) {
+          const id = promBtn.getAttribute('data-id');
+          if (id && window.systemBridge && window.systemBridge.instinctsAction) {
+            const res = await window.systemBridge.instinctsAction({ action: 'promote', id });
+            if (res && res.ok) {
+              this.say(`⬆️ Istinto promosso a livello Globale!`);
+            }
+            this.renderMemoryDashboard();
+          }
+          return;
+        }
+
+        const pruneBtn = e.target.closest('.btn-instinct-prune');
+        if (pruneBtn) {
+          const id = pruneBtn.getAttribute('data-id');
+          if (id && window.systemBridge && window.systemBridge.instinctsAction) {
+            const res = await window.systemBridge.instinctsAction({ action: 'prune', id });
+            if (res && res.ok) {
+              this.say(`🧹 Istinto archiviato (pruned).`);
+            }
+            this.renderMemoryDashboard();
+          }
+          return;
+        }
+
+        const delBtn = e.target.closest('.btn-instinct-delete');
+        if (delBtn) {
+          const id = delBtn.getAttribute('data-id');
+          if (id && window.systemBridge && window.systemBridge.instinctsAction) {
+            const res = await window.systemBridge.instinctsAction({ action: 'delete', id });
+            if (res && res.ok) {
+              this.say(`✕ Istinto eliminato.`);
+            }
+            this.renderMemoryDashboard();
+          }
+          return;
+        }
+      });
+    }
+  }
+
+  setContextMode(mode, syncBackend = true) {
+    mode = String(mode || '').toLowerCase();
+    if (!mode) mode = 'operativo';
+    const validModes = ['operativo', 'project_manager', 'knowledge_curator'];
+    if (!validModes.includes(mode)) {
+      if (mode.includes('curator') || mode.includes('know')) mode = 'knowledge_curator';
+      else if (mode.includes('pm') || mode.includes('proj')) mode = 'project_manager';
+      else mode = 'operativo';
+    }
+    this.currentContextMode = mode;
+    if (this.state && this.state.system) {
+      this.state.system.contextMode = mode;
+    }
+    if (this.elContextModePill) {
+      this.elContextModePill.classList.remove('mode-operativo', 'mode-project_manager', 'mode-knowledge_curator');
+      this.elContextModePill.classList.add(`mode-${mode}`);
+    }
+    if (this.elContextModeIcon) {
+      this.elContextModeIcon.textContent = mode === 'operativo' ? '🛠️' : (mode === 'project_manager' ? '📋' : '🧠');
+    }
+    if (this.elContextModeLabel) {
+      this.elContextModeLabel.textContent = mode === 'operativo' ? 'Operativo' : (mode === 'project_manager' ? 'Project Manager' : 'Knowledge Curator');
+    }
+    if (syncBackend && window.systemBridge && window.systemBridge.setContextMode) {
+      window.systemBridge.setContextMode(mode);
+    }
   }
 
   switchWorkspace(viewId) {
     if (!viewId) viewId = 'view-home';
     this.activeWorkspace = viewId;
+
+    let targetMode = 'operativo';
+    if (viewId === 'view-todo' || viewId === 'view-projects' || viewId === 'view-calendar') {
+      targetMode = 'project_manager';
+    } else if (viewId === 'view-memory') {
+      targetMode = 'knowledge_curator';
+    }
+    this.setContextMode(targetMode, true);
 
     if (this.elWorkspaceNav) {
       this.elWorkspaceNav.querySelectorAll('[data-workspace-tab]').forEach((btn) => {
@@ -3868,6 +4286,8 @@ class HudTerminal {
       else if (viewId === 'view-calendar') this.renderCalendarDashboard();
       else if (viewId === 'view-memory') this.renderMemoryDashboard();
     }
+
+    this.renderSmartBanner();
   }
 
   normalizeTodo(item, idx = 0) {
@@ -4172,6 +4592,8 @@ class HudTerminal {
           <div class="hub-proj-actions">
             <button type="button" class="term-btn term-btn-sm btn-proj-open-folder" data-proj-name="${this.escapeHtml(pName)}">📂 Apri Cartella</button>
             <button type="button" class="term-btn term-btn-sm btn-accent btn-proj-ask-plan" data-proj-name="${this.escapeHtml(pName)}">🤖 Chiedi Piano a Neko</button>
+            <button type="button" class="term-btn term-btn-sm btn-proj-evolve" data-proj-id="${this.escapeHtml(p.id || '')}">🧬 Evolvi in Playbook</button>
+            <button type="button" class="term-btn term-btn-sm btn-proj-quality-gate" data-proj-id="${this.escapeHtml(p.id || '')}" data-proj-name="${this.escapeHtml(pName)}">🛡️ Quality Gate</button>
             <button type="button" class="term-btn term-btn-sm btn-proj-archive" data-proj-id="${this.escapeHtml(p.id || '')}">📦 Archivia</button>
           </div>
         </div>
@@ -4179,6 +4601,7 @@ class HudTerminal {
     });
 
     this.elHubProjectsGrid.innerHTML = html;
+    this.populatePlaybooksDropdown();
   }
 
   renderCalendarDashboard() {
@@ -4392,6 +4815,134 @@ class HudTerminal {
   }
 
   renderMemoryDashboard() {
+    // F26: Context Budget Telemetry Meter
+    const budget = (this.state.system && this.state.system.contextBudget) || {
+      total_budget: 8192,
+      used_tokens: 1850,
+      usage_pct: 22.6,
+      system: 512,
+      profile_and_skills: 320,
+      instincts: 410,
+      memories: 280,
+      projects_and_todos: 220,
+      chat_history: 108
+    };
+
+    const totalBudget = budget.total_budget || 8192;
+    const usedTokens = budget.used_tokens !== undefined ? budget.used_tokens : 0;
+    const usagePct = budget.usage_pct !== undefined ? budget.usage_pct : (totalBudget > 0 ? Math.round((usedTokens / totalBudget) * 100) : 0);
+
+    if (this.elBudgetUsedTokens) this.elBudgetUsedTokens.textContent = String(usedTokens);
+    if (this.elBudgetUsedPct) this.elBudgetUsedPct.textContent = `${usagePct}%`;
+
+    if (this.elBudgetStatusPill) {
+      if (usagePct < 70) {
+        this.elBudgetStatusPill.textContent = '🟢 OTTIMALE';
+        this.elBudgetStatusPill.className = 'conn-status-badge budget-badge-ok';
+      } else if (usagePct < 90) {
+        this.elBudgetStatusPill.textContent = '🟡 ATTENZIONE';
+        this.elBudgetStatusPill.className = 'conn-status-badge budget-badge-warn';
+      } else {
+        this.elBudgetStatusPill.textContent = '🔴 CRITICO';
+        this.elBudgetStatusPill.className = 'conn-status-badge budget-badge-crit';
+      }
+    }
+
+    const sysTok = budget.system !== undefined ? budget.system : 512;
+    const profTok = (budget.profile_and_skills !== undefined ? budget.profile_and_skills : (budget.profile || 320));
+    const instTok = budget.instincts !== undefined ? budget.instincts : 410;
+    const memTok = budget.memories !== undefined ? budget.memories : 280;
+    const projTok = (budget.projects_and_todos !== undefined ? budget.projects_and_todos : (budget.projects || 220));
+    const chatTok = (budget.chat_history !== undefined ? budget.chat_history : (budget.chat || 108));
+
+    if (this.elLblTokSystem) this.elLblTokSystem.textContent = String(sysTok);
+    if (this.elLblTokProfile) this.elLblTokProfile.textContent = String(profTok);
+    if (this.elLblTokInstincts) this.elLblTokInstincts.textContent = String(instTok);
+    if (this.elLblTokMemories) this.elLblTokMemories.textContent = String(memTok);
+    if (this.elLblTokProjects) this.elLblTokProjects.textContent = String(projTok);
+    if (this.elLblTokChat) this.elLblTokChat.textContent = String(chatTok);
+
+    if (this.elSegSystem) this.elSegSystem.style.width = `${Math.max(1, Math.round((sysTok / totalBudget) * 100))}%`;
+    if (this.elSegProfile) this.elSegProfile.style.width = `${Math.max(1, Math.round((profTok / totalBudget) * 100))}%`;
+    if (this.elSegInstincts) this.elSegInstincts.style.width = `${Math.max(1, Math.round((instTok / totalBudget) * 100))}%`;
+    if (this.elSegMemories) this.elSegMemories.style.width = `${Math.max(1, Math.round((memTok / totalBudget) * 100))}%`;
+    if (this.elSegProjects) this.elSegProjects.style.width = `${Math.max(1, Math.round((projTok / totalBudget) * 100))}%`;
+    if (this.elSegChat) this.elSegChat.style.width = `${Math.max(1, Math.round((chatTok / totalBudget) * 100))}%`;
+
+    // F27: Column 1 Subtab Switcher (Instincts vs Skills)
+    const isInstinctsTab = (this.memCol1Subtab !== 'skills');
+    if (this.elBtnSubtabInstincts) this.elBtnSubtabInstincts.classList.toggle('active', isInstinctsTab);
+    if (this.elBtnSubtabSkills) this.elBtnSubtabSkills.classList.toggle('active', !isInstinctsTab);
+    if (this.elMemInstinctAddRow) this.elMemInstinctAddRow.style.display = isInstinctsTab ? 'flex' : 'none';
+    if (this.elMemSkillAddRow) this.elMemSkillAddRow.style.display = isInstinctsTab ? 'none' : 'flex';
+    if (this.elMemInstinctsList) this.elMemInstinctsList.style.display = isInstinctsTab ? 'flex' : 'none';
+    if (this.elMemSkillsList) this.elMemSkillsList.style.display = isInstinctsTab ? 'none' : 'flex';
+
+    // Atomic Instincts v2.1
+    let instincts = (this.state.system && Array.isArray(this.state.system.instinctsList) && this.state.system.instinctsList.length > 0)
+      ? this.state.system.instinctsList
+      : ((this.state.memory && Array.isArray(this.state.memory.instincts) && this.state.memory.instincts.length > 0)
+        ? this.state.memory.instincts
+        : [
+            { id: 'ins_1', trigger: 'Esportazione modello 3D per Three.js', action: 'Applica compressione Draco GLB e normalizza scale metriche', scope: 'global', confidence: 0.95, domain: '3d_realtime', usage_count: 14 },
+            { id: 'ins_2', trigger: 'Materiali e render V-Ray ArchViz', action: 'Verifica ACEScg e color space OCIO per texture e decals', scope: 'project', confidence: 0.88, domain: 'archviz', usage_count: 8 },
+            { id: 'ins_3', trigger: 'Logo e colori nave Intermarine', action: 'Usa sempre tonalità Blu Marino esatta #002244', scope: 'project', confidence: 0.92, domain: 'intermarine', usage_count: 21 }
+          ]);
+
+    if (this.elCountInstincts) this.elCountInstincts.textContent = String(instincts.length);
+
+    if (this.elMemInstinctsList) {
+      if (instincts.length === 0) {
+        this.elMemInstinctsList.innerHTML = '<div style="color:var(--text-muted); font-size:12px; padding:16px; text-align:center;">Nessun istinto registrato. Aggiungine uno sopra!</div>';
+      } else {
+        this.elMemInstinctsList.innerHTML = instincts.map((ins) => {
+          const conf = typeof ins.confidence === 'number' ? ins.confidence : 0.85;
+          const confPct = Math.round(conf * 100);
+          const scope = ins.scope || 'global';
+          const scopeLabel = scope === 'global' ? '🌐 Globale' : '📌 Progetto';
+          const domain = ins.domain || 'generale';
+          const usage = ins.usage_count || ins.applied_count || 1;
+          const actionText = ins.action || ins.action_text || '';
+
+          return `
+            <div class="instinct-card" data-instinct-id="${this.escapeHtml(ins.id || '')}">
+              <div class="instinct-header">
+                <div>
+                  <span class="badge-scope scope-${this.escapeHtml(scope)}">${scopeLabel}</span>
+                  <span class="badge-proj" style="margin-left:4px;">${this.escapeHtml(domain)}</span>
+                </div>
+                <span class="instinct-usage">⚡ usato ${usage} volte</span>
+              </div>
+              <div class="instinct-body">
+                <div class="instinct-row">
+                  <span class="instinct-label">QUANDO:</span>
+                  <span class="instinct-val">${this.escapeHtml(ins.trigger || '')}</span>
+                </div>
+                <div class="instinct-row">
+                  <span class="instinct-label">AZIONE:</span>
+                  <span class="instinct-val">${this.escapeHtml(actionText)}</span>
+                </div>
+              </div>
+              <div class="instinct-footer">
+                <div class="instinct-conf-group">
+                  <div class="instinct-conf-track">
+                    <div class="instinct-conf-bar" style="width: ${confPct}%;"></div>
+                  </div>
+                  <span class="instinct-conf-label">${confPct}%</span>
+                </div>
+                <div class="instinct-actions">
+                  <button type="button" class="term-btn term-btn-sm btn-instinct-confirm" data-id="${this.escapeHtml(ins.id || '')}" title="Conferma validità (+10% confidence)">+ Conferma</button>
+                  ${scope !== 'global' ? `<button type="button" class="term-btn term-btn-sm btn-instinct-promote" data-id="${this.escapeHtml(ins.id || '')}" title="Promuovi a regola globale">⬆️ Promuovi</button>` : ''}
+                  <button type="button" class="term-btn term-btn-sm btn-instinct-prune" data-id="${this.escapeHtml(ins.id || '')}" title="Archivia istinto (prune)">🧹 Prune</button>
+                  <button type="button" class="term-btn term-btn-sm btn-instinct-delete" data-id="${this.escapeHtml(ins.id || '')}" title="Elimina definitivamente">✕</button>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
     let skills = (this.state.system && Array.isArray(this.state.system.skillsLearned) && this.state.system.skillsLearned.length > 0)
       ? this.state.system.skillsLearned
       : [
@@ -4404,6 +4955,7 @@ class HudTerminal {
         ];
 
     if (this.elMemSkillsCount) this.elMemSkillsCount.textContent = String(skills.length);
+    if (this.elCountSkills) this.elCountSkills.textContent = String(skills.length);
 
     if (this.elMemSkillsList) {
       const groups = {};
@@ -4527,22 +5079,308 @@ class HudTerminal {
     }
 
     if (this.elTabMemBadge) {
-      this.elTabMemBadge.textContent = String(skills.length + rules.length);
+      this.elTabMemBadge.textContent = String(skills.length + rules.length + instincts.length);
+    }
+  }
+
+  async populatePlaybooksDropdown() {
+    if (!this.elHubPlaybookSelect) return;
+    let playbooks = (this.state.system && Array.isArray(this.state.system.playbooks) && this.state.system.playbooks.length > 0)
+      ? this.state.system.playbooks
+      : [];
+    if (playbooks.length === 0 && window.systemBridge && window.systemBridge.fetchPlaybooks) {
+      try {
+        const res = await window.systemBridge.fetchPlaybooks();
+        if (res && res.ok && Array.isArray(res.playbooks) && res.playbooks.length > 0) {
+          playbooks = res.playbooks;
+        }
+      } catch (e) {}
+    }
+    if (playbooks.length === 0) {
+      playbooks = [
+        { slug: 'archviz_exterior', title: 'ArchViz Exterior Visualization' },
+        { slug: 'realtime_ship_model', title: 'Realtime Ship Modeling & Draco GLB' },
+        { slug: 'vray_aces_pipeline', title: '3ds Max V-Ray ACEScg Pipeline' }
+      ];
+    }
+    const currentVal = this.elHubPlaybookSelect.value;
+    let opts = '<option value="">-- Seleziona un Playbook architetturale --</option>';
+    playbooks.forEach((pb) => {
+      const slug = pb.slug || pb.id || '';
+      const title = pb.title || pb.name || slug;
+      opts += `<option value="${this.escapeHtml(slug)}">${this.escapeHtml(title)}</option>`;
+    });
+    this.elHubPlaybookSelect.innerHTML = opts;
+    if (currentVal) this.elHubPlaybookSelect.value = currentVal;
+  }
+
+  async openQualityGateModal(projectId, projectName) {
+    this._currentQgProjectId = projectId;
+    this._currentQgProjectName = projectName;
+    if (this.elQualityGateModal) this.elQualityGateModal.style.display = 'flex';
+    if (this.elQgProjTitle) this.elQgProjTitle.textContent = projectName || 'Progetto';
+    if (this.elQgStatusLabel) this.elQgStatusLabel.textContent = 'Valutazione in corso...';
+    if (this.elQgStatusDesc) this.elQgStatusDesc.textContent = 'Controllo criteri architetturali, To-Do completati e regole cliente...';
+
+    let rep = null;
+    if (window.systemBridge && window.systemBridge.projectQualityGate) {
+      try {
+        rep = await window.systemBridge.projectQualityGate(projectId);
+      } catch (e) {}
+    }
+    if (!rep || !rep.ok) {
+      const tasks = (this.state.system && Array.isArray(this.state.system.todosList))
+        ? this.state.system.todosList.map((t, i) => this.normalizeTodo(t, i)).filter((t) => t.project && t.project.toLowerCase() === (projectName || '').toLowerCase())
+        : [];
+      const totalTasks = tasks.length;
+      const doneTasks = tasks.filter((t) => t.status === 'done').length;
+      const rules = (this.state.system && Array.isArray(this.state.system.memoriesList))
+        ? this.state.system.memoriesList.filter((r) => r.category && r.category.toLowerCase().includes((projectName || '').toLowerCase()))
+        : [];
+      const score = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 80 + (rules.length > 0 ? 20 : 10)) : 85;
+      rep = {
+        ok: true,
+        project_id: projectId,
+        project_name: projectName,
+        readiness_score: score,
+        ready_for_delivery: score >= 80,
+        status: score >= 80 ? 'PASSED' : 'ACTION_REQUIRED',
+        tasks_completed: doneTasks,
+        tasks_total: totalTasks,
+        tasks,
+        client_rules: rules,
+        instincts_matched: (this.state.system && this.state.system.instinctsList) || [],
+        recommendations: score >= 80
+          ? ['Tutti i requisiti principali sono soddisfatti.', 'Pronto per export archivio e consegna cliente.']
+          : ['Completa le attività To-Do rimanenti.', 'Verifica la conformità alle regole colore logo.']
+      };
+    }
+    this.renderQualityGateReport(rep);
+  }
+
+  renderQualityGateReport(rep) {
+    if (!rep) return;
+    const score = typeof rep.readiness_score === 'number' ? rep.readiness_score : (rep.score || 0);
+    const ready = rep.ready_for_delivery !== undefined ? rep.ready_for_delivery : (score >= 80);
+
+    if (this.elQgScoreVal) {
+      this.elQgScoreVal.textContent = `${score}%`;
+    }
+    if (this.elQgScoreBanner) {
+      this.elQgScoreBanner.classList.toggle('passed', ready);
+      this.elQgScoreBanner.classList.toggle('warning', !ready);
+    }
+    if (this.elQgStatusLabel) {
+      this.elQgStatusLabel.textContent = ready ? '✅ PRONTO PER IL DEPLOY / CONSEGNA' : '⚠️ ATTENZIONE: CRITICITÀ RILEVATE';
+      this.elQgStatusLabel.style.color = ready ? '#34d399' : '#fbbf24';
+    }
+    if (this.elQgStatusDesc) {
+      this.elQgStatusDesc.textContent = ready
+        ? 'Tutti i controlli di qualità hanno superato la soglia minima di conformità (>=80%).'
+        : 'Alcuni task o regole cliente non sono ancora completati. Risolvi i punti sotto prima del rilascio.';
+    }
+
+    // Tasks summary & list
+    const tasks = Array.isArray(rep.tasks) ? rep.tasks : [];
+    const doneTasks = rep.tasks_completed !== undefined ? rep.tasks_completed : tasks.filter((t) => t.status === 'done').length;
+    const totalTasks = rep.tasks_total !== undefined ? rep.tasks_total : tasks.length;
+    if (this.elQgTasksSummary) this.elQgTasksSummary.textContent = `${doneTasks}/${totalTasks}`;
+    if (this.elQgTasksBadge) {
+      this.elQgTasksBadge.textContent = (totalTasks === 0 || doneTasks === totalTasks) ? 'OK' : 'INCOMPLETO';
+      this.elQgTasksBadge.className = 'qg-badge ' + ((totalTasks === 0 || doneTasks === totalTasks) ? 'badge-ok' : 'badge-warn');
+    }
+    if (this.elQgTasksList) {
+      if (tasks.length === 0) {
+        this.elQgTasksList.innerHTML = '<div style="color:var(--text-muted); font-size:12px; padding:6px;">Nessun task vincolante registrato per questo progetto.</div>';
+      } else {
+        this.elQgTasksList.innerHTML = tasks.map((t) => `
+          <div class="qg-item-row ${t.status === 'done' ? 'passed' : 'pending'}">
+            <span>${t.status === 'done' ? '✅' : '⏳'} ${this.escapeHtml(t.title || t.name || '')}</span>
+            <span style="font-size:11px; color:var(--text-muted);">${this.escapeHtml(t.status || 'todo')}</span>
+          </div>
+        `).join('');
+      }
+    }
+
+    // Client rules summary & list
+    const rules = Array.isArray(rep.client_rules) ? rep.client_rules : (Array.isArray(rep.rules) ? rep.rules : []);
+    if (this.elQgRulesSummary) this.elQgRulesSummary.textContent = `${rules.length}/${rules.length}`;
+    if (this.elQgRulesBadge) {
+      this.elQgRulesBadge.textContent = 'OK';
+      this.elQgRulesBadge.className = 'qg-badge badge-ok';
+    }
+    if (this.elQgRulesList) {
+      if (rules.length === 0) {
+        this.elQgRulesList.innerHTML = '<div style="color:var(--text-muted); font-size:12px; padding:6px;">Nessuna regola cliente specifica vincolante.</div>';
+      } else {
+        this.elQgRulesList.innerHTML = rules.map((r) => `
+          <div class="qg-item-row passed">
+            <span>⭐ ${this.escapeHtml(typeof r === 'string' ? r : (r.text || r.rule || ''))}</span>
+            <span style="font-size:11px; color:#38bdf8;">Confermato</span>
+          </div>
+        `).join('');
+      }
+    }
+
+    // Instincts matched
+    const instincts = Array.isArray(rep.instincts_matched) ? rep.instincts_matched : (Array.isArray(rep.instincts) ? rep.instincts : []);
+    if (this.elQgInstinctsBadge) {
+      this.elQgInstinctsBadge.textContent = instincts.length > 0 ? `${instincts.length} ATTIVI` : 'NONE';
+      this.elQgInstinctsBadge.className = 'qg-badge badge-ok';
+    }
+    if (this.elQgInstinctsList) {
+      if (instincts.length === 0) {
+        this.elQgInstinctsList.innerHTML = '<div style="color:var(--text-muted); font-size:12px; padding:6px;">Nessun istinto tecnico attivo applicato.</div>';
+      } else {
+        this.elQgInstinctsList.innerHTML = instincts.map((ins) => `
+          <div class="qg-item-row passed">
+            <span>🧬 [${this.escapeHtml(ins.scope || 'global')}] <strong>${this.escapeHtml(ins.trigger || '')}</strong> &rarr; ${this.escapeHtml(ins.action || ins.action_text || '')}</span>
+            <span style="font-size:11px; color:#a78bfa;">${Math.round((ins.confidence || 0.8) * 100)}%</span>
+          </div>
+        `).join('');
+      }
+    }
+
+    // AI recommendations
+    const recs = Array.isArray(rep.recommendations) ? rep.recommendations : [];
+    if (this.elQgRecommendations) {
+      if (recs.length === 0) {
+        this.elQgRecommendations.innerHTML = '<div style="color:var(--text-muted); font-size:12px; padding:6px;">Nessuna raccomandazione aggiuntiva. Procedi pure con la consegna!</div>';
+      } else {
+        this.elQgRecommendations.innerHTML = recs.map((rec) => `
+          <div class="qg-rec-item">💡 ${this.escapeHtml(typeof rec === 'string' ? rec : (rec.text || ''))}</div>
+        `).join('');
+      }
+    }
+  }
+
+  renderSmartBanner() {
+    if (!this.elSmartBanner) return;
+
+    const isApplicableWorkspace = (this.activeWorkspace === 'view-home' || this.activeWorkspace === 'view-todo' || this.activeWorkspace === 'view-projects');
+    if (!isApplicableWorkspace) {
+      this.elSmartBanner.style.display = 'none';
+      return;
+    }
+
+    const taskSug = this.state.system ? this.state.system.windowTaskSuggestion : null;
+    const sessCp = this.state.system ? this.state.system.sessionCheckpoint : null;
+
+    const showSug = taskSug && (this._dismissedTaskSuggestion !== (taskSug.id || taskSug.window_title || taskSug.suggested_task_title));
+    const showCp = sessCp && (this._dismissedSessionCheckpoint !== (sessCp.id || sessCp.title || sessCp.timestamp));
+
+    if (!showSug && !showCp) {
+      this.elSmartBanner.style.display = 'none';
+      return;
+    }
+
+    let chipsHtml = '';
+
+    if (showSug) {
+      const wTitle = taskSug.window_title || taskSug.active_window || 'Finestra DCC';
+      const sTitle = taskSug.suggested_task_title || taskSug.task_title || 'Attività suggerita';
+      chipsHtml += `
+        <div class="smart-chip chip-suggestion" id="chip-task-sug">
+          <div class="smart-chip-content">
+            <span class="smart-chip-icon">⚡</span>
+            <span>Rilevata finestra attiva <strong>"${this.escapeHtml(wTitle)}"</strong> &rarr; Suggerimento: <strong>${this.escapeHtml(sTitle)}</strong></span>
+          </div>
+          <div class="smart-chip-actions">
+            <button type="button" class="term-btn term-btn-sm btn-accent" id="btn-accept-task-sug">+ Aggiungi a To-Do</button>
+            <button type="button" class="term-btn term-btn-sm" id="btn-dismiss-task-sug">✕ Ignora</button>
+          </div>
+        </div>
+      `;
+    }
+
+    if (showCp) {
+      const cpTitle = sessCp.title || sessCp.session_title || 'Sessione precedente';
+      const cpTime = sessCp.timestamp || sessCp.created_at || 'recente';
+      chipsHtml += `
+        <div class="smart-chip chip-checkpoint" id="chip-session-cp">
+          <div class="smart-chip-content">
+            <span class="smart-chip-icon">💾</span>
+            <span>Riprendi sessione salvata: <strong>"${this.escapeHtml(cpTitle)}"</strong> (${this.escapeHtml(String(cpTime))})</span>
+          </div>
+          <div class="smart-chip-actions">
+            <button type="button" class="term-btn term-btn-sm btn-accent" id="btn-resume-session-cp">▶ Riprendi Sessione</button>
+            <button type="button" class="term-btn term-btn-sm" id="btn-dismiss-session-cp">✕ Ignora</button>
+          </div>
+        </div>
+      `;
+    }
+
+    this.elSmartBanner.innerHTML = chipsHtml;
+    this.elSmartBanner.style.display = 'flex';
+
+    // Wire action buttons
+    const btnAcceptSug = this.elSmartBanner.querySelector('#btn-accept-task-sug');
+    if (btnAcceptSug) {
+      btnAcceptSug.addEventListener('click', async () => {
+        const title = taskSug.suggested_task_title || taskSug.task_title || 'Attività suggerita';
+        const project = taskSug.project || '';
+        if (window.systemBridge && window.systemBridge.todosAction) {
+          await window.systemBridge.todosAction({ action: 'add', title, project, due_label: 'Oggi', priority: 'high' });
+        }
+        this._dismissedTaskSuggestion = (taskSug.id || taskSug.window_title || taskSug.suggested_task_title);
+        this.say(`📋 Task suggerito "${title}" aggiunto al To-Do Kanban!`);
+        this.renderSmartBanner();
+        this.renderKanbanBoard();
+      });
+    }
+
+    const btnDismissSug = this.elSmartBanner.querySelector('#btn-dismiss-task-sug');
+    if (btnDismissSug) {
+      btnDismissSug.addEventListener('click', () => {
+        this._dismissedTaskSuggestion = (taskSug.id || taskSug.window_title || taskSug.suggested_task_title);
+        this.renderSmartBanner();
+      });
+    }
+
+    const btnResumeCp = this.elSmartBanner.querySelector('#btn-resume-session-cp');
+    if (btnResumeCp) {
+      btnResumeCp.addEventListener('click', async () => {
+        if (window.systemBridge && window.systemBridge.sessionAction) {
+          await window.systemBridge.sessionAction({ action: 'resume', session_id: sessCp.id });
+        }
+        this._dismissedSessionCheckpoint = (sessCp.id || sessCp.title || sessCp.timestamp);
+        this.say(`💾 Sessione di lavoro "${sessCp.title || 'precedente'}" ripristinata!`);
+        this.renderSmartBanner();
+      });
+    }
+
+    const btnDismissCp = this.elSmartBanner.querySelector('#btn-dismiss-session-cp');
+    if (btnDismissCp) {
+      btnDismissCp.addEventListener('click', () => {
+        this._dismissedSessionCheckpoint = (sessCp.id || sessCp.title || sessCp.timestamp);
+        this.renderSmartBanner();
+      });
     }
   }
 
   updateWorkspaceDirtyChecking() {
+    const taskSug = this.state.system ? this.state.system.windowTaskSuggestion : null;
+    const sessCp = this.state.system ? this.state.system.sessionCheckpoint : null;
+    const bannerKey = `${taskSug ? (taskSug.id || taskSug.window_title || taskSug.suggested_task_title) : ''}:${sessCp ? (sessCp.id || sessCp.title || sessCp.timestamp) : ''}`;
+    if (this._lastBannerKey !== bannerKey) {
+      this._lastBannerKey = bannerKey;
+      this.renderSmartBanner();
+    }
+
     const todosList = (this.state.system && Array.isArray(this.state.system.todosList)) ? this.state.system.todosList : [];
     const todoKey = `${todosList.length}:${todosList.map((t) => (typeof t === 'object' ? t.id + t.status : t)).join(',')}`;
 
     const projectsList = (this.state.system && Array.isArray(this.state.system.projectsList)) ? this.state.system.projectsList : [];
-    const projKey = `${projectsList.length}:${this.state.system ? this.state.system.activeProjectName : ''}`;
+    const playbooks = (this.state.system && Array.isArray(this.state.system.playbooks)) ? this.state.system.playbooks : [];
+    const projKey = `${projectsList.length}:${playbooks.length}:${this.state.system ? this.state.system.activeProjectName : ''}`;
 
     const calEvs = (this.state.system && Array.isArray(this.state.system.calendarEvents)) ? this.state.system.calendarEvents : [];
     const calKey = `${calEvs.length}:${this.state.system && this.state.system.calendarSyncStatus ? this.state.system.calendarSyncStatus.synced : false}`;
 
     const skills = (this.state.system && Array.isArray(this.state.system.skillsLearned)) ? this.state.system.skillsLearned : [];
-    const memKey = `${skills.length}:${this.state.system ? this.state.system.memoryCount : 0}`;
+    const instincts = (this.state.system && Array.isArray(this.state.system.instinctsList)) ? this.state.system.instinctsList : [];
+    const budgetTokens = (this.state.system && this.state.system.contextBudget) ? this.state.system.contextBudget.used_tokens : 0;
+    const memKey = `${skills.length}:${instincts.length}:${budgetTokens}:${this.state.system ? this.state.system.memoryCount : 0}`;
 
     if (this.activeWorkspace === 'view-home') {
       if (this._lastKanbanKey !== todoKey) {

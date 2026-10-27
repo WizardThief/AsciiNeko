@@ -36,6 +36,12 @@
         <span class="afk-status-badge" id="afk-badge" style="display: none;">[🌙 AFK]</span>
       </div>
 
+      <!-- Dynamic Context Mode Pill (F22) -->
+      <div class="context-mode-pill mode-operativo hud-collapsible" id="context-mode-pill" title="Modalità Contesto Attiva. Clicca per cambiare manuale">
+        <span class="context-mode-icon" id="context-mode-icon">🛠️</span>
+        <span class="context-mode-label" id="context-mode-label">Operativo</span>
+      </div>
+
       <div class="top-bar-divider hud-collapsible">│</div>
 
       <!-- 5-Tab Workspace Switcher (R3) -->
@@ -100,6 +106,9 @@
         </button>
       </div>
     </div>
+
+    <!-- Smart Banners (F28: DCC window task suggestion & session checkpoint) -->
+    <div class="hud-smart-banner" id="hud-smart-banner" style="display: none;"></div>
 
     <!-- Banner Promemoria Impegni / Google Calendar (Visibile quando un impegno inizia entro 15 min) -->
     <div class="hud-deadline-toast" id="hud-deadline-toast" style="display: none;">
@@ -647,6 +656,17 @@
           </div>
         </div>
 
+        <!-- Quick Playbook Project Creation Bar (F25) -->
+        <div class="playbook-quick-bar" id="playbook-quick-bar">
+          <span class="playbook-bar-label">⚡ NUOVO DA PLAYBOOK:</span>
+          <select id="hub-playbook-select" class="conn-select" style="max-width: 220px;">
+            <option value="">Seleziona Playbook...</option>
+          </select>
+          <input type="text" id="hub-playbook-new-name" class="modal-input" placeholder="Nome nuovo progetto (es. Nave Pattugliatore)" style="max-width: 200px;" />
+          <input type="text" id="hub-playbook-new-client" class="modal-input" placeholder="Cliente (es. Intermarine)" style="max-width: 150px;" />
+          <button type="button" class="term-btn btn-accent" id="btn-create-from-playbook">+ Crea da Playbook</button>
+        </div>
+
         <!-- Quick Project Creation Bar -->
         <div class="proj-create-bar">
           <input type="text" id="hub-proj-new-name" class="modal-input" placeholder="Nome Progetto (es. Nave Intermarine)" style="max-width:180px;" />
@@ -718,16 +738,62 @@
               <div class="view-subtitle">Conoscenze apprese da Neko, regole persistenti dei clienti e tratti del tuo profilo</div>
             </div>
           </div>
+        <!-- Context Budget Telemetry Meter (F26) -->
+        <div class="context-budget-container" id="context-budget-container">
+          <div class="budget-header-row">
+            <div class="budget-title-group">
+              <span class="budget-icon">🧠</span>
+              <span class="budget-title">CONTEXT BUDGET TELEMETRY</span>
+              <span class="budget-num-ctx">(num_ctx: 8192)</span>
+            </div>
+            <div class="budget-usage-info">
+              <strong id="budget-used-tokens">0</strong> / 8192 token (<span id="budget-used-pct">0%</span>)
+              <span class="conn-status-badge budget-badge-ok" id="budget-status-pill">🟢 OTTIMALE</span>
+            </div>
+          </div>
+
+          <div class="budget-multi-track">
+            <div class="budget-seg seg-system" id="seg-system" style="width: 7%;" title="System Prompt (Base)"></div>
+            <div class="budget-seg seg-profile" id="seg-profile" style="width: 5%;" title="Profilo &amp; Skills"></div>
+            <div class="budget-seg seg-instincts" id="seg-instincts" style="width: 6%;" title="Istinti Atomici v2.1"></div>
+            <div class="budget-seg seg-memories" id="seg-memories" style="width: 8%;" title="Regole Memoria Clienti"></div>
+            <div class="budget-seg seg-projects" id="seg-projects" style="width: 6%;" title="Progetti &amp; Kanban To-Do"></div>
+            <div class="budget-seg seg-chat" id="seg-chat" style="width: 10%;" title="Cronologia Conversazione"></div>
+          </div>
+
+          <div class="budget-legend-row">
+            <span class="legend-item"><span class="legend-dot dot-system"></span> System: <strong id="lbl-tok-system">0</strong></span>
+            <span class="legend-item"><span class="legend-dot dot-profile"></span> Profilo: <strong id="lbl-tok-profile">0</strong></span>
+            <span class="legend-item"><span class="legend-dot dot-instincts"></span> Istinti: <strong id="lbl-tok-instincts">0</strong></span>
+            <span class="legend-item"><span class="legend-dot dot-memories"></span> Memorie: <strong id="lbl-tok-memories">0</strong></span>
+            <span class="legend-item"><span class="legend-dot dot-projects"></span> Progetti: <strong id="lbl-tok-projects">0</strong></span>
+            <span class="legend-item"><span class="legend-dot dot-chat"></span> Chat: <strong id="lbl-tok-chat">0</strong></span>
+          </div>
         </div>
 
         <div class="memory-dashboard-grid">
-          <!-- Column 1: Skills -->
+          <!-- Column 1: Skills & Atomic Instincts v2.1 (F27) -->
           <div class="memory-column" id="mem-col-skills-wrapper">
             <div class="memory-col-header">
-              <strong>🛠️ COSA SO FARE (<span id="mem-skills-count">0</span>)</strong>
-              <small>Apprendimento evolutivo</small>
+              <strong>🛠️ COSA SO FARE &amp; ISTINTI (<span id="mem-skills-count">0</span>)</strong>
+              <small>Apprendimento continuo v2.1</small>
             </div>
-            <div class="mem-quick-add-row">
+            <div class="mem-subnav" id="mem-col1-subnav">
+              <button type="button" class="mem-subtab-btn active" id="btn-subtab-instincts">🧬 Istinti Atomici (<span id="count-instincts">0</span>)</button>
+              <button type="button" class="mem-subtab-btn" id="btn-subtab-skills">🛠️ Competenze (<span id="count-skills">0</span>)</button>
+            </div>
+            <!-- Quick Add for Instincts -->
+            <div class="mem-quick-add-row" id="mem-instinct-add-row">
+              <input type="text" id="mem-new-instinct-trigger" class="modal-input" placeholder="Quando (es. Esportazione 3D)..." />
+              <input type="text" id="mem-new-instinct-action" class="modal-input" placeholder="Azione (es. GLB Draco)..." />
+              <select id="mem-new-instinct-scope" class="conn-select" style="max-width: 100px;">
+                <option value="global">Globale</option>
+                <option value="project">Progetto</option>
+              </select>
+              <button type="button" class="term-btn btn-accent" id="btn-add-instinct" title="Aggiungi Istinto">+</button>
+            </div>
+            <!-- Quick Add for Skills (shown when skills subtab active) -->
+            <div class="mem-quick-add-row" id="mem-skill-add-row" style="display: none;">
               <input type="text" id="mem-new-skill-name" class="modal-input" placeholder="Competenza (es. Rust, Draco)..." />
               <select id="mem-new-skill-cat" class="conn-select" style="max-width: 140px;">
                 <option value="3D &amp; Modellazione">3D</option>
@@ -737,7 +803,8 @@
               </select>
               <button type="button" class="term-btn btn-accent" id="btn-add-skill">+</button>
             </div>
-            <div class="memory-col-list" id="mem-skills-list"></div>
+            <div class="memory-col-list" id="mem-instincts-list"></div>
+            <div class="memory-col-list" id="mem-skills-list" style="display: none;"></div>
           </div>
 
           <!-- Column 2: Client Rules -->
@@ -924,6 +991,74 @@
             </tr>
           </tbody>
         </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pre-Delivery Quality Gate Interactive Modal (F24) -->
+  <div class="neko-modal-overlay" id="quality-gate-modal" style="display: none;">
+    <div class="neko-modal-window" style="max-width: 780px;">
+      <div class="neko-modal-header">
+        <div class="neko-modal-brand">
+          <span class="brand-cat-icon">🛡️</span>
+          <div>
+            <div class="neko-modal-title">PRE-DELIVERY QUALITY GATE // <span id="qg-proj-title">Progetto</span></div>
+            <div class="neko-modal-subtitle">Verifica deterministica conformità requisiti, regole cliente e standard tecnici</div>
+          </div>
+        </div>
+        <button type="button" class="neko-modal-close" id="btn-close-qg-modal" title="Chiudi (Esc)">✕ CHIUDI</button>
+      </div>
+      <div class="neko-modal-body" style="padding: 16px; max-height: 75vh; overflow-y: auto;">
+        <!-- Score Gauge -->
+        <div class="qg-score-banner" id="qg-score-banner">
+          <div class="qg-score-gauge">
+            <span class="qg-score-val" id="qg-score-val">--%</span>
+            <small>Readiness Score</small>
+          </div>
+          <div class="qg-status-info">
+            <strong class="qg-status-label" id="qg-status-label">VALUTAZIONE IN CORSO...</strong>
+            <div class="qg-status-desc" id="qg-status-desc">Controllo di tutti i requisiti di consegna...</div>
+          </div>
+        </div>
+
+        <!-- Checklist 1: Kanban Tasks -->
+        <div class="qg-section">
+          <div class="qg-sec-header">
+            <span>📋 Stato Attività To-Do (<span id="qg-tasks-summary">0/0</span>)</span>
+            <span class="qg-badge" id="qg-tasks-badge">OK</span>
+          </div>
+          <div class="qg-list" id="qg-tasks-list"></div>
+        </div>
+
+        <!-- Checklist 2: Client Rules -->
+        <div class="qg-section">
+          <div class="qg-sec-header">
+            <span>🏢 Regole &amp; Preferenze Cliente Pinned (<span id="qg-rules-summary">0/0</span>)</span>
+            <span class="qg-badge" id="qg-rules-badge">OK</span>
+          </div>
+          <div class="qg-list" id="qg-rules-list"></div>
+        </div>
+
+        <!-- Checklist 3: Technical & Pipeline Instincts -->
+        <div class="qg-section">
+          <div class="qg-sec-header">
+            <span>🧬 Istinti Tecnici e Linee Guida Pipeline</span>
+            <span class="qg-badge" id="qg-instincts-badge">OK</span>
+          </div>
+          <div class="qg-list" id="qg-instincts-list"></div>
+        </div>
+
+        <!-- Section 4: AI Recommendations -->
+        <div class="qg-section">
+          <div class="qg-sec-header">
+            <span>💡 Raccomandazioni Finali Neko AI</span>
+          </div>
+          <div class="qg-recommendations" id="qg-recommendations"></div>
+        </div>
+      </div>
+      <div class="qg-modal-footer">
+        <button type="button" class="term-btn" id="btn-qg-retest">🔄 Riesegui Verifica</button>
+        <button type="button" class="term-btn btn-accent" id="btn-qg-close">Ho Capito, Chiudi</button>
       </div>
     </div>
   </div>

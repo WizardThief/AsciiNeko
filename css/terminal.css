@@ -2938,3 +2938,681 @@ body.view-home #hud-workspace-container {
   gap: 6px;
 }
 
+/* ==========================================================================
+   MILESTONE 4: DYNAMIC CONTEXT MODES, PLAYBOOKS, QUALITY GATE & HUD CONTROLS
+   Features F22 through F28 (affaan-m/ECC Integration)
+   ========================================================================== */
+
+/* 1. Dynamic Context Mode Pill (F22) */
+.context-mode-pill {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  border: 1px solid var(--border-dim);
+  background: rgba(255, 255, 255, 0.04);
+  user-select: none;
+  white-space: nowrap;
+}
+
+.context-mode-pill:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.15);
+}
+
+.context-mode-pill:active {
+  transform: translateY(0);
+}
+
+.context-mode-pill.mode-operativo {
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.45);
+  background: rgba(56, 189, 248, 0.12);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.15);
+}
+
+.context-mode-pill.mode-project_manager {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.45);
+  background: rgba(251, 191, 36, 0.12);
+  box-shadow: 0 0 10px rgba(251, 191, 36, 0.15);
+}
+
+.context-mode-pill.mode-knowledge_curator {
+  color: #c084fc;
+  border-color: rgba(192, 132, 252, 0.45);
+  background: rgba(192, 132, 252, 0.12);
+  box-shadow: 0 0 10px rgba(192, 132, 252, 0.15);
+}
+
+.context-mode-icon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.context-mode-label {
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+/* 2. Proactive Smart Banners (F28) */
+.hud-smart-banner {
+  position: absolute;
+  top: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: auto;
+  max-width: 90%;
+  animation: bannerSlideDown 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes bannerSlideDown {
+  from { opacity: 0; transform: translate(-50%, -10px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+.smart-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--border-mid);
+  transition: all 0.2s ease;
+}
+
+.smart-chip.chip-suggestion,
+.smart-chip.chip-task-suggest {
+  background: rgba(15, 23, 42, 0.94);
+  border-color: rgba(56, 189, 248, 0.5);
+  color: #e0f2fe;
+}
+
+.smart-chip.chip-task-suggest .smart-chip-icon,
+.smart-chip.chip-suggestion .smart-chip-icon {
+  color: #38bdf8;
+  font-size: 14px;
+}
+
+.smart-chip.chip-checkpoint,
+.smart-chip.chip-session-checkpoint {
+  background: rgba(20, 15, 30, 0.94);
+  border-color: rgba(251, 191, 36, 0.5);
+  color: #fef3c7;
+}
+
+.smart-chip.chip-session-checkpoint .smart-chip-icon,
+.smart-chip.chip-checkpoint .smart-chip-icon {
+  color: #fbbf24;
+  font-size: 14px;
+}
+
+.smart-chip-msg {
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.smart-chip-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.smart-chip-close:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.15);
+}
+
+/* 3. Playbook Quick-Creator Bar (F25) */
+.playbook-quick-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  background: rgba(56, 189, 248, 0.05);
+  border: 1px dashed rgba(56, 189, 248, 0.35);
+  border-radius: 6px;
+  flex-wrap: wrap;
+}
+
+.playbook-bar-label {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #38bdf8;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+/* Project Card Action Buttons (F23) */
+.btn-proj-evolve {
+  background: rgba(192, 132, 252, 0.12) !important;
+  border-color: rgba(192, 132, 252, 0.45) !important;
+  color: #e9d5ff !important;
+}
+
+.btn-proj-evolve:hover {
+  background: rgba(192, 132, 252, 0.25) !important;
+  color: #fff !important;
+}
+
+.btn-proj-quality-gate {
+  background: rgba(34, 197, 94, 0.12) !important;
+  border-color: rgba(34, 197, 94, 0.45) !important;
+  color: #bbf7d0 !important;
+}
+
+.btn-proj-quality-gate:hover {
+  background: rgba(34, 197, 94, 0.25) !important;
+  color: #fff !important;
+}
+
+/* 4. Pre-Delivery Quality Gate Modal (F24) */
+.qg-score-banner {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-dim);
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.qg-score-gauge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  border: 3px solid #22c55e;
+  background: rgba(34, 197, 94, 0.08);
+  flex-shrink: 0;
+}
+
+.qg-score-val {
+  font-family: var(--font-mono);
+  font-size: 24px;
+  font-weight: 800;
+  color: #22c55e;
+}
+
+.qg-score-gauge small {
+  font-size: 9px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.qg-status-info {
+  flex: 1;
+}
+
+.qg-status-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: #22c55e;
+  margin-bottom: 4px;
+}
+
+.qg-status-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.qg-section {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-dim);
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.qg-sec-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.qg-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.4);
+}
+
+.qg-badge.badge-warn {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.qg-badge.badge-danger {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.qg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.qg-item {
+  font-size: 12px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.qg-item.verified {
+  border-left: 3px solid #22c55e;
+}
+
+.qg-item.pending {
+  border-left: 3px solid #f59e0b;
+}
+
+.qg-recommendations {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.qg-rec-item {
+  font-size: 12px;
+  padding: 8px 12px;
+  background: rgba(192, 132, 252, 0.06);
+  border-left: 3px solid #c084fc;
+  border-radius: 4px;
+  color: #f3e8ff;
+  line-height: 1.4;
+}
+
+.qg-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-dim);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+/* 5. Context Budget Telemetry Meter (F26) */
+.context-budget-container {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid var(--border-dim);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  backdrop-filter: blur(10px);
+}
+
+.budget-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.budget-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+}
+
+.budget-icon {
+  font-size: 14px;
+}
+
+.budget-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.5px;
+}
+
+.budget-num-ctx {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.budget-usage-info {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.budget-badge-ok {
+  color: #22c55e !important;
+  border-color: rgba(34, 197, 94, 0.4) !important;
+  background: rgba(34, 197, 94, 0.1) !important;
+}
+
+.budget-badge-warn {
+  color: #fbbf24 !important;
+  border-color: rgba(245, 158, 11, 0.4) !important;
+  background: rgba(245, 158, 11, 0.1) !important;
+}
+
+.budget-badge-danger,
+.budget-badge-crit {
+  color: #ef4444 !important;
+  border-color: rgba(239, 68, 68, 0.4) !important;
+  background: rgba(239, 68, 68, 0.1) !important;
+}
+
+.budget-multi-track {
+  display: flex;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  overflow: hidden;
+  margin-bottom: 10px;
+  gap: 1px;
+}
+
+.budget-seg {
+  height: 100%;
+  transition: width 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.budget-seg.seg-system, .seg-system { background: #38bdf8; }
+.budget-seg.seg-profile, .seg-profile { background: #22c55e; }
+.budget-seg.seg-instincts, .seg-instincts { background: #f59e0b; }
+.budget-seg.seg-memories, .seg-memories { background: #ec4899; }
+.budget-seg.seg-projects, .seg-projects { background: #a855f7; }
+.budget-seg.seg-chat, .seg-chat { background: #6366f1; }
+
+.budget-legend-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.legend-item strong {
+  color: var(--text-primary);
+}
+
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dot-system { background: #38bdf8; }
+.dot-profile { background: #22c55e; }
+.dot-instincts { background: #f59e0b; }
+.dot-memories { background: #ec4899; }
+.dot-projects { background: #a855f7; }
+.dot-chat { background: #6366f1; }
+
+/* 6. Column 1: Atomic Instincts v2.1 (F27) */
+.mem-subnav {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.mem-subtab-btn {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-dim);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.mem-subtab-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.mem-subtab-btn.active {
+  background: rgba(56, 189, 248, 0.18);
+  border-color: #38bdf8;
+  color: #38bdf8;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.2);
+}
+
+.instinct-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-dim);
+  border-radius: 6px;
+  padding: 10px;
+  margin-bottom: 8px;
+  transition: all 0.15s ease;
+}
+
+.instinct-card:hover {
+  border-color: var(--border-mid);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.instinct-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.badge-scope {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.badge-scope.scope-global {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+}
+
+.badge-scope.scope-project {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.instinct-domain-tag {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.instinct-use-count {
+  font-size: 10.5px;
+  color: var(--text-secondary);
+}
+
+.instinct-rule-body {
+  margin: 6px 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+
+.instinct-line {
+  margin-bottom: 3px;
+}
+
+.instinct-lbl {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-right: 4px;
+}
+
+.instinct-confidence-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 6px 0;
+}
+
+.confidence-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.instinct-conf-track, .confidence-track {
+  flex: 1;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.instinct-conf-bar, .confidence-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: #38bdf8;
+  transition: width 0.3s ease;
+}
+
+.confidence-fill.conf-high { background: #22c55e; }
+.confidence-fill.conf-mid { background: #38bdf8; }
+.confidence-fill.conf-low { background: #f59e0b; }
+
+.instinct-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.instinct-action-btn {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-dim);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.instinct-action-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.btn-instinct-confirm:hover {
+  color: #22c55e;
+  border-color: #22c55e;
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.btn-instinct-promote:hover {
+  color: #38bdf8;
+  border-color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+}
+
+.btn-instinct-prune:hover {
+  color: #fbbf24;
+  border-color: #fbbf24;
+  background: rgba(245, 158, 11, 0.12);
+}
+
+.btn-instinct-delete:hover {
+  color: #ef4444;
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+}
+
+/* Color-safe Overrides for Milestone 4 */
+.color-safe .context-mode-pill {
+  background: #0c0d14 !important;
+  border-color: #454a5e !important;
+}
+
+.color-safe .context-budget-container {
+  background: #0c0d14 !important;
+  border-color: #454a5e !important;
+}
+
+.color-safe .smart-chip {
+  background: #0c0d14 !important;
+  border-color: #454a5e !important;
+}
+
+.color-safe .instinct-card {
+  background: #0c0d14 !important;
+  border-color: #454a5e !important;
+}
+

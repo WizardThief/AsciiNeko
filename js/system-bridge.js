@@ -32,6 +32,14 @@ class SystemBridge {
     this.state.system.calendarSyncStatus = null;
     this.state.system.skillsLearned = [];
     this.state.system.projectsList = [];
+    this.state.system.contextMode = 'operativo';
+    this.state.system.contextBudget = null;
+    this.state.system.instinctsList = [];
+    this.state.system.windowTaskSuggestion = null;
+    this.state.system.sessionCheckpoint = null;
+    this.state.system.playbooks = [];
+    if (!this.state.memory) this.state.memory = {};
+    this.state.memory.instincts = [];
     this.state.system.calendar = {
       configured: false,
       ical_urls: [],
@@ -401,6 +409,127 @@ class SystemBridge {
     return { ok: false, error: 'Network error' };
   }
 
+  async setContextMode(mode) {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/context_mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok && (data.context_mode || data.active_mode)) {
+          this.state.system.contextMode = data.context_mode || data.active_mode;
+        }
+        return data;
+      }
+    } catch (e) {}
+    return { ok: false };
+  }
+
+  async instinctsAction(payload) {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/instincts/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {})
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok && Array.isArray(data.instincts)) {
+          this.state.system.instinctsList = data.instincts;
+          if (!this.state.memory) this.state.memory = {};
+          this.state.memory.instincts = data.instincts;
+        }
+        return data;
+      }
+    } catch (e) {}
+    return { ok: false, error: 'Network error' };
+  }
+
+  async evolveProject(projectId) {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/projects/evolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: projectId, id: projectId })
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return { ok: false };
+  }
+
+  async projectEvolve(projectId) {
+    return this.evolveProject(projectId);
+  }
+
+  async projectQualityGate(projectId) {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/projects/quality_gate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: projectId, id: projectId })
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return { ok: false };
+  }
+
+  async createProjectFromPlaybook(playbookSlug, name, client) {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/projects/from-playbook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playbook_slug: playbookSlug,
+          playbook_id: playbookSlug,
+          slug: playbookSlug,
+          project_name: name,
+          name: name,
+          client: client
+        })
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return { ok: false };
+  }
+
+  async projectFromPlaybook(payload) {
+    if (typeof payload === 'object') {
+      const slug = payload.playbook_slug || payload.playbook_id || payload.slug;
+      const name = payload.project_name || payload.name;
+      const client = payload.client;
+      return this.createProjectFromPlaybook(slug, name, client);
+    }
+    return { ok: false };
+  }
+
+  async fetchPlaybooks() {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/playbooks', { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok && Array.isArray(data.playbooks)) {
+          this.state.system.playbooks = data.playbooks;
+        }
+        return data;
+      }
+    } catch (e) {}
+    return { ok: false, playbooks: [] };
+  }
+
+  async sessionAction(payload) {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/session/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {})
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return { ok: false };
+  }
+
   applyBridgeData(data) {
     this.bridgeConnected = true;
     this.state.system.bridgeOnline = true;
@@ -489,6 +618,26 @@ class SystemBridge {
     }
     if (Array.isArray(data.projects)) {
       this.state.system.projectsList = data.projects;
+    }
+    if (data.context_mode || data.active_context_mode) {
+      this.state.system.contextMode = data.context_mode || data.active_context_mode;
+    }
+    if (data.context_budget) {
+      this.state.system.contextBudget = data.context_budget;
+    }
+    if (Array.isArray(data.instincts)) {
+      this.state.system.instinctsList = data.instincts;
+      if (!this.state.memory) this.state.memory = {};
+      this.state.memory.instincts = data.instincts;
+    }
+    if (data.window_task_suggestion !== undefined) {
+      this.state.system.windowTaskSuggestion = data.window_task_suggestion;
+    }
+    if (data.session_checkpoint !== undefined) {
+      this.state.system.sessionCheckpoint = data.session_checkpoint;
+    }
+    if (Array.isArray(data.playbooks)) {
+      this.state.system.playbooks = data.playbooks;
     }
 
     if (typeof data.code_version === 'number' && data.code_version > 0) {
