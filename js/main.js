@@ -110,7 +110,10 @@
     saveQuickMemory: (fact, projId) => systemBridge.saveQuickMemory(fact, projId),
     connectionsAction: (payload) => systemBridge.connectionsAction(payload),
     setWindowMode: (mode) => systemBridge.setWindowMode(mode),
-    settingsAction: (payload) => systemBridge.settingsAction(payload)
+    settingsAction: (payload) => systemBridge.settingsAction(payload),
+    todosAction: (payload) => systemBridge.todosAction(payload),
+    skillsLearnedAction: (payload) => systemBridge.skillsLearnedAction(payload),
+    calendarAction: (payload) => systemBridge.calendarAction(payload)
   });
 
   window.addEventListener('resize', () => {
@@ -174,16 +177,30 @@
   });
 
   window.addEventListener('keydown', (e) => {
-    if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
+    const active = document.activeElement;
+    if (
+      active &&
+      (['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName) || active.isContentEditable)
+    ) {
+      return;
+    }
 
-    if (e.key === '1') setMode('companion', true);
-    else if (e.key === '2') setMode('ai', true);
-    else if (e.key === '3') setMode('coffee', true);
-    else if (e.key === '4') setMode('afk', true);
-    else if (e.key === '5') setMode('focus', true);
-    else if (e.key === ' ') {
-      companion.spawnFishSnack(renderer, undefined, undefined, state, systemBridge);
-    } else if (e.key.toLowerCase() === 'h') {
+    if (e.key === '1' && e.altKey) {
+      e.preventDefault();
+      if (hud && hud.switchWorkspace) hud.switchWorkspace('view-home');
+    } else if (e.key === '2' && e.altKey) {
+      e.preventDefault();
+      if (hud && hud.switchWorkspace) hud.switchWorkspace('view-todo');
+    } else if (e.key === '3' && e.altKey) {
+      e.preventDefault();
+      if (hud && hud.switchWorkspace) hud.switchWorkspace('view-projects');
+    } else if (e.key === '4' && e.altKey) {
+      e.preventDefault();
+      if (hud && hud.switchWorkspace) hud.switchWorkspace('view-calendar');
+    } else if (e.key === '5' && e.altKey) {
+      e.preventDefault();
+      if (hud && hud.switchWorkspace) hud.switchWorkspace('view-memory');
+    } else if (e.altKey && e.key.toLowerCase() === 'h') {
       if (hud && hud.cycleHudVisibility) {
         hud.cycleHudVisibility();
       }

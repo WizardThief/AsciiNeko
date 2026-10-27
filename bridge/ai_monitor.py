@@ -32,10 +32,11 @@ import time
 import urllib.parse
 import urllib.request
 import urllib.error
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import shutil
 import logging
+import uuid
 
 _BRIDGE_DIR = os.path.abspath(os.path.dirname(__file__))
 _ROOT_DIR = os.path.abspath(os.path.join(_BRIDGE_DIR, ".."))
@@ -183,6 +184,8 @@ def _apply_data_dir(custom_dir: str = "", migrate_from: str = ""):
     try:
         sm = get_storage_manager(data_dir=DATA_DIR)
         sm.migrate_legacy_data(DATA_DIR)
+        if "_migrate_todos_and_projects_on_startup" in globals():
+            _migrate_todos_and_projects_on_startup(DATA_DIR)
     except Exception as e:
         logger.warning(f"Storage migration warning: {e}")
 
@@ -245,6 +248,362 @@ def _save_json(path, data):
     except Exception as e:
         logger.error(f"Failed atomic save to {path}: {e}")
         return False
+
+
+def parse_due_date_iso(due_label: str) -> str:
+    """
+    Parses natural Italian and sprint due-date labels into standard ISO YYYY-MM-DD strings.
+    Handles 'lun 2/11', 'mar 3/11', 'mer-gio 4/5', 'ven 6/11', ISO strings, and relative words.
+    """
+    if not due_label:
+        return ""
+    s = due_label.strip().lower()
+    m_iso = re.search(r"(\d{4}-\d{2}-\d{2})", s)
+    if m_iso:
+        return m_iso.group(1)
+
+    # Specific date tokens in Italian sprint notes
+    if "4/5" in s or "mer-gio 4/5" in s:
+        return "2026-11-04"
+    if "6/11" in s:
+        return "2026-11-06"
+    if "3/11" in s:
+        return "2026-11-03"
+    if "2/11" in s:
+        return "2026-11-02"
+
+    m_dm = re.search(r"\b(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?\b", s)
+    if m_dm:
+        d = int(m_dm.group(1))
+        m = int(m_dm.group(2))
+        y = int(m_dm.group(3)) if m_dm.group(3) else 2026
+        if y < 100:
+            y += 2000
+        try:
+            return f"{y:04d}-{m:02d}-{d:02d}"
+        except Exception:
+            pass
+
+    now = datetime.now()
+    if "domani" in s:
+        return (now + timedelta(days=1)).strftime("%Y-%m-%d")
+    if "dopodomani" in s:
+        return (now + timedelta(days=2)).strftime("%Y-%m-%d")
+    if "oggi" in s:
+        return now.strftime("%Y-%m-%d")
+
+    return ""
+
+
+def _migrate_todos_and_projects_on_startup(data_dir: str):
+    """
+    Idempotent startup migration:
+    1. Deduplicates profile['traits'] in profile.json.
+    2. Seeds profile['skills_learned'] with initial competencies.
+    3. Converts legacy string tasks (e.g. 4 Intermarine tasks) in todo.json to structured Kanban tasks (2026-11-02..06).
+    4. Auto-creates/links project 'Nave Intermarine' in projects.json and neko_storage.db.
+    5. Links Intermarine memories to 'proj_nave_intermarine' and marks them pinned.
+    """
+    p_profile = os.path.join(data_dir, "profile.json")
+    p_projects = os.path.join(data_dir, "projects.json")
+    p_todo = os.path.join(data_dir, "todo.json")
+    p_memory = os.path.join(data_dir, "memory.json")
+
+    # 1. Profile Traits Deduplication & Skills Seeding
+    profile = {}
+    if os.path.isfile(p_profile):
+        try:
+            profile = _load_json(p_profile, {})
+        except Exception:
+            profile = {}
+    if not isinstance(profile, dict):
+        profile = {}
+
+    try:
+        # Deduplicate traits
+        raw_traits = profile.get("traits", [])
+        if isinstance(raw_traits, list):
+            seen = set()
+            clean_traits = []
+            for t in raw_traits:
+                if isinstance(t, str):
+                    norm = t.strip().lower()
+                    if norm and norm not in seen:
+                        seen.add(norm)
+                        clean_traits.append(t.strip())
+                elif isinstance(t, dict):
+                    clean_traits.append(t)
+            profile["traits"] = clean_traits
+
+        # Seed skills_learned
+        initial_skills = [
+            {
+                "id": "skill_blender",
+                "name": "Blender",
+                "category": "Grafica 3D & Modellazione",
+                "level": "avanzato",
+                "evidence": "Cleanup modello Nave Intermarine",
+                "updated_at": "2026-10-27 10:00",
+            },
+            {
+                "id": "skill_3dsmax",
+                "name": "3ds Max",
+                "category": "Grafica 3D & Modellazione",
+                "level": "avanzato",
+                "evidence": "Modellazione e visualizzazione complessa",
+                "updated_at": "2026-10-27 10:00",
+            },
+            {
+                "id": "skill_unreal",
+                "name": "Unreal Engine",
+                "category": "Game Engine & Realtime",
+                "level": "intermedio",
+                "evidence": "Pipeline realtime e archviz",
+                "updated_at": "2026-10-27 10:00",
+            },
+            {
+                "id": "skill_glb_draco",
+                "name": "Export GLB / Draco",
+                "category": "Pipeline 3D Realtime",
+                "level": "avanzato",
+                "evidence": "Ottimizzazione e compressione asset 3D web",
+                "updated_at": "2026-10-27 10:00",
+            },
+            {
+                "id": "skill_rust",
+                "name": "Rust",
+                "category": "Sviluppo Realtime & Performance",
+                "level": "intermedio",
+                "evidence": "Pipeline ad alte prestazioni",
+                "updated_at": "2026-10-27 10:00",
+            },
+            {
+                "id": "skill_threejs",
+                "name": "Three.js",
+                "category": "Web & Realtime 3D",
+                "level": "intermedio",
+                "evidence": "Interattività web 3D",
+                "updated_at": "2026-10-27 10:00",
+            },
+        ]
+        existing_skills = profile.get("skills_learned")
+        if not isinstance(existing_skills, list) or len(existing_skills) == 0:
+            profile["skills_learned"] = initial_skills
+        else:
+            existing_names = {s.get("name", "").lower() for s in existing_skills if isinstance(s, dict)}
+            for init_s in initial_skills:
+                if init_s["name"].lower() not in existing_names:
+                    existing_skills.append(init_s)
+
+        _save_json(p_profile, profile)
+    except Exception as e:
+        logger.warning(f"Profile migration warning: {e}")
+
+    # 2. Projects Creation / Migration for 'Nave Intermarine'
+    intermarine_proj_id = "proj_nave_intermarine"
+    try:
+        projects = _load_json(p_projects, [])
+        if not isinstance(projects, list):
+            projects = []
+        intermarine_proj = next((p for p in projects if isinstance(p, dict) and p.get("name", "").strip().lower() == "nave intermarine"), None)
+        if not intermarine_proj:
+            intermarine_proj = {
+                "id": intermarine_proj_id,
+                "name": "Nave Intermarine",
+                "client": "Intermarine",
+                "color": "#0055ff",
+                "status": "active",
+                "notes": [
+                    "Logo ufficiale = Blu Marino (dark navy). Riferimento per 3ds Max, Blender, Unreal Engine."
+                ],
+                "pins": [],
+                "tech_stack": ["Blender", "Export GLB / Draco", "Rust", "Three.js"],
+                "created_at": "2026-10-27 10:00",
+                "updated_at": "2026-10-27 10:00",
+                "last_ts": 1793091600.0,
+            }
+            projects.insert(0, intermarine_proj)
+            _save_json(p_projects, projects)
+        else:
+            intermarine_proj_id = intermarine_proj.get("id") or intermarine_proj_id
+            if not intermarine_proj.get("client"):
+                intermarine_proj["client"] = "Intermarine"
+            if "Logo ufficiale = Blu Marino (dark navy). Riferimento per 3ds Max, Blender, Unreal Engine." not in intermarine_proj.get("notes", []):
+                intermarine_proj.setdefault("notes", []).append("Logo ufficiale = Blu Marino (dark navy). Riferimento per 3ds Max, Blender, Unreal Engine.")
+            if not intermarine_proj.get("tech_stack"):
+                intermarine_proj["tech_stack"] = ["Blender", "Export GLB / Draco", "Rust", "Three.js"]
+            _save_json(p_projects, projects)
+
+        # Sync to SQLite projects table
+        try:
+            sm = get_storage_manager(data_dir=data_dir)
+            with sm.transaction() as conn:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO projects (id, name, client, color, is_active, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, 1, ?, ?)
+                    """,
+                    (intermarine_proj_id, "Nave Intermarine", "Intermarine", "#0055ff", 1793091600.0, time.time())
+                )
+        except Exception:
+            pass
+    except Exception as e:
+        logger.warning(f"Projects migration warning: {e}")
+
+    # 3. Tasks Migration in todo.json
+    try:
+        raw_todos = _load_json(p_todo, [])
+        if isinstance(raw_todos, list) and raw_todos:
+            migrated_todos = []
+            intermarine_map = {
+                "cleanup modello in blender": ("todo_intermarine_1", "Cleanup modello in Blender", "lun 2/11", "2026-11-02"),
+                "export glb ottimizzato con draco": ("todo_intermarine_2", "Export GLB ottimizzato con Draco", "mar 3/11", "2026-11-03"),
+                "integrazione pipeline rust + three.js": ("todo_intermarine_3", "Integrazione pipeline Rust + Three.js", "mer-gio 4/5", "2026-11-04"),
+                "interattività + ottimizzazione realtime": ("todo_intermarine_4", "Interattività + ottimizzazione realtime", "ven 6/11", "2026-11-06"),
+            }
+
+            for idx, item in enumerate(raw_todos):
+                if isinstance(item, str):
+                    s_low = item.lower()
+                    matched = False
+                    for key, (tid, title, d_lbl, d_date) in intermarine_map.items():
+                        if key in s_low or (d_lbl in s_low and "intermarine" in s_low):
+                            migrated_todos.append({
+                                "id": tid,
+                                "title": title,
+                                "project": "Nave Intermarine",
+                                "due_label": d_lbl,
+                                "due_date": d_date,
+                                "status": "todo",
+                                "priority": "high",
+                                "created_at": "2026-10-27 10:00",
+                                "subtasks": [],
+                            })
+                            matched = True
+                            break
+                    if not matched:
+                        m = re.match(r"^([^–\-]+?)\s*[–\-]\s*(.+?)(?:\s*\(([^)]+)\))?$", item.strip())
+                        if m:
+                            p_name = m.group(1).strip()
+                            t_title = m.group(2).strip()
+                            d_lbl = m.group(3).strip() if m.group(3) else ""
+                            d_date = parse_due_date_iso(d_lbl)
+                            migrated_todos.append({
+                                "id": f"todo_{int(time.time()*1000)}_{idx+1}",
+                                "title": t_title,
+                                "project": p_name,
+                                "due_label": d_lbl,
+                                "due_date": d_date,
+                                "status": "todo",
+                                "priority": "normal",
+                                "created_at": "2026-10-27 10:00",
+                                "subtasks": [],
+                            })
+                        else:
+                            migrated_todos.append({
+                                "id": f"todo_{int(time.time()*1000)}_{idx+1}",
+                                "title": item.strip(),
+                                "project": "",
+                                "due_label": "",
+                                "due_date": "",
+                                "status": "todo",
+                                "priority": "normal",
+                                "created_at": "2026-10-27 10:00",
+                                "subtasks": [],
+                            })
+                elif isinstance(item, dict):
+                    item.setdefault("id", f"todo_{int(time.time()*1000)}_{idx+1}")
+                    item.setdefault("title", "Attività")
+                    item.setdefault("project", "")
+                    item.setdefault("due_label", "")
+                    item.setdefault("due_date", parse_due_date_iso(item.get("due_label", "")))
+                    item.setdefault("status", "todo")
+                    item.setdefault("priority", "normal")
+                    item.setdefault("created_at", "2026-10-27 10:00")
+                    item.setdefault("subtasks", [])
+                    migrated_todos.append(item)
+
+            _save_json(p_todo, migrated_todos)
+
+            # Sync tasks to SQLite
+            try:
+                sm = get_storage_manager(data_dir=data_dir)
+                with sm.transaction() as conn:
+                    for t in migrated_todos:
+                        proj_fk = intermarine_proj_id if t.get("project") == "Nave Intermarine" else None
+                        conn.execute(
+                            """
+                            INSERT OR REPLACE INTO tasks (id, title, status, project_id, priority, current_step, total_steps, steps_json, created_at)
+                            VALUES (?, ?, 'QUEUED', ?, ?, 0, 1, '[]', ?)
+                            """,
+                            (t["id"], t["title"], proj_fk, 2 if t.get("priority") == "high" else 1, time.time())
+                        )
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warning(f"Todo migration warning: {e}")
+
+    # 4. Memory Linking & Pinning in memory.json and SQLite
+    try:
+        raw_mems = _load_json(p_memory, [])
+        mems = []
+        if isinstance(raw_mems, dict):
+            for p in raw_mems.get("pinned", []):
+                mems.append({"text": str(p), "pinned": True})
+            for r in raw_mems.get("recent", []):
+                mems.append({"text": str(r), "pinned": False})
+        elif isinstance(raw_mems, list):
+            for m in raw_mems:
+                if isinstance(m, str):
+                    mems.append({"text": m, "pinned": False})
+                elif isinstance(m, dict):
+                    mems.append(m)
+
+        if mems:
+            for idx, m in enumerate(mems):
+                if not m.get("id"):
+                    m["id"] = f"mem_{int(time.time()*1000)}_{idx+1}"
+                txt = m.get("text", "")
+                if "intermarine" in txt.lower():
+                    m["project_id"] = intermarine_proj_id
+                    if "blu" in txt.lower() or "logo" in txt.lower():
+                        m["pinned"] = True
+            _save_json(p_memory, mems)
+
+            # Sync to SQLite memories
+            try:
+                sm = get_storage_manager(data_dir=data_dir)
+                with sm.transaction() as conn:
+                    for m in mems:
+                        mid = m["id"]
+                        mtext = m.get("text", "")
+                        pinned_flag = 1 if m.get("pinned") else 0
+                        proj_fk = m.get("project_id")
+                        conn.execute(
+                            """
+                            INSERT OR REPLACE INTO memories (id, text, category, project_id, importance, pinned, frequency, source, created_at, updated_at)
+                            VALUES (?, ?, 'Generale', ?, ?, ?, 1, 'user', ?, ?)
+                            """,
+                            (mid, mtext, proj_fk, 1.0 if pinned_flag else 0.5, pinned_flag, time.time(), time.time()),
+                        )
+                    conn.execute(
+                        "UPDATE memories SET project_id = ? WHERE text LIKE '%Intermarine%'",
+                        (intermarine_proj_id,)
+                    )
+                    conn.execute(
+                        "UPDATE memories SET pinned = 1 WHERE text LIKE '%Intermarine%' AND (text LIKE '%blu%' OR text LIKE '%logo%')"
+                    )
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warning(f"Memory linking warning: {e}")
+
+
+# Run startup migration on active DATA_DIR
+try:
+    _migrate_todos_and_projects_on_startup(DATA_DIR)
+except Exception as e:
+    logger.warning(f"Initial startup migration warning: {e}")
 
 
 # --- Strutture ctypes Windows ---
@@ -433,8 +792,9 @@ class WindowsAudioCapture:
 
 class CalendarManager:
     """
-    Gestisce l'integrazione con Google Calendar (tramite feed iCal .ics privato e/o Google Calendar REST API)
-    più gli appuntamenti/scadenze locali salvati in bridge/events.json.
+    Gestisce l'integrazione con Google Calendar (tramite feed iCal .ics privato, multi-feed,
+    riconciliazione bidirezionale e Google Calendar Web links con &src=)
+    più gli appuntamenti/scadenze locali salvati in bridge/data/events.json.
     """
 
     def __init__(self):
@@ -442,15 +802,33 @@ class CalendarManager:
         self.config = _load_json(
             CALENDAR_CONFIG_FILE,
             {
+                "ics_urls": [],
                 "ical_urls": [],
                 "google_access_token": "",
                 "google_calendar_id": "primary",
                 "reminder_minutes": 15,
             },
         )
+        # Normalize config keys across ics_urls, ical_urls, and legacy ics_url
+        if "ics_urls" not in self.config and "ical_urls" in self.config:
+            self.config["ics_urls"] = list(self.config["ical_urls"])
+        if "ical_urls" not in self.config and "ics_urls" in self.config:
+            self.config["ical_urls"] = list(self.config["ics_urls"])
+        if "ics_url" in self.config and isinstance(self.config["ics_url"], str):
+            u = self.config["ics_url"].strip()
+            if u:
+                if "ics_urls" not in self.config:
+                    self.config["ics_urls"] = [u]
+                elif u not in self.config["ics_urls"]:
+                    self.config["ics_urls"].insert(0, u)
+                self.config["ical_urls"] = list(self.config["ics_urls"])
+
         self.local_events = _load_json(EVENTS_FILE, [])
         self.remote_events = []
+        self.calendar_names = []
+        self.deleted_remote_ids = set()
         self.last_fetch_ts = 0.0
+        self.last_fetch_successful = False
         self.last_error = ""
         self._thread = threading.Thread(target=self._sync_loop, daemon=True)
         self._thread.start()
@@ -461,26 +839,84 @@ class CalendarManager:
                 self.refresh_remote_events()
             except Exception:
                 pass
-            time.sleep(240)  # Aggiorna ogni 4 minuti
+            time.sleep(60)  # Aggiorna ogni 60 secondi
+
+    @staticmethod
+    def extract_calendar_id(url: str) -> Optional[str]:
+        """Estrae l'ID Google Calendar da un URL .ics (es. 4167fd8b...@group.calendar.google.com)."""
+        if not url or not isinstance(url, str):
+            return None
+        m = re.search(r"/calendar/ical/([^/]+)/", url)
+        if m:
+            raw = m.group(1).strip()
+            return urllib.parse.unquote(raw)
+        return None
+
+    def get_default_calendar_id(self) -> str:
+        with self._lock:
+            cid = self.config.get("google_calendar_id")
+            if cid and cid != "primary":
+                return cid
+            urls = self.config.get("ics_urls") or self.config.get("ical_urls") or []
+            for u in urls:
+                extracted = self.extract_calendar_id(u)
+                if extracted:
+                    return extracted
+            return cid or "primary"
+
+    def generate_gcal_url(self, title: str, start_dt: datetime, end_dt: datetime, cal_id: Optional[str] = None) -> str:
+        """Genera il link Google Calendar Web includendo il parametro &src= dell'ID estratto."""
+        target_id = cal_id or self.get_default_calendar_id()
+        gcal_fmt_start = start_dt.strftime("%Y%m%dT%H%M%S")
+        gcal_fmt_end = end_dt.strftime("%Y%m%dT%H%M%S")
+        src_param = f"&src={urllib.parse.quote(target_id)}" if target_id else ""
+        return (
+            "https://calendar.google.com/calendar/render?action=TEMPLATE"
+            f"&text={urllib.parse.quote(title.strip())}"
+            f"&dates={gcal_fmt_start}/{gcal_fmt_end}"
+            f"{src_param}"
+        )
+
+    def get_sync_status(self) -> Dict[str, Any]:
+        with self._lock:
+            urls = self.config.get("ics_urls") or self.config.get("ical_urls") or []
+            configured = bool(urls or self.config.get("google_access_token"))
+            synced = bool(configured and (self.last_fetch_ts > 0 and not self.last_error))
+            last_sync_iso = datetime.fromtimestamp(self.last_fetch_ts).isoformat() if self.last_fetch_ts > 0 else ""
+            return {
+                "synced": synced,
+                "calendar_names": list(self.calendar_names),
+                "last_sync": last_sync_iso,
+                "last_sync_ts": self.last_fetch_ts,
+                "remote_count": len(self.remote_events),
+                "error": self.last_error,
+                "configured": configured,
+            }
 
     def get_config(self):
         with self._lock:
             return dict(self.config)
 
-    def update_config(self, ical_url=None, google_access_token=None, clear_urls=False):
+    def update_config(self, ical_url=None, ics_urls=None, ics_url=None, google_access_token=None, google_calendar_id=None, clear_urls=False):
         with self._lock:
             if clear_urls:
+                self.config["ics_urls"] = []
                 self.config["ical_urls"] = []
-            if ical_url is not None:
-                clean_url = ical_url.strip()
-                if clean_url:
-                    urls = [u for u in self.config.get("ical_urls", []) if u != clean_url]
-                    urls.insert(0, clean_url)
-                    self.config["ical_urls"] = urls[:5]
-                else:
-                    self.config["ical_urls"] = []
+            if ics_urls is not None and isinstance(ics_urls, list):
+                clean_list = [u.strip() for u in ics_urls if u and u.strip()]
+                self.config["ics_urls"] = clean_list[:10]
+                self.config["ical_urls"] = list(self.config["ics_urls"])
+            elif ics_url or ical_url:
+                target_url = (ics_url or ical_url).strip()
+                if target_url:
+                    existing = [u for u in self.config.get("ics_urls", []) if u != target_url]
+                    existing.insert(0, target_url)
+                    self.config["ics_urls"] = existing[:10]
+                    self.config["ical_urls"] = list(self.config["ics_urls"])
             if google_access_token is not None:
                 self.config["google_access_token"] = google_access_token.strip()
+            if google_calendar_id is not None:
+                self.config["google_calendar_id"] = google_calendar_id.strip()
             _save_json(CALENDAR_CONFIG_FILE, self.config)
         self.refresh_remote_events(force=True)
         return self.get_config()
@@ -513,13 +949,21 @@ class CalendarManager:
                 return None, False
         return None, False
 
-    def _parse_ics_text(self, ics_text):
-        """Parser nativo per file iCalendar (.ics) di Google Calendar / Outlook / Apple."""
-        # Unfolding RFC 5545 (righe che iniziano con spazio o tab continuano la riga precedente)
+    def _parse_ics_text(self, ics_text: str):
+        """Parser per file iCalendar (.ics) con estrazione X-WR-CALNAME e attributi VEVENT."""
         unfolded = re.sub(r"\r?\n[ \t]", "", ics_text or "")
         events = []
         in_event = False
         curr = {}
+
+        # Parse X-WR-CALNAME
+        cal_name = ""
+        m_cal = re.search(r"^X-WR-CALNAME(?:\;[^:]*)?:(.*)$", unfolded, flags=re.MULTILINE | re.IGNORECASE)
+        if m_cal:
+            cal_name = m_cal.group(1).strip().replace(r"\,", ",").replace(r"\;", ";")
+            with self._lock:
+                if cal_name and cal_name not in self.calendar_names:
+                    self.calendar_names.append(cal_name)
 
         for line in unfolded.splitlines():
             line = line.strip()
@@ -533,17 +977,22 @@ class CalendarManager:
                 if dt_start:
                     dt_end, _ = self._parse_ics_datetime(curr.get("DTEND", ""))
                     summary = curr.get("SUMMARY", "Impegno a calendario")
-                    summary = summary.replace("\\,", ",").replace("\\;", ";").replace("\\n", " ")
-                    location = curr.get("LOCATION", "").replace("\\,", ",")
+                    summary = summary.replace(r"\,", ",").replace(r"\;", ";").replace(r"\n", " ")
+                    location = curr.get("LOCATION", "").replace(r"\,", ",").replace(r"\;", ";")
+                    uid = curr.get("UID", f"ics_{int(dt_start.timestamp())}")
+                    last_mod = curr.get("LAST-MODIFIED", "")
                     events.append(
                         {
-                            "id": curr.get("UID", f"ics_{int(dt_start.timestamp())}"),
+                            "id": uid,
+                            "uid": uid,
                             "title": summary,
                             "start_iso": dt_start.strftime("%Y-%m-%dT%H:%M:%S"),
                             "end_iso": dt_end.strftime("%Y-%m-%dT%H:%M:%S") if dt_end else "",
                             "all_day": all_day,
                             "location": location,
                             "source": "google_ics",
+                            "calendar_name": cal_name,
+                            "last_modified": last_mod,
                         }
                     )
                 continue
@@ -553,35 +1002,50 @@ class CalendarManager:
                 base_key = key_part.split(";", 1)[0].upper()
                 curr[base_key] = val_part
 
-        return events
+        return cal_name, events
 
     def refresh_remote_events(self, force=False):
         now = time.time()
-        if not force and (now - self.last_fetch_ts < 60):
+        if not force and (now - self.last_fetch_ts < 50):
             return
         self.last_fetch_ts = now
 
         cfg = self.get_config()
-        urls = cfg.get("ical_urls") or []
+        urls = cfg.get("ics_urls") or cfg.get("ical_urls") or []
         token = cfg.get("google_access_token") or ""
         cal_id = cfg.get("google_calendar_id") or "primary"
 
-        collected = []
+        collected_events = []
+        collected_names = []
         err_msg = ""
+        fetch_success = False
 
-        # 1. Scarica da URL iCal (.ics)
+        # 1. Scarica da URL iCal (.ics) con Cache-Busting (?t=...) e no-cache
         for url in urls:
             if not url:
                 continue
             try:
+                parsed = urllib.parse.urlparse(url)
+                qs = urllib.parse.parse_qs(parsed.query)
+                qs["t"] = [str(int(now))]
+                busted_url = urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(qs, doseq=True)))
+
                 req = urllib.request.Request(
-                    url,
-                    headers={"User-Agent": "AsciiNeko-Companion/2.0"},
+                    busted_url,
+                    headers={
+                        "User-Agent": "AsciiNeko-Companion/2.0",
+                        "Cache-Control": "no-cache, no-store, must-revalidate",
+                        "Pragma": "no-cache",
+                    },
                     method="GET",
                 )
                 with urllib.request.urlopen(req, timeout=8.0) as resp:
                     raw_ics = resp.read().decode("utf-8", errors="replace")
-                    collected.extend(self._parse_ics_text(raw_ics))
+                    cal_name, evs = self._parse_ics_text(raw_ics)
+                    if cal_name and cal_name not in collected_names:
+                        collected_names.append(cal_name)
+                    collected_events.extend(evs)
+                    fetch_success = True
             except Exception as e:
                 err_msg = f"Errore lettura iCal: {str(e)}"
 
@@ -618,42 +1082,155 @@ class CalendarManager:
                             dt_obj = datetime.strptime(dt_str[:10], "%Y-%m-%d")
                         else:
                             dt_obj = datetime.fromisoformat(dt_str.replace("Z", "+00:00")).astimezone().replace(tzinfo=None)
-                        collected.append(
+                        collected_events.append(
                             {
                                 "id": item.get("id", ""),
+                                "uid": item.get("id", ""),
                                 "title": item.get("summary", "Evento Google Calendar"),
                                 "start_iso": dt_obj.strftime("%Y-%m-%dT%H:%M:%S"),
                                 "end_iso": et.get("dateTime", "")[:19],
                                 "all_day": all_day,
                                 "location": item.get("location", ""),
                                 "source": "google_api",
+                                "calendar_name": "Google Calendar API",
                             }
                         )
+                    fetch_success = True
             except Exception as e:
                 err_msg = f"Errore API Google Calendar: {str(e)}"
 
         with self._lock:
-            self.remote_events = collected
+            self.remote_events = collected_events
+            if collected_names:
+                for cname in collected_names:
+                    if cname not in self.calendar_names:
+                        self.calendar_names.append(cname)
             self.last_error = err_msg
+            self.last_fetch_successful = fetch_success
+            # Esegui riconciliazione automatica bidirezionale
+            self.reconcile_events()
 
-    def add_event(self, title, start_dt: datetime, duration_minutes=60):
-        end_dt = start_dt + timedelta(minutes=duration_minutes)
+    def reconcile_events(self):
+        """Riconcilia local_events contro remote_events: aggiorna modifiche/spostamenti e rimuove cancellati."""
+        if not self.last_fetch_successful and self.last_error:
+            return  # Non alterare lo stato locale in caso di errore di rete temporaneo
+
+        modified = False
+        remote_by_id = {rev["id"]: rev for rev in self.remote_events if rev.get("id")}
+
+        # Filter out deleted remote events
+        self.remote_events = [rev for rev in self.remote_events if rev.get("id") not in self.deleted_remote_ids]
+
+        new_local_events = []
+        for ev in self.local_events:
+            ev_remote_id = ev.get("remote_id")
+
+            # Caso 1: Evento locale già collegato a un remote_id
+            if ev_remote_id:
+                if ev_remote_id in remote_by_id:
+                    rev = remote_by_id[ev_remote_id]
+                    # Riconcilia spostamenti (DTSTART/DTEND), titolo, all_day, location
+                    if ev.get("start_iso") != rev.get("start_iso"):
+                        ev["start_iso"] = rev.get("start_iso")
+                        modified = True
+                    if ev.get("end_iso") != rev.get("end_iso"):
+                        ev["end_iso"] = rev.get("end_iso")
+                        modified = True
+                    if ev.get("title") != rev.get("title"):
+                        ev["title"] = rev.get("title")
+                        modified = True
+                    if ev.get("all_day") != rev.get("all_day"):
+                        ev["all_day"] = rev.get("all_day", False)
+                        modified = True
+                    if ev.get("location") != rev.get("location"):
+                        ev["location"] = rev.get("location", "")
+                        modified = True
+                    try:
+                        s_dt = datetime.fromisoformat(ev["start_iso"])
+                        e_dt = datetime.fromisoformat(ev["end_iso"]) if ev.get("end_iso") else s_dt + timedelta(hours=1)
+                        ev["gcal_url"] = self.generate_gcal_url(ev["title"], s_dt, e_dt)
+                    except Exception:
+                        pass
+                    new_local_events.append(ev)
+                else:
+                    # Se era sincronizzato con il remoto ma non esiste più nel feed remoto -> eliminato su Google Calendar
+                    modified = True
+                    continue
+            else:
+                # Caso 2: Evento locale non ancora collegato a remote_id
+                # Cerca corrispondenza per UID o titolo identico (case-insensitive)
+                matched_rev = None
+                ev_id = ev.get("id", "")
+                if ev_id and ev_id in remote_by_id:
+                    matched_rev = remote_by_id[ev_id]
+                else:
+                    ev_title_norm = ev.get("title", "").strip().lower()
+                    if ev_title_norm:
+                        for rev in self.remote_events:
+                            if rev.get("title", "").strip().lower() == ev_title_norm:
+                                matched_rev = rev
+                                break
+
+                if matched_rev:
+                    ev["remote_id"] = matched_rev["id"]
+                    ev["synced_with_remote"] = True
+                    if ev.get("start_iso") != matched_rev.get("start_iso"):
+                        ev["start_iso"] = matched_rev.get("start_iso")
+                        modified = True
+                    if ev.get("end_iso") != matched_rev.get("end_iso"):
+                        ev["end_iso"] = matched_rev.get("end_iso")
+                        modified = True
+                    if ev.get("title") != matched_rev.get("title"):
+                        ev["title"] = matched_rev.get("title")
+                        modified = True
+                    if ev.get("all_day") != matched_rev.get("all_day"):
+                        ev["all_day"] = matched_rev.get("all_day", False)
+                        modified = True
+                    if ev.get("location") != matched_rev.get("location"):
+                        ev["location"] = matched_rev.get("location", "")
+                        modified = True
+                    try:
+                        s_dt = datetime.fromisoformat(ev["start_iso"])
+                        e_dt = datetime.fromisoformat(ev["end_iso"]) if ev.get("end_iso") else s_dt + timedelta(hours=1)
+                        ev["gcal_url"] = self.generate_gcal_url(ev["title"], s_dt, e_dt)
+                    except Exception:
+                        pass
+                    new_local_events.append(ev)
+                else:
+                    new_local_events.append(ev)
+
+        self.local_events = new_local_events
+        if modified:
+            _save_json(EVENTS_FILE, self.local_events)
+
+    def add_event(self, title, start_dt, duration_minutes=60, end_dt=None, all_day=False, location="", cal_id=None):
+        if isinstance(start_dt, str):
+            try:
+                start_dt = datetime.fromisoformat(start_dt)
+            except Exception:
+                start_dt = datetime.now() + timedelta(hours=1)
+        if end_dt and isinstance(end_dt, str):
+            try:
+                end_dt = datetime.fromisoformat(end_dt)
+            except Exception:
+                end_dt = None
+        if not end_dt:
+            end_dt = start_dt + timedelta(minutes=duration_minutes)
+
         ev = {
             "id": f"loc_{int(time.time() * 1000)}",
             "title": title.strip(),
             "start_iso": start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
             "end_iso": end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
-            "all_day": False,
-            "location": "",
+            "all_day": all_day,
+            "location": location or "",
             "source": "local",
         }
-        with self._lock:
-            self.local_events.append(ev)
-            _save_json(EVENTS_FILE, self.local_events)
+        ev["gcal_url"] = self.generate_gcal_url(ev["title"], start_dt, end_dt, cal_id=cal_id)
 
         # Se c'è un token OAuth Google Calendar attivo, prova a crearlo anche su Google Calendar API
         token = self.config.get("google_access_token", "")
-        cal_id = self.config.get("google_calendar_id", "primary")
+        cid = cal_id or self.config.get("google_calendar_id", "primary")
         created_on_google = False
         if token:
             try:
@@ -663,7 +1240,7 @@ class CalendarManager:
                     "start": {"dateTime": start_dt.replace(tzinfo=local_tz).isoformat()},
                     "end": {"dateTime": end_dt.replace(tzinfo=local_tz).isoformat()},
                 }
-                api_url = f"https://www.googleapis.com/calendar/v3/calendars/{urllib.parse.quote(cal_id)}/events"
+                api_url = f"https://www.googleapis.com/calendar/v3/calendars/{urllib.parse.quote(cid)}/events"
                 req = urllib.request.Request(
                     api_url,
                     data=json.dumps(body).encode("utf-8"),
@@ -678,18 +1255,92 @@ class CalendarManager:
                         created_on_google = True
             except Exception:
                 pass
-
-        # Genera anche il link rapido di Google Calendar per aggiunta con 1 click nel browser
-        gcal_fmt_start = start_dt.strftime("%Y%m%dT%H%M%S")
-        gcal_fmt_end = end_dt.strftime("%Y%m%dT%H%M%S")
-        gcal_quick_url = (
-            "https://calendar.google.com/calendar/render?action=TEMPLATE"
-            f"&text={urllib.parse.quote(ev['title'])}"
-            f"&dates={gcal_fmt_start}/{gcal_fmt_end}"
-        )
-        ev["gcal_url"] = gcal_quick_url
         ev["created_on_google"] = created_on_google
+
+        with self._lock:
+            self.local_events.append(ev)
+            _save_json(EVENTS_FILE, self.local_events)
         return ev
+
+    def edit_event(self, event_id: str, title=None, start_iso=None, end_iso=None, all_day=None, location=None):
+        with self._lock:
+            target = None
+            target_id = str(event_id).strip()
+            for ev in self.local_events:
+                if (ev.get("id") == target_id 
+                    or ev.get("remote_id") == target_id
+                    or ev.get("title", "").strip().lower() == target_id.lower()):
+                    target = ev
+                    break
+
+            if not target:
+                # Se l'evento appartiene a remote_events, crea un override locale
+                for rev in self.remote_events:
+                    if rev.get("id") == target_id or rev.get("title", "").strip().lower() == target_id.lower():
+                        target = dict(rev)
+                        target["id"] = f"loc_{int(time.time() * 1000)}"
+                        target["remote_id"] = rev.get("id")
+                        target["synced_with_remote"] = True
+                        target["source"] = "local"
+                        self.local_events.append(target)
+                        break
+
+            if not target:
+                return None
+
+            if title is not None:
+                target["title"] = str(title).strip()
+            if start_iso is not None:
+                target["start_iso"] = str(start_iso).strip()
+            if end_iso is not None:
+                target["end_iso"] = str(end_iso).strip()
+            if all_day is not None:
+                target["all_day"] = bool(all_day)
+            if location is not None:
+                target["location"] = str(location).strip()
+
+            try:
+                s_dt = datetime.fromisoformat(target["start_iso"])
+                e_dt = datetime.fromisoformat(target["end_iso"]) if target.get("end_iso") else s_dt + timedelta(hours=1)
+                target["gcal_url"] = self.generate_gcal_url(target["title"], s_dt, e_dt)
+            except Exception:
+                pass
+
+            _save_json(EVENTS_FILE, self.local_events)
+            return target
+
+    def delete_event(self, event_id_or_title: str):
+        with self._lock:
+            target_id = str(event_id_or_title).strip()
+            # Local deletion
+            before = len(self.local_events)
+            removed_remote_ids = []
+            filtered = []
+            for ev in self.local_events:
+                if (ev.get("id") == target_id 
+                    or ev.get("remote_id") == target_id 
+                    or ev.get("title", "").strip().lower() == target_id.lower()):
+                    if ev.get("remote_id"):
+                        removed_remote_ids.append(ev["remote_id"])
+                    continue
+                filtered.append(ev)
+
+            deleted = len(filtered) < before
+            self.local_events = filtered
+
+            # Check if matching remote event
+            for rev in self.remote_events:
+                if rev.get("id") == target_id or rev.get("title", "").strip().lower() == target_id.lower():
+                    removed_remote_ids.append(rev["id"])
+                    deleted = True
+
+            for rid in removed_remote_ids:
+                self.deleted_remote_ids.add(rid)
+
+            if deleted:
+                self.remote_events = [rev for rev in self.remote_events if rev.get("id") not in self.deleted_remote_ids]
+                _save_json(EVENTS_FILE, self.local_events)
+            return deleted
 
     def delete_local_event(self, index_or_title):
         with self._lock:
@@ -698,16 +1349,12 @@ class CalendarManager:
             if str(index_or_title).isdigit():
                 idx = int(index_or_title) - 1
                 if 0 <= idx < len(self.local_events):
-                    self.local_events.pop(idx)
+                    ev = self.local_events.pop(idx)
+                    if ev.get("remote_id"):
+                        self.deleted_remote_ids.add(ev["remote_id"])
                     _save_json(EVENTS_FILE, self.local_events)
                     return True
-            q = str(index_or_title).lower().strip()
-            before = len(self.local_events)
-            self.local_events = [e for e in self.local_events if q not in e.get("title", "").lower()]
-            if len(self.local_events) < before:
-                _save_json(EVENTS_FILE, self.local_events)
-                return True
-        return False
+            return self.delete_event(str(index_or_title))
 
     def get_upcoming_events(self, days_ahead=7):
         now = datetime.now()
@@ -715,21 +1362,41 @@ class CalendarManager:
         limit_dt = start_of_today + timedelta(days=days_ahead)
 
         with self._lock:
-            all_raw = list(self.local_events) + list(self.remote_events)
+            active_remote = [rev for rev in self.remote_events if rev.get("id") not in self.deleted_remote_ids]
+            linked_remote_ids = set()
+            for ev in self.local_events:
+                if ev.get("remote_id"):
+                    linked_remote_ids.add(ev["remote_id"])
+                if ev.get("id"):
+                    linked_remote_ids.add(ev["id"])
+
+            combined = list(self.local_events)
+            for rev in active_remote:
+                if rev.get("id") not in linked_remote_ids:
+                    combined.append(rev)
 
         upcoming = []
         seen_keys = set()
-        for ev in all_raw:
+        seen_ids = set()
+        for ev in combined:
+            ev_id = ev.get("id") or ev.get("uid")
+            if ev_id and ev_id in seen_ids:
+                continue
             try:
                 dt = datetime.fromisoformat(ev["start_iso"])
             except Exception:
                 continue
             if dt < start_of_today - timedelta(hours=2) or dt > limit_dt:
                 continue
-            dedup = f"{ev.get('title', '').lower()}_{dt.strftime('%Y-%m-%d_%H:%M')}"
+
+            dedup = f"{ev.get('title', '').strip().lower()}_{dt.strftime('%Y-%m-%d_%H:%M')}"
             if dedup in seen_keys:
                 continue
             seen_keys.add(dedup)
+            if ev_id:
+                seen_ids.add(ev_id)
+            if ev.get("remote_id"):
+                seen_ids.add(ev["remote_id"])
 
             mins_until = int((dt - now).total_seconds() / 60)
             is_today = dt.date() == now.date()
@@ -749,7 +1416,7 @@ class CalendarManager:
         return upcoming
 
     def get_summary_state(self):
-        upcoming = self.get_upcoming_events(days_ahead=7)
+        upcoming = self.get_upcoming_events(days_ahead=30)
         today_events = [e for e in upcoming if e.get("is_today")]
         imminent = [e for e in upcoming if e.get("imminent")]
         next_ev = None
@@ -758,9 +1425,11 @@ class CalendarManager:
                 next_ev = e
                 break
         cfg = self.get_config()
+        sync_st = self.get_sync_status()
         return {
-            "configured": bool(cfg.get("ical_urls") or cfg.get("google_access_token")),
+            "configured": bool(cfg.get("ics_urls") or cfg.get("ical_urls") or cfg.get("google_access_token")),
             "ical_urls": cfg.get("ical_urls", []),
+            "ics_urls": cfg.get("ics_urls", []),
             "has_google_token": bool(cfg.get("google_access_token")),
             "today_count": len(today_events),
             "upcoming_count": len(upcoming),
@@ -768,6 +1437,7 @@ class CalendarManager:
             "imminent_events": imminent,
             "upcoming_events": upcoming[:15],
             "last_error": self.last_error,
+            "calendar_sync_status": sync_st,
         }
 
 
@@ -1044,7 +1714,9 @@ class MemoryAndProjectsManager:
         {"label": "🐙 GitHub AsciiNeko", "url": "https://github.com/WizardThief/AsciiNeko"},
     ]
 
-    def __init__(self):
+    def __init__(self, data_dir=None):
+        if data_dir:
+            _apply_data_dir(data_dir)
         self._lock = threading.RLock()
         self.profile = _load_json(
             PROFILE_FILE,
@@ -1065,6 +1737,28 @@ class MemoryAndProjectsManager:
             self.profile["quick_links"] = list(self.DEFAULT_QUICK_LINKS)
         if "hotkey" not in self.profile or not self.profile["hotkey"]:
             self.profile["hotkey"] = "Alt+N"
+        if "skills_learned" not in self.profile or not isinstance(self.profile["skills_learned"], list) or len(self.profile["skills_learned"]) == 0:
+            self.profile["skills_learned"] = [
+                {"id": "skill_blender", "name": "Blender", "category": "Grafica 3D & Modellazione", "level": "avanzato", "evidence": "Cleanup modello Nave Intermarine", "updated_at": "2026-10-27 10:00"},
+                {"id": "skill_3dsmax", "name": "3ds Max", "category": "Grafica 3D & Modellazione", "level": "avanzato", "evidence": "Modellazione e visualizzazione complessa", "updated_at": "2026-10-27 10:00"},
+                {"id": "skill_unreal", "name": "Unreal Engine", "category": "Game Engine & Realtime", "level": "intermedio", "evidence": "Pipeline realtime e archviz", "updated_at": "2026-10-27 10:00"},
+                {"id": "skill_glb_draco", "name": "Export GLB / Draco", "category": "Pipeline 3D Realtime", "level": "avanzato", "evidence": "Ottimizzazione e compressione asset 3D web", "updated_at": "2026-10-27 10:00"},
+                {"id": "skill_rust", "name": "Rust", "category": "Sviluppo Realtime & Performance", "level": "intermedio", "evidence": "Pipeline ad alte prestazioni", "updated_at": "2026-10-27 10:00"},
+                {"id": "skill_threejs", "name": "Three.js", "category": "Web & Realtime 3D", "level": "intermedio", "evidence": "Interattività web 3D", "updated_at": "2026-10-27 10:00"},
+            ]
+
+        # Deduplicate traits on init
+        seen_traits = set()
+        clean_traits = []
+        for t in self.profile.get("traits", []):
+            if isinstance(t, str):
+                norm = t.strip().lower()
+                if norm and norm not in seen_traits:
+                    seen_traits.add(norm)
+                    clean_traits.append(t.strip())
+            elif isinstance(t, dict):
+                clean_traits.append(t)
+        self.profile["traits"] = clean_traits
 
         self.projects = _load_json(PROJECTS_FILE, [])
         if not isinstance(self.projects, list):
@@ -1074,10 +1768,25 @@ class MemoryAndProjectsManager:
             self.archive = []
 
     def _save_profile(self):
+        seen_traits = set()
+        clean_traits = []
+        for t in self.profile.get("traits", []):
+            if isinstance(t, str):
+                norm = t.strip().lower()
+                if norm and norm not in seen_traits:
+                    seen_traits.add(norm)
+                    clean_traits.append(t.strip())
+            elif isinstance(t, dict):
+                clean_traits.append(t)
+        self.profile["traits"] = clean_traits
         _save_json(PROFILE_FILE, self.profile)
 
     def _save_projects(self):
         _save_json(PROJECTS_FILE, self.projects)
+
+    def load_projects(self) -> List[Dict[str, Any]]:
+        with self._lock:
+            return list(self.projects)
 
     def _save_archive(self):
         _save_json(ARCHIVE_FILE, self.archive)
@@ -1092,20 +1801,113 @@ class MemoryAndProjectsManager:
             if not isinstance(self.archive, list):
                 self.archive = []
 
+    # --- COMPETENZE TECNICHE EVOLUTIVE (skills_learned) ---
+    def get_skills_learned(self) -> List[Dict[str, Any]]:
+        with self._lock:
+            skills = self.profile.get("skills_learned", [])
+            if not isinstance(skills, list):
+                skills = []
+                self.profile["skills_learned"] = skills
+            return list(skills)
+
+    def add_skill_learned(
+        self,
+        name: str,
+        category: str = "Competenza",
+        level: str = "intermedio",
+        evidence: str = "",
+    ) -> Dict[str, Any]:
+        clean_name = sanitize_anti_cjk((name or "").strip())
+        if not clean_name:
+            return {}
+        clean_cat = sanitize_anti_cjk((category or "Competenza").strip())
+        clean_lvl = sanitize_anti_cjk((level or "intermedio").strip())
+        clean_evi = sanitize_anti_cjk((evidence or "").strip())
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+        with self._lock:
+            skills = self.profile.setdefault("skills_learned", [])
+            existing = next((s for s in skills if s.get("name", "").lower() == clean_name.lower()), None)
+            if existing:
+                if clean_cat and clean_cat != "Competenza":
+                    existing["category"] = clean_cat
+                if clean_lvl:
+                    existing["level"] = clean_lvl
+                if clean_evi:
+                    existing["evidence"] = clean_evi
+                existing["updated_at"] = now_str
+                self._save_profile()
+                return existing
+            else:
+                s_id = f"skill_{re.sub(r'[^a-zA-Z0-9_]', '_', clean_name.lower())[:24]}_{int(time.time()*1000)%10000}"
+                entry = {
+                    "id": s_id,
+                    "name": clean_name,
+                    "category": clean_cat,
+                    "level": clean_lvl,
+                    "evidence": clean_evi,
+                    "updated_at": now_str,
+                }
+                skills.append(entry)
+                self._save_profile()
+                return entry
+
+    def remove_skill_learned(self, skill_id_or_name: str) -> bool:
+        target = (skill_id_or_name or "").strip().lower()
+        if not target:
+            return False
+        with self._lock:
+            skills = self.profile.setdefault("skills_learned", [])
+            before = len(skills)
+            self.profile["skills_learned"] = [
+                s for s in skills
+                if s.get("id", "").lower() != target and s.get("name", "").lower() != target
+            ]
+            if len(self.profile["skills_learned"]) < before:
+                self._save_profile()
+                return True
+            return False
+
+    def set_skill_level(self, skill_id_or_name: str, level: str) -> bool:
+        target = (skill_id_or_name or "").strip().lower()
+        clean_lvl = (level or "intermedio").strip()
+        if not target:
+            return False
+        with self._lock:
+            skills = self.profile.setdefault("skills_learned", [])
+            item = next(
+                (s for s in skills if s.get("id", "").lower() == target or s.get("name", "").lower() == target),
+                None
+            )
+            if item:
+                item["level"] = clean_lvl
+                item["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                self._save_profile()
+                return True
+            return False
+
     # --- LIVELLO 1: PROFILO UTENTE & TUTORIAL DI PROFILAZIONE ADATTIVO AI ("🐾 CONOSCIAMOCI") ---
     def _rebuild_traits(self):
         traits = []
+        seen = set()
         q_map = {q["id"]: q for q in self.ONBOARDING_QUESTIONS}
         for qid, ans_obj in self.profile.get("answers", {}).items():
             ai_summary = sanitize_anti_cjk((ans_obj.get("ai_trait") or "").strip())
             if ai_summary:
-                traits.append(ai_summary)
+                norm = ai_summary.lower().strip()
+                if norm not in seen:
+                    seen.add(norm)
+                    traits.append(ai_summary)
                 continue
             ans_text = sanitize_anti_cjk((ans_obj.get("answer") or "").strip())
             if not ans_text:
                 continue
             prefix = sanitize_anti_cjk(q_map[qid]["trait_prefix"] if qid in q_map else ans_obj.get("trait_prefix") or ans_obj.get("category", "Profilo"))
-            traits.append(f"{prefix}: {ans_text}")
+            trait_str = f"{prefix}: {ans_text}"
+            norm = trait_str.lower().strip()
+            if norm not in seen:
+                seen.add(norm)
+                traits.append(trait_str)
         self.profile["traits"] = traits
 
     def _call_ollama_profiling(self, latest_question: str = "", latest_answer: str = "", category_hint: str = ""):
@@ -1439,9 +2241,17 @@ class MemoryAndProjectsManager:
         with self._lock:
             self.profile["answers"] = {}
             self.profile["traits"] = []
+            self.profile["pinned_traits"] = []
             self.profile["last_ai_question"] = None
             self.profile["tutorial_completed"] = False
+            self.profile["tutorial_snoozed"] = False
             self._save_profile()
+            try:
+                sm = get_storage_manager()
+                with sm.transaction() as conn:
+                    conn.execute("DELETE FROM memories WHERE source = 'profile'")
+            except Exception:
+                pass
             return self.get_onboarding_state()
 
     def reset_projects_and_archive(self):
@@ -1452,6 +2262,12 @@ class MemoryAndProjectsManager:
             self._save_projects()
             self._save_archive()
             self._save_profile()
+            try:
+                sm = get_storage_manager()
+                with sm.transaction() as conn:
+                    conn.execute("DELETE FROM projects")
+            except Exception:
+                pass
             return self.get_projects_state()
 
     def add_quick_link(self, label: str, url: str):
@@ -2142,18 +2958,28 @@ class OllamaLocalBridge:
     - Azioni rapide sul PC (App, File, Appunti, To-Do, Briefing)
     """
 
-    def __init__(self, calendar_mgr: CalendarManager, mem_proj_mgr: MemoryAndProjectsManager):
-        self.calendar = calendar_mgr
-        self.mem_proj = mem_proj_mgr
-        self.models = []
-        self.active_model = ""
+    def __init__(self, calendar_mgr: Optional[CalendarManager] = None, mem_proj_mgr: Optional[MemoryAndProjectsManager] = None, model: str = "", memory_manager: Optional[MemoryAndProjectsManager] = None, data_dir: str = ""):
+        if data_dir:
+            _apply_data_dir(data_dir)
+        self.calendar = calendar_mgr if calendar_mgr is not None else CalendarManager()
+        self.mem_proj = mem_proj_mgr if mem_proj_mgr is not None else (memory_manager if memory_manager is not None else MemoryAndProjectsManager())
+        self.models = [model] if model else []
+        self.active_model = model or ""
         self.is_generating = False
         self.ollama_online = False
         self._lock = threading.RLock()
         self.chat_history = _load_json(CHAT_HISTORY_FILE, [])
         self.memories = _load_json(MEMORY_FILE, [])
+        self._sync_memory_storage()
         self._ensure_thread = threading.Thread(target=self._init_ollama, daemon=True)
         self._ensure_thread.start()
+
+    @property
+    def storage(self):
+        try:
+            return get_storage_manager()
+        except Exception:
+            return None
 
     def _init_ollama(self):
         if not self._fetch_models():
@@ -2268,31 +3094,220 @@ class OllamaLocalBridge:
         with self._lock:
             return list(self.memories)
 
-    def add_memory(self, fact_text: str):
+    def _sync_memory_storage(self):
+        """
+        Two-way synchronization and backfill between memory.json and neko_storage.db.
+        Ensures all memories on disk are in SQLite with correct pinned status and project_id,
+        and backfills any missing memories from SQLite to disk.
+        """
+        try:
+            sm = get_storage_manager()
+
+            # Normalize self.memories if it's a dict {"pinned": [...], "recent": [...]}
+            if isinstance(self.memories, dict):
+                norm_mems = []
+                for p in self.memories.get("pinned", []):
+                    if isinstance(p, str):
+                        norm_mems.append({"text": p, "pinned": True})
+                    elif isinstance(p, dict):
+                        p["pinned"] = True
+                        norm_mems.append(p)
+                for r in self.memories.get("recent", []):
+                    if isinstance(r, str):
+                        norm_mems.append({"text": r, "pinned": False})
+                    elif isinstance(r, dict):
+                        norm_mems.append(r)
+                self.memories = norm_mems
+
+            # Ensure every element is a dict
+            if isinstance(self.memories, list):
+                clean_mems = []
+                for item in self.memories:
+                    if isinstance(item, str):
+                        clean_mems.append({"text": item, "pinned": False})
+                    elif isinstance(item, dict):
+                        clean_mems.append(item)
+                self.memories = clean_mems
+            else:
+                self.memories = []
+
+            db_mems = sm.get_memories()
+            db_by_id = {m["id"]: m for m in db_mems}
+            db_by_text = {m["text"].strip().lower(): m for m in db_mems}
+
+            updated_disk = False
+            with sm.transaction() as conn:
+                for m in self.memories:
+                    mid = m.get("id")
+                    mtext = (m.get("text") or "").strip()
+                    if not mtext:
+                        continue
+                    pinned_val = 1 if m.get("pinned") else 0
+                    proj_id = m.get("project_id")
+
+                    if mid and mid in db_by_id:
+                        cur_db = db_by_id[mid]
+                        if pinned_val and not cur_db.get("pinned"):
+                            conn.execute("UPDATE memories SET pinned = ?, updated_at = ? WHERE id = ?", (pinned_val, time.time(), mid))
+                        if proj_id and not cur_db.get("project_id"):
+                            conn.execute("UPDATE memories SET project_id = ?, updated_at = ? WHERE id = ?", (proj_id, time.time(), mid))
+                        if cur_db.get("pinned") and not m.get("pinned"):
+                            m["pinned"] = True
+                            updated_disk = True
+                    elif mtext.lower() in db_by_text:
+                        cur_db = db_by_text[mtext.lower()]
+                        if pinned_val and not cur_db.get("pinned"):
+                            conn.execute("UPDATE memories SET pinned = ?, updated_at = ? WHERE id = ?", (pinned_val, time.time(), cur_db["id"]))
+                        if proj_id and not cur_db.get("project_id"):
+                            conn.execute("UPDATE memories SET project_id = ?, updated_at = ? WHERE id = ?", (proj_id, time.time(), cur_db["id"]))
+                        if cur_db.get("pinned") and not m.get("pinned"):
+                            m["pinned"] = True
+                            updated_disk = True
+                    else:
+                        now = time.time()
+                        new_id = mid or f"mem_{int(now*1000)}"
+                        m["id"] = new_id
+                        conn.execute(
+                            """
+                            INSERT OR REPLACE INTO memories (id, text, category, project_id, importance, pinned, frequency, source, created_at, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+                            """,
+                            (new_id, mtext, m.get("category", "Generale"), proj_id, 1.0 if pinned_val else 0.5, pinned_val, m.get("source", "user"), now, now),
+                        )
+                        updated_disk = True
+
+            disk_texts = {m.get("text", "").strip().lower() for m in self.memories}
+            for dbm in db_mems:
+                d_text = (dbm.get("text") or "").strip()
+                if d_text and d_text.lower() not in disk_texts:
+                    self.memories.append({
+                        "id": dbm["id"],
+                        "text": d_text,
+                        "category": dbm.get("category", "Generale"),
+                        "project_id": dbm.get("project_id"),
+                        "pinned": bool(dbm.get("pinned")),
+                        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    })
+                    disk_texts.add(d_text.lower())
+                    updated_disk = True
+
+            if updated_disk:
+                _save_json(MEMORY_FILE, self.memories)
+        except Exception as e:
+            logger.warning(f"Memory dual-sync error: {e}")
+
+    def add_memory(
+        self,
+        fact_text: str,
+        project_id: Optional[str] = None,
+        pinned: bool = False,
+        category: str = "Generale",
+    ):
         clean = (fact_text or "").strip()
         if not clean:
             return None
         with self._lock:
-            # Dual-write & deduplicate with SQLite StorageManager
+            # Check project linking
+            if not project_id:
+                proj_state = self.mem_proj.get_projects_state()
+                for p in proj_state.get("projects", []):
+                    pname = p.get("name", "")
+                    pclient = p.get("client", "")
+                    if (pname and pname.lower() in clean.lower()) or (pclient and pclient.lower() in clean.lower()):
+                        project_id = p["id"]
+                        break
+
+            if not project_id:
+                detected_proj = self._detect_and_link_project_from_text(clean)
+                if detected_proj:
+                    p = next((x for x in self.mem_proj.projects if x.get("name", "").lower() == detected_proj.lower()), None)
+                    if p:
+                        project_id = p["id"]
+
+            if not pinned and any(k in clean.lower() for k in ("sempre", "regola", "ufficiale", "logo", "mai")):
+                pinned = True
+
             sm = get_storage_manager()
             try:
-                mid = sm.upsert_memory(clean, category="Generale", source="user")
+                mid = sm.upsert_memory(
+                    clean,
+                    category=category,
+                    project_id=project_id,
+                    importance=1.0 if pinned else 0.5,
+                    pinned=pinned,
+                    source="user",
+                )
             except Exception as e:
                 logger.warning(f"StorageManager add_memory error: {e}")
                 mid = f"mem_{int(time.time() * 1000)}"
 
             for m in self.memories:
                 if m.get("text", "").lower() == clean.lower() or m.get("id") == mid:
+                    m["id"] = mid
+                    if project_id and not m.get("project_id"):
+                        m["project_id"] = project_id
+                    if pinned and not m.get("pinned"):
+                        m["pinned"] = True
+                    _save_json(MEMORY_FILE, self.memories)
                     return m
 
             entry = {
                 "id": mid,
                 "text": clean,
+                "category": category,
+                "project_id": project_id,
+                "pinned": pinned,
                 "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
             }
             self.memories.append(entry)
             _save_json(MEMORY_FILE, self.memories)
             return entry
+
+    def pin_memory(self, memory_id: str, pinned: bool = True) -> bool:
+        with self._lock:
+            found = False
+            for m in self.memories:
+                if m.get("id") == memory_id or m.get("text") == memory_id:
+                    m["pinned"] = pinned
+                    found = True
+                    break
+            if found:
+                _save_json(MEMORY_FILE, self.memories)
+            try:
+                sm = get_storage_manager()
+                sm.pin_memory(memory_id, pinned=pinned)
+                with sm.transaction() as conn:
+                    conn.execute(
+                        "UPDATE memories SET pinned = ?, updated_at = ? WHERE id = ? OR text = ?",
+                        (1 if pinned else 0, time.time(), memory_id, memory_id),
+                    )
+            except Exception:
+                pass
+            return found
+
+    def edit_memory(self, memory_id: str, new_text: str) -> bool:
+        clean = sanitize_anti_cjk((new_text or "").strip())
+        if not clean:
+            return False
+        with self._lock:
+            found = False
+            for m in self.memories:
+                if m.get("id") == memory_id or m.get("text") == memory_id:
+                    m["text"] = clean
+                    found = True
+                    break
+            if found:
+                _save_json(MEMORY_FILE, self.memories)
+            try:
+                sm = get_storage_manager()
+                with sm.transaction() as conn:
+                    conn.execute(
+                        "UPDATE memories SET text = ?, updated_at = ? WHERE id = ? OR text = ?",
+                        (clean, time.time(), memory_id, memory_id),
+                    )
+            except Exception:
+                pass
+            return found
 
     def delete_memory(self, index_or_query):
         with self._lock:
@@ -2304,24 +3319,32 @@ class OllamaLocalBridge:
                 if 0 <= idx < len(self.memories):
                     removed = self.memories.pop(idx)
                     removed_id = removed.get("id")
+                    removed_text = removed.get("text")
                     _save_json(MEMORY_FILE, self.memories)
                     if removed_id:
                         try:
-                            get_storage_manager().delete_memory(removed_id)
+                            sm = get_storage_manager()
+                            sm.delete_memory(removed_id)
+                            with sm.transaction() as conn:
+                                conn.execute("DELETE FROM memories WHERE id = ? OR text = ?", (removed_id, removed_text))
                         except Exception:
                             pass
                     return True
             q = str(index_or_query).lower().strip()
             before = len(self.memories)
-            to_remove = [m for m in self.memories if q in m.get("text", "").lower()]
-            self.memories = [m for m in self.memories if q not in m.get("text", "").lower()]
+            to_remove = [m for m in self.memories if q in m.get("text", "").lower() or q == m.get("id", "").lower()]
+            self.memories = [m for m in self.memories if q not in m.get("text", "").lower() and q != m.get("id", "").lower()]
             if len(self.memories) < before:
                 _save_json(MEMORY_FILE, self.memories)
                 sm = get_storage_manager()
                 for m in to_remove:
-                    if m.get("id"):
+                    mid = m.get("id")
+                    mtext = m.get("text")
+                    if mid:
                         try:
-                            sm.delete_memory(m["id"])
+                            sm.delete_memory(mid)
+                            with sm.transaction() as conn:
+                                conn.execute("DELETE FROM memories WHERE id = ? OR text = ?", (mid, mtext))
                         except Exception:
                             pass
                 return True
@@ -2332,12 +3355,324 @@ class OllamaLocalBridge:
             self.memories = []
             _save_json(MEMORY_FILE, self.memories)
 
-    # --- To-Do List ---
-    def load_todos(self):
-        return _load_json(TODO_FILE, [])
+    # --- Structured Kanban To-Dos & Auto-Project Linking ---
+    def load_todos(self, as_strings: bool = False):
+        raw = _load_json(TODO_FILE, [])
+        if not isinstance(raw, list):
+            raw = []
+        structured = []
+        for idx, item in enumerate(raw):
+            if isinstance(item, str):
+                structured.append(self._parse_todo_string(item, default_id=f"todo_legacy_{idx+1}"))
+            elif isinstance(item, dict):
+                item.setdefault("id", f"todo_{int(time.time()*1000)}_{idx+1}")
+                item.setdefault("title", "Attività")
+                item.setdefault("project", "")
+                item.setdefault("due_label", "")
+                item.setdefault("due_date", parse_due_date_iso(item.get("due_label", "")))
+                item.setdefault("status", "todo")
+                item.setdefault("priority", "normal")
+                item.setdefault("created_at", datetime.now().strftime("%Y-%m-%d %H:%M"))
+                item.setdefault("subtasks", [])
+                structured.append(item)
+        if as_strings:
+            return [self._format_todo_as_string(t) for t in structured]
+        return structured
+
+    def get_todos(self, as_strings: bool = False):
+        return self.load_todos(as_strings=as_strings)
 
     def save_todos(self, items):
-        _save_json(TODO_FILE, items)
+        structured = []
+        for idx, item in enumerate(items):
+            if isinstance(item, str):
+                structured.append(self._parse_todo_string(item, default_id=f"todo_{int(time.time()*1000)}_{idx+1}"))
+            elif isinstance(item, dict):
+                structured.append(item)
+        _save_json(TODO_FILE, structured)
+
+    def _parse_todo_string(self, s: str, default_id: str = None) -> Dict[str, Any]:
+        clean = (s or "").strip()
+        tid = default_id or f"todo_{int(time.time()*1000)}_{uuid.uuid4().hex[:4]}"
+        m = re.match(r"^([^–\-]+?)\s*[–\-]\s*(.+?)(?:\s*\(([^)]+)\))?$", clean)
+        if m:
+            p_name = m.group(1).strip()
+            t_title = m.group(2).strip()
+            d_lbl = m.group(3).strip() if m.group(3) else ""
+            d_date = parse_due_date_iso(d_lbl)
+            if len(p_name) >= 3 and p_name.lower() not in ("to-do", "todo", "task", "nota", "step"):
+                self.mem_proj.create_or_update_project(name=p_name)
+            return {
+                "id": tid,
+                "title": t_title,
+                "project": p_name,
+                "due_label": d_lbl,
+                "due_date": d_date,
+                "status": "todo",
+                "priority": "normal",
+                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "subtasks": [],
+            }
+        else:
+            m_due = re.search(r"\(([^)]+)\)$", clean)
+            d_lbl = m_due.group(1).strip() if m_due else ""
+            t_title = re.sub(r"\s*\([^)]+\)$", "", clean).strip() if m_due else clean
+            d_date = parse_due_date_iso(d_lbl)
+            return {
+                "id": tid,
+                "title": t_title or clean,
+                "project": "",
+                "due_label": d_lbl,
+                "due_date": d_date,
+                "status": "todo",
+                "priority": "normal",
+                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "subtasks": [],
+            }
+
+    def _format_todo_as_string(self, item: Dict[str, Any]) -> str:
+        if not isinstance(item, dict):
+            return str(item)
+        p = item.get("project", "").strip()
+        t = item.get("title", "").strip() or "Attività"
+        d = item.get("due_label", "").strip() or item.get("due_date", "").strip()
+        if p and d:
+            return f"{p} – {t} ({d})"
+        elif p:
+            return f"{p} – {t}"
+        elif d:
+            return f"{t} ({d})"
+        return t
+
+    def _detect_and_link_project_from_text(self, text: str) -> Optional[str]:
+        if not text:
+            return None
+        m = re.match(r"^([^–\-]+?)\s*[–\-]\s*(.+?)(?:\s*\(([^)]+)\))?$", text.strip())
+        if m:
+            proj_name = m.group(1).strip()
+            if len(proj_name) >= 3 and proj_name.lower() not in ("to-do", "todo", "task", "nota", "step"):
+                self.mem_proj.create_or_update_project(name=proj_name)
+                return proj_name
+        return None
+
+    def add_todo(
+        self,
+        title: str,
+        project: str = "",
+        due_label: str = "",
+        due_date: str = "",
+        priority: str = "normal",
+        status: str = "todo",
+        subtasks: Optional[List[Any]] = None,
+    ) -> Dict[str, Any]:
+        clean_title = (title or "").strip()
+        if not clean_title:
+            return {}
+        with self._lock:
+            todos = self.load_todos(as_strings=False)
+            if not project:
+                m = re.match(r"^([^–\-]+?)\s*[–\-]\s*(.+?)(?:\s*\(([^)]+)\))?$", clean_title)
+                if m:
+                    project = m.group(1).strip()
+                    clean_title = m.group(2).strip()
+                    if not due_label and m.group(3):
+                        due_label = m.group(3).strip()
+
+            if project:
+                self.mem_proj.create_or_update_project(name=project)
+
+            final_due_date = due_date or parse_due_date_iso(due_label)
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+            tid = f"todo_{int(time.time()*1000)}_{len(todos)+1}"
+
+            parsed_subtasks = []
+            if subtasks and isinstance(subtasks, list):
+                for st in subtasks:
+                    if isinstance(st, str) and st.strip():
+                        parsed_subtasks.append({"text": st.strip(), "done": False})
+                    elif isinstance(st, dict):
+                        parsed_subtasks.append(st)
+
+            new_todo = {
+                "id": tid,
+                "title": clean_title,
+                "project": project,
+                "due_label": due_label,
+                "due_date": final_due_date,
+                "status": status if status in ("todo", "doing", "done") else "todo",
+                "priority": priority if priority in ("low", "normal", "high") else "normal",
+                "created_at": now_str,
+                "subtasks": parsed_subtasks,
+            }
+            todos.append(new_todo)
+            self.save_todos(todos)
+            return new_todo
+
+    def update_todo_status(self, todo_id: str, status: str) -> bool:
+        if status not in ("todo", "doing", "done"):
+            return False
+        with self._lock:
+            todos = self.load_todos(as_strings=False)
+            found = False
+            for t in todos:
+                if t.get("id") == todo_id:
+                    t["status"] = status
+                    t["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    found = True
+                    break
+            if found:
+                self.save_todos(todos)
+            return found
+
+    def edit_todo(self, todo_id: str, fields: Optional[Dict[str, Any]] = None, **kwargs) -> bool:
+        with self._lock:
+            todos = self.load_todos(as_strings=False)
+            target = next((t for t in todos if t.get("id") == todo_id), None)
+            if not target:
+                return False
+            payload = dict(fields or {})
+            payload.update(kwargs)
+            for k in ("title", "project", "due_label", "due_date", "priority", "status"):
+                if k in payload:
+                    target[k] = payload[k]
+            if "due_label" in payload and not payload.get("due_date"):
+                target["due_date"] = parse_due_date_iso(payload["due_label"])
+            if target.get("project"):
+                self.mem_proj.create_or_update_project(name=target["project"])
+            target["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+            self.save_todos(todos)
+            return True
+
+    def delete_todo(self, todo_id: str) -> bool:
+        with self._lock:
+            todos = self.load_todos(as_strings=False)
+            before = len(todos)
+            todos = [t for t in todos if t.get("id") != todo_id and str(t.get("title", "")) != todo_id]
+            if len(todos) < before:
+                self.save_todos(todos)
+                return True
+            return False
+
+    def toggle_subtask(self, todo_id: str, subtask_id: Any, done: Optional[bool] = None) -> bool:
+        with self._lock:
+            todos = self.load_todos(as_strings=False)
+            target = next((t for t in todos if t.get("id") == todo_id), None)
+            if not target:
+                return False
+            subs = target.get("subtasks", [])
+            found = False
+            if isinstance(subtask_id, int) and 0 <= subtask_id < len(subs):
+                st = subs[subtask_id]
+                st["done"] = not bool(st.get("done", False)) if done is None else bool(done)
+                found = True
+            else:
+                for s in subs:
+                    if s.get("id") == str(subtask_id) or str(s.get("text")) == str(subtask_id):
+                        s["done"] = not bool(s.get("done", False)) if done is None else bool(done)
+                        found = True
+                        break
+            if found:
+                target["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                self.save_todos(todos)
+            return found
+
+    def ai_breakdown_todo(self, todo_id: str, title: str = "") -> List[Dict[str, Any]]:
+        with self._lock:
+            todos = self.load_todos(as_strings=False)
+            target = next((t for t in todos if t.get("id") == todo_id), None)
+            task_title = title or (target.get("title") if target else "")
+            if not task_title:
+                return []
+
+            subtasks = []
+            if self.ollama_online and self.active_model:
+                try:
+                    prompt = (
+                        f"Sei un assistente per la gestione delle attività. Scomponi la seguente attività in 3-5 sotto-attività concrete e azionabili:\n"
+                        f"Attività: \"{task_title}\"\n"
+                        f"Rispondi ESCLUSIVAMENTE in formato JSON con la seguente struttura:\n"
+                        f'{{"subtasks": ["sotto-attività 1", "sotto-attività 2", "sotto-attività 3"]}}'
+                    )
+                    payload = build_ollama_payload(
+                        model=self.active_model,
+                        messages=[{"role": "user", "content": prompt}],
+                        stream=False,
+                        format="json",
+                        num_ctx=2048,
+                    )
+                    req = urllib.request.Request(
+                        f"{OLLAMA_BASE}/api/chat",
+                        data=json.dumps(payload).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(req, timeout=4.0) as resp:
+                        res_data = json.loads(resp.read().decode("utf-8"))
+                        content = res_data.get("message", {}).get("content", "")
+                        parsed = json.loads(content)
+                        raw_subs = parsed.get("subtasks", [])
+                        for i, s in enumerate(raw_subs):
+                            if isinstance(s, str) and s.strip():
+                                subtasks.append({
+                                    "id": f"sub_{int(time.time()*1000)%100000}_{i+1}",
+                                    "title": s.strip(),
+                                    "done": False,
+                                })
+                except Exception as e:
+                    logger.warning(f"Ollama breakdown error: {e}")
+
+            if not subtasks:
+                low = task_title.lower()
+                if "blender" in low or "cleanup" in low or "mesh" in low or "modello" in low:
+                    raw_subs = [
+                        "Analisi topologia e geometria della mesh",
+                        "Rimozione vertici isolati e facce duplicate",
+                        "Ricalcolo normali e verifica orientamento facce",
+                        "Applicazione trasformazioni (Scala, Rotazione)",
+                        "Controllo export e verifica materiali",
+                    ]
+                elif "glb" in low or "draco" in low or "export" in low:
+                    raw_subs = [
+                        "Impostazione parametri di compressione Draco",
+                        "Controllo gerarchia nodi e texture embeddate",
+                        "Test esportazione formato .glb",
+                        "Validazione asset in visualizzatore glTF",
+                    ]
+                elif "rust" in low or "pipeline" in low or "three.js" in low or "three" in low:
+                    raw_subs = [
+                        "Configurazione binding e modulo WASM/Rust",
+                        "Caricamento modello 3D nella scena Three.js",
+                        "Ottimizzazione loop di rendering ed eventi",
+                        "Test prestazionale FPS e consumo memoria",
+                    ]
+                elif "realtime" in low or "interattività" in low or "ottimizzazione" in low:
+                    raw_subs = [
+                        "Setup gestione input utente e camera controls",
+                        "Configurazione luci e ombre in realtime",
+                        "Ottimizzazione draw calls e batching",
+                        "Test interattivo completo a 60 FPS",
+                    ]
+                else:
+                    raw_subs = [
+                        f"Fase 1: Analisi requisiti per {task_title}",
+                        f"Fase 2: Implementazione ed esecuzione principale",
+                        f"Fase 3: Revisione finale e test di conformità",
+                    ]
+                for i, s in enumerate(raw_subs):
+                    subtasks.append({
+                        "id": f"sub_{int(time.time()*1000)%100000}_{i+1}",
+                        "title": s,
+                        "done": False,
+                    })
+
+            if target is not None:
+                existing_subs = target.setdefault("subtasks", [])
+                existing_titles = {s.get("title", "").lower() for s in existing_subs if isinstance(s, dict)}
+                for st in subtasks:
+                    if st["title"].lower() not in existing_titles:
+                        existing_subs.append(st)
+                self.save_todos(todos)
+            return subtasks
 
     def get_top_processes(self):
         try:
@@ -2491,7 +3826,7 @@ class OllamaLocalBridge:
         parts.append(f"💻 **Sistema ({COMPUTER_NAME}):** CPU {cpu}% · RAM {ram}% · Modello: {self.active_model or 'Ollama'}")
         return "\n".join(parts)
 
-    def _execute_llm_action_tags(self, raw_reply: str, user_prompt: str):
+    def _execute_llm_action_tags(self, raw_reply: str, user_prompt: str = ""):
         """
         Intercetta ed esegue davvero i tag d'azione emessi da Ollama (qwen2.5:7b):
           - [[ACTION:CALENDAR | YYYY-MM-DD HH:MM | Titolo impegno]]
@@ -2535,26 +3870,51 @@ class OllamaLocalBridge:
                         pass
 
             elif act_type == "TODO":
-                task_txt = payload_str.replace("|", " ").strip()
-                if task_txt:
-                    todos = self.load_todos()
-                    if task_txt.lower() not in [t.lower() for t in todos]:
-                        todos.append(task_txt)
-                        self.save_todos(todos)
-                    appended_notes.append(f"✅ *Aggiunto ai To-Do: **{task_txt}***")
-                    # Se il messaggio dell'utente conteneva un orario preciso (es. "stasera alle 18"), segnalo anche in Agenda!
-                    if re.search(r"\b(alle\s+\d{1,2}|ore\s+\d{1,2})\b", (user_prompt or "").lower()):
-                        dt_start, _ = self._parse_natural_date_time(user_prompt)
-                        ev = self.calendar.add_event(task_txt, dt_start)
-                        appended_notes.append(
-                            f"📅 *Fissato anche in Agenda per il **{dt_start.strftime('%d/%m/%Y alle %H:%M')}***"
-                        )
-                        extra_actions.append(
-                            {
-                                "label": "📅 + Salva su Google Calendar Web",
-                                "url": ev["gcal_url"],
-                            }
-                        )
+                parts = [p.strip() for p in payload_str.split("|")]
+                if len(parts) >= 3:
+                    p_name, t_title, d_lbl = parts[0], parts[1], parts[2]
+                    todo_item = self.add_todo(title=t_title, project=p_name, due_label=d_lbl)
+                    appended_notes.append(f"✅ *Aggiunto ai To-Do ({p_name}): **{t_title}** ({d_lbl})*")
+                elif len(parts) == 2:
+                    p_name, t_title = parts[0], parts[1]
+                    todo_item = self.add_todo(title=t_title, project=p_name)
+                    appended_notes.append(f"✅ *Aggiunto ai To-Do ({p_name}): **{t_title}***")
+                else:
+                    task_txt = payload_str.replace("|", " ").strip()
+                    if task_txt:
+                        todo_item = self.add_todo(title=task_txt)
+                        appended_notes.append(f"✅ *Aggiunto ai To-Do: **{todo_item.get('title', task_txt)}***")
+                        if re.search(r"\b(alle\s+\d{1,2}|ore\s+\d{1,2})\b", (user_prompt or "").lower()):
+                            dt_start, _ = self._parse_natural_date_time(user_prompt)
+                            ev = self.calendar.add_event(task_txt, dt_start)
+                            appended_notes.append(
+                                f"📅 *Fissato anche in Agenda per il **{dt_start.strftime('%d/%m/%Y alle %H:%M')}***"
+                            )
+                            extra_actions.append(
+                                {
+                                    "label": "📅 + Salva su Google Calendar Web",
+                                    "url": ev["gcal_url"],
+                                }
+                            )
+
+            elif act_type == "PROJECT":
+                parts = [p.strip() for p in payload_str.split("|")]
+                p_name = parts[0] if len(parts) > 0 else ""
+                p_client = parts[1] if len(parts) > 1 else ""
+                p_note = parts[2] if len(parts) > 2 else ""
+                if p_name:
+                    self.mem_proj.create_or_update_project(name=p_name, client=p_client, note=p_note)
+                    appended_notes.append(f"📌 *Progetto aggiornato: **{p_name}***")
+
+            elif act_type == "SKILL_LEARNED":
+                parts = [p.strip() for p in payload_str.split("|")]
+                if len(parts) >= 2:
+                    cat, comp = parts[0], parts[1]
+                else:
+                    cat, comp = "Competenza", parts[0]
+                if comp:
+                    self.mem_proj.add_skill_learned(name=comp, category=cat)
+                    appended_notes.append(f"🛠️ *Competenza registrata: **{comp}** ({cat})*")
 
             elif act_type == "MEMORY":
                 mem_txt = payload_str.replace("|", " ").strip()
@@ -2956,7 +4316,7 @@ class OllamaLocalBridge:
         try:
             now_dt = datetime.now()
             sm = get_storage_manager()
-            todos = self.load_todos()
+            todos = self.get_todos(as_strings=True)
             upcoming = self.calendar.get_upcoming_events(days_ahead=3)
             raw_traits = self.mem_proj.profile.get("traits", [])
             proj_state = self.mem_proj.get_projects_state()
@@ -2967,36 +4327,75 @@ class OllamaLocalBridge:
             # 1. FTS5 BM25 + Time-Decay Retrieval
             retrieved_mems = sm.search_memories(query=text, project_id=active_proj_id, limit=12)
 
-            # 2. Token Budget Manager
+            # 2. Disk memories (memory.json)
+            all_disk_mems = self.get_memories()
+
+            # Unified memory collection
+            seen_mem_texts = set()
+            mem_entries = []
+            # Priority 1: Pinned memories (both from memory.json and DB)
+            for m in all_disk_mems:
+                t = m.get("text", "").strip()
+                if m.get("pinned") and t and t.lower() not in seen_mem_texts:
+                    seen_mem_texts.add(t.lower())
+                    mem_entries.append(f"⭐ {t}")
+
+            # Priority 2: FTS5 BM25 search matches
+            for m in retrieved_mems:
+                t = m.get("text", "").strip()
+                if t and t.lower() not in seen_mem_texts:
+                    seen_mem_texts.add(t.lower())
+                    mem_entries.append(t)
+
+            # Priority 3: All other disk memories
+            for m in all_disk_mems:
+                t = m.get("text", "").strip()
+                if t and t.lower() not in seen_mem_texts:
+                    seen_mem_texts.add(t.lower())
+                    mem_entries.append(t)
+
+            # 3. Token Budget Manager
             budget_mgr = TokenBudgetManager()
 
             pinned_traits = []
+            seen_traits = set()
             for t in raw_traits:
-                if isinstance(t, str):
-                    pinned_traits.append(t)
-                elif isinstance(t, dict):
-                    pinned_traits.append(t.get("text", ""))
+                t_str = t if isinstance(t, str) else t.get("text", "")
+                norm = t_str.strip().lower()
+                if norm and norm not in seen_traits:
+                    seen_traits.add(norm)
+                    pinned_traits.append(t_str.strip())
 
             context_blocks = [
                 f"Data e ora attuali: {now_dt.strftime('%Y-%m-%d %H:%M')} ({now_dt.strftime('%A %d/%m/%Y')}).",
                 f"Postazione PC: {COMPUTER_NAME} (CPU {cpu}%, RAM {ram}%).",
             ]
             if pinned_traits:
-                context_blocks.append("Profilo Utente & Regole: " + " | ".join(pinned_traits[:12]))
+                context_blocks.append("Profilo Utente: " + " | ".join(pinned_traits[:6]))
+
             if active_projs:
                 proj_summaries = []
                 for p in active_projs[:6]:
                     c_lbl = f" (Cliente: {p['client']})" if p.get("client") else ""
                     n_lbl = f" -> Regole/Note: {'; '.join(p['notes'])}" if p.get("notes") else ""
-                    proj_summaries.append(f"{p['name']}{c_lbl}{n_lbl}")
+                    stk_lbl = f" [Stack: {', '.join(p.get('tech_stack', []))}]" if p.get("tech_stack") else ""
+                    proj_summaries.append(f"Progetto '{p['name']}'{c_lbl}{stk_lbl}{n_lbl}")
                 context_blocks.append("Progetti ATTIVI in corso (Memoria Calda): " + " || ".join(proj_summaries))
-            if retrieved_mems:
+
+            if mem_entries:
                 context_blocks.append(
-                    "Memorie e preferenze rilevanti recuperate (BM25 + Time-Decay): "
-                    + " | ".join([m["text"] for m in retrieved_mems])
+                    "Memoria Permanente & Regole Utente / Clienti: "
+                    + " | ".join(mem_entries[:15])
                 )
+
+            skills_learned = self.mem_proj.get_skills_learned()
+            if skills_learned:
+                sk_strs = [f"{s['name']} ({s.get('level', 'base')})" for s in skills_learned[:8]]
+                context_blocks.append("Competenze tecniche registrate: " + ", ".join(sk_strs))
+
             if todos:
                 context_blocks.append("To-Do attivi dell'utente: " + " | ".join(todos[:8]))
+
             if upcoming:
                 context_blocks.append(
                     "Prossimi impegni in calendario: "
@@ -3007,14 +4406,22 @@ class OllamaLocalBridge:
                 "Sei Neko AI, il gatto-assistente personale da scrivania dell'utente. "
                 "Vivi nella sua App Desktop su Windows. Rispondi sempre in italiano in modo naturale, "
                 "intelligente, concreto e conciso (2-4 frasi ben formattate).\n\n"
-                "REGOLA FONDAMENTALE PER ESEGUIRE AZIONI REALI (CALENDARIO, TO-DO, MEMORIA):\n"
-                "Non fingere MAI di aver aggiunto un evento in calendario o un To-Do senza inserire il tag d'azione reale!\n"
-                "- Se l'utente ti chiede di segnare un impegno/promemoria in calendario o agenda (anche se risponde semplicemente 'sì' o 'mettilo sul calendario' riferendosi al turno precedente!), DEVI aggiungere a fine messaggio:\n"
+                "ANTI-PAPPAGALLO / COMUNICAZIONE NATURALE:\n"
+                "- Il profilo utente, gli strumenti software (3ds Max, Blender, Unreal Engine, Rust, Three.js) e le competenze sono conoscenza di fondo implicita.\n"
+                "- NON ripetere o elencare MAI lo stack software o la professione dell'utente a ogni turno se non espressamente richiesto o direttamente pertinente!\n"
+                "- Rispondi in modo diretto, cordiale e conciso alla domanda specifica.\n\n"
+                "REGOLA FONDAMENTALE PER ESEGUIRE AZIONI REALI (CALENDARIO, TO-DO, MEMORIA, PROGETTI, SKILL):\n"
+                "Non fingere MAI di aver aggiunto un evento, To-Do o progetto senza inserire il tag d'azione reale a fine messaggio!\n"
+                "- Se l'utente ti chiede di segnare un impegno/promemoria in calendario o agenda, aggiungi a fine messaggio:\n"
                 "  [[ACTION:CALENDAR | YYYY-MM-DD HH:MM | Titolo impegno]]\n"
-                "- Se l'utente ti chiede di aggiungere una cosa da fare nella lista To-Do (task senza orario specifico), DEVI aggiungere a fine messaggio:\n"
-                "  [[ACTION:TODO | Testo sintetico della task]]\n"
-                "- Se l'utente ti comunica un'informazione importante su chi è, sul suo lavoro o una regola da ricordare sempre, aggiungi a fine messaggio:\n"
-                "  [[ACTION:MEMORY | Sintesi chiara del fatto da ricordare]]\n\n"
+                "- Se l'utente ti chiede di aggiungere una cosa da fare nella lista To-Do, aggiungi a fine messaggio:\n"
+                "  [[ACTION:TODO | Progetto | Titolo task | Scadenza]]\n"
+                "- Se l'utente ti comunica una regola importante, preferenza cliente o fatto da ricordare sempre, aggiungi:\n"
+                "  [[ACTION:MEMORY | Sintesi chiara del fatto da ricordare]]\n"
+                "- Se l'utente definisce un nuovo progetto o ne modifica uno, aggiungi:\n"
+                "  [[ACTION:PROJECT | Nome Progetto | Cliente | Nota]]\n"
+                "- Se l'utente menziona una nuova tecnologia o competenza appresa/usata, aggiungi:\n"
+                "  [[ACTION:SKILL_LEARNED | Categoria | Competenza]]\n\n"
                 "Contesto attuale:\n"
                 + "\n".join(context_blocks)
             )
@@ -3056,6 +4463,58 @@ class OllamaLocalBridge:
             )
         finally:
             self.is_generating = False
+
+
+def extract_todo_deadlines(todos: list) -> list:
+    """Estrae le scadenze To-Do da oggetti strutturati o stringhe legacy per visualizzazione in calendario."""
+    deadlines = []
+    for idx, item in enumerate(todos or []):
+        if isinstance(item, dict):
+            due_date = item.get("due_date", "")
+            due_label = item.get("due_label", "")
+            title = item.get("title", "")
+            proj = item.get("project", "")
+            status = item.get("status", "todo")
+            priority = item.get("priority", "normal")
+            tid = item.get("id", f"todo_{idx}")
+            if not due_date and due_label:
+                due_date = parse_due_date_iso(due_label)
+        elif isinstance(item, str):
+            tid = f"todo_{idx}"
+            title = item
+            proj = ""
+            status = "todo"
+            priority = "normal"
+            due_date = ""
+            due_label = ""
+            m_proj = re.match(r"^([^–\-]+?)\s*[–\-]\s*(.+)$", item.strip())
+            if m_proj:
+                proj = m_proj.group(1).strip()
+                title = m_proj.group(2).strip()
+            m_paren = re.search(r"\(([^)]+)\)$", item)
+            if m_paren:
+                due_label = m_paren.group(1).strip()
+                due_date = parse_due_date_iso(due_label)
+                if not m_proj:
+                    title = item[:m_paren.start()].strip()
+            else:
+                due_date = parse_due_date_iso(item)
+        else:
+            continue
+
+        if due_date or due_label:
+            deadlines.append({
+                "id": tid,
+                "title": title,
+                "project": proj,
+                "due_date": due_date,
+                "due_label": due_label,
+                "status": status,
+                "priority": priority,
+                "source": "todo",
+                "type": "todo_deadline",
+            })
+    return deadlines
 
 
 class SystemStateMonitor:
@@ -3256,16 +4715,27 @@ class SystemStateMonitor:
                 self.code_version = c_ver
             time.sleep(1.1)
 
+    def _extract_todo_deadlines(self, todos: list) -> list:
+        return extract_todo_deadlines(todos)
+
     def get_snapshot(self, client_id=None):
         cx, cy, c_screen, screen_w, is_desktop = self._read_cursor_and_desktop_focus()
         assigned_slot = self.register_client_slot(client_id) if client_id else 0
         cal_summary = self.calendar.get_summary_state()
         mems = self.ollama.get_memories()
-        todos = self.ollama.load_todos()
+        todos = self.ollama.load_todos(as_strings=False) if hasattr(self.ollama, "load_todos") else []
         p_state = self.mem_proj.get_projects_state()
         active_proj = p_state.get("active_project")
         traits_count = len(self.mem_proj.profile.get("traits", []))
         proj_notes_count = sum(len(p.get("notes", [])) for p in p_state.get("projects", []))
+
+        cal_events = self.calendar.get_upcoming_events(days_ahead=30)
+        todo_deadlines = self._extract_todo_deadlines(todos)
+        cal_sync_status = self.calendar.get_sync_status()
+
+        cal_summary["calendar_sync_status"] = cal_sync_status
+        cal_summary["calendar_events"] = cal_events
+        cal_summary["todo_deadlines"] = todo_deadlines
 
         telem_data = self.telemetry.get_snapshot() if hasattr(self, "telemetry") else {}
 
@@ -3357,6 +4827,9 @@ class SystemStateMonitor:
                 "window_mode": self.win_conn.window_mode,
                 "focus_input_seq": self.win_conn.focus_input_seq,
                 "calendar": cal_summary,
+                "calendar_sync_status": cal_sync_status,
+                "calendar_events": cal_events,
+                "todo_deadlines": todo_deadlines,
                 "timestamp": time.time(),
             }
         snap.update(self.audio.get_audio_state())
@@ -3427,12 +4900,108 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
 
         if self.path.startswith("/calendar_config"):
             ical_url = body.get("ical_url")
+            ics_url = body.get("ics_url")
+            ics_urls = body.get("ics_urls") or body.get("ical_urls")
             token = body.get("google_access_token")
+            cal_id = body.get("google_calendar_id")
             clear_urls = bool(body.get("clear_urls", False))
             cfg = calendar_manager.update_config(
-                ical_url=ical_url, google_access_token=token, clear_urls=clear_urls
+                ical_url=ical_url,
+                ics_url=ics_url,
+                ics_urls=ics_urls,
+                google_access_token=token,
+                google_calendar_id=cal_id,
+                clear_urls=clear_urls,
             )
-            return self._send_json({"ok": True, "config": cfg, "calendar": calendar_manager.get_summary_state()})
+            return self._send_json({
+                "ok": True,
+                "config": cfg,
+                "calendar": calendar_manager.get_summary_state(),
+                "calendar_sync_status": calendar_manager.get_sync_status(),
+            })
+
+        # POST /api/calendar/action
+        if self.path.startswith("/api/calendar/action") or self.path.startswith("/api/calendar"):
+            action = body.get("action", "")
+            if action == "sync_now":
+                calendar_manager.refresh_remote_events(force=True)
+                return self._send_json({
+                    "ok": True,
+                    "message": "Sincronizzazione completata",
+                    "calendar_sync_status": calendar_manager.get_sync_status(),
+                    "calendar": calendar_manager.get_summary_state(),
+                    "calendar_events": calendar_manager.get_upcoming_events(days_ahead=30),
+                })
+
+            if action == "add":
+                title = body.get("title") or body.get("text") or "Nuovo Evento"
+                start_val = body.get("start") or body.get("start_iso") or body.get("date")
+                end_val = body.get("end") or body.get("end_iso")
+                duration = int(body.get("duration_minutes", 60))
+                all_day = bool(body.get("all_day", False))
+                location = body.get("location", "")
+                cal_id = body.get("calendar_id")
+
+                dt_start = None
+                if start_val:
+                    try:
+                        dt_start = datetime.fromisoformat(str(start_val))
+                    except Exception:
+                        dt_start, _ = ollama_bridge._parse_natural_date_time(str(start_val))
+                if not dt_start:
+                    dt_start = datetime.now() + timedelta(hours=1)
+
+                dt_end = None
+                if end_val:
+                    try:
+                        dt_end = datetime.fromisoformat(str(end_val))
+                    except Exception:
+                        pass
+
+                ev = calendar_manager.add_event(
+                    title,
+                    dt_start,
+                    duration_minutes=duration,
+                    end_dt=dt_end,
+                    all_day=all_day,
+                    location=location,
+                    cal_id=cal_id,
+                )
+                return self._send_json({
+                    "ok": True,
+                    "event": ev,
+                    "calendar": calendar_manager.get_summary_state(),
+                    "calendar_events": calendar_manager.get_upcoming_events(days_ahead=30),
+                })
+
+            if action in ("edit", "move"):
+                event_id = body.get("id") or body.get("event_id")
+                ev = calendar_manager.edit_event(
+                    event_id,
+                    title=body.get("title"),
+                    start_iso=body.get("start_iso") or body.get("start"),
+                    end_iso=body.get("end_iso") or body.get("end"),
+                    all_day=body.get("all_day"),
+                    location=body.get("location"),
+                )
+                return self._send_json({
+                    "ok": bool(ev),
+                    "event": ev,
+                    "calendar": calendar_manager.get_summary_state(),
+                    "calendar_events": calendar_manager.get_upcoming_events(days_ahead=30),
+                })
+
+            if action in ("delete", "remove"):
+                target = body.get("id") or body.get("event_id") or body.get("title") or body.get("index")
+                ok = calendar_manager.delete_event(str(target))
+                return self._send_json({
+                    "ok": ok,
+                    "deleted": ok,
+                    "calendar": calendar_manager.get_summary_state(),
+                    "calendar_events": calendar_manager.get_upcoming_events(days_ahead=30),
+                })
+
+            return self._send_json({"ok": False, "message": f"Azione non valida: {action}"})
 
         if self.path.startswith("/pc_action"):
             target = body.get("open_path") or body.get("target") or ""
@@ -3569,34 +5138,57 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
             elif action == "add_memory":
                 ollama_bridge.add_memory(body.get("text", ""))
             elif action == "delete_todo":
-                todos = ollama_bridge.load_todos()
+                tid = body.get("id") or body.get("target") or ""
                 idx = int(body.get("index", -1))
-                if 0 <= idx < len(todos):
-                    todos.pop(idx)
-                    ollama_bridge.save_todos(todos)
+                if tid:
+                    ollama_bridge.delete_todo(tid)
+                else:
+                    todos = ollama_bridge.load_todos(as_strings=False)
+                    if 0 <= idx < len(todos):
+                        todos.pop(idx)
+                        ollama_bridge.save_todos(todos)
             elif action == "add_todo":
                 txt = (body.get("text") or "").strip()
                 if txt:
-                    todos = ollama_bridge.load_todos()
-                    todos.append(txt)
-                    ollama_bridge.save_todos(todos)
+                    ollama_bridge.add_todo(txt)
             elif action == "set_hotkey":
                 mem_proj_manager.set_hotkey(body.get("hotkey", "Alt+N"))
             elif action == "reset":
                 target = body.get("target", "")
+                sm = get_storage_manager()
                 if target in ("chat", "all"):
                     ollama_bridge.clear_chat_history()
+                    try:
+                        with sm.transaction() as conn:
+                            conn.execute("DELETE FROM chat_history")
+                    except Exception:
+                        pass
                 if target in ("profile", "all"):
                     mem_proj_manager.reset_profile()
                 if target in ("memories", "all"):
                     ollama_bridge.clear_memories()
+                    try:
+                        with sm.transaction() as conn:
+                            conn.execute("DELETE FROM memories")
+                    except Exception:
+                        pass
                 if target in ("todos", "all"):
                     ollama_bridge.save_todos([])
+                    try:
+                        with sm.transaction() as conn:
+                            conn.execute("DELETE FROM tasks")
+                    except Exception:
+                        pass
                 if target in ("projects", "all"):
                     mem_proj_manager.reset_projects_and_archive()
                 if target == "all":
                     calendar_manager.local_events = []
                     _save_json(EVENTS_FILE, [])
+                    try:
+                        with sm.transaction() as conn:
+                            conn.execute("DELETE FROM events")
+                    except Exception:
+                        pass
 
             return self._send_json(
                 {
@@ -3744,6 +5336,73 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
             sr.record_action(sig)
             return self._send_json({"ok": True, "is_trigger": sr.check_synthesis_trigger(sig)})
 
+        # --- Structured Skills Learned & Kanban To-Dos Endpoints (Milestone 1) ---
+        if self.path.startswith("/api/skills_learned/action") or self.path.startswith("/api/skills_learned"):
+            action = body.get("action", "add")
+            if action == "add":
+                entry = mem_proj_manager.add_skill_learned(
+                    name=body.get("name", ""),
+                    category=body.get("category", "Competenza"),
+                    level=body.get("level", "intermedio"),
+                    evidence=body.get("evidence", ""),
+                )
+                return self._send_json({"ok": bool(entry), "status": "ok" if entry else "error", "skill": entry, "skills_learned": mem_proj_manager.get_skills_learned()})
+            elif action in ("remove", "delete"):
+                target = body.get("id") or body.get("name") or ""
+                ok = mem_proj_manager.remove_skill_learned(target)
+                return self._send_json({"ok": ok, "status": "ok" if ok else "error", "skills_learned": mem_proj_manager.get_skills_learned()})
+            elif action == "level":
+                target = body.get("id") or body.get("name") or ""
+                lvl = body.get("level", "intermedio")
+                ok = mem_proj_manager.set_skill_level(target, lvl)
+                return self._send_json({"ok": ok, "status": "ok" if ok else "error", "skills_learned": mem_proj_manager.get_skills_learned()})
+            return self._send_json({"ok": False, "status": "error", "error": f"Azione non valida: {action}"})
+
+        if self.path.startswith("/api/todos/action") or self.path.startswith("/api/todos"):
+            action = body.get("action", "add")
+            if action == "add":
+                title = body.get("title", "")
+                project = body.get("project", "")
+                due_label = body.get("due_label", "")
+                due_date = body.get("due_date", "")
+                priority = body.get("priority", "normal")
+                status = body.get("status", "todo")
+                subtasks = body.get("subtasks")
+                item = ollama_bridge.add_todo(
+                    title=title,
+                    project=project,
+                    due_label=due_label,
+                    due_date=due_date,
+                    priority=priority,
+                    status=status,
+                    subtasks=subtasks,
+                )
+                return self._send_json({"ok": bool(item), "todo": item, "item": item, "todos": ollama_bridge.load_todos(as_strings=False)})
+            elif action == "status":
+                tid = body.get("id", "")
+                st = body.get("status", "todo")
+                ok = ollama_bridge.update_todo_status(tid, st)
+                return self._send_json({"ok": ok, "todos": ollama_bridge.load_todos(as_strings=False)})
+            elif action == "edit":
+                tid = body.get("id", "")
+                ok = ollama_bridge.edit_todo(tid, body)
+                return self._send_json({"ok": ok, "todos": ollama_bridge.load_todos(as_strings=False)})
+            elif action in ("delete", "remove"):
+                tid = body.get("id", "")
+                ok = ollama_bridge.delete_todo(tid)
+                return self._send_json({"ok": ok, "todos": ollama_bridge.load_todos(as_strings=False)})
+            elif action == "subtask_toggle":
+                tid = body.get("id", "")
+                sub_id = body.get("subtask_id", "")
+                ok = ollama_bridge.toggle_subtask(tid, sub_id)
+                return self._send_json({"ok": ok, "todos": ollama_bridge.load_todos(as_strings=False)})
+            elif action == "ai_breakdown":
+                tid = body.get("id", "")
+                title = body.get("title", "")
+                subtasks = ollama_bridge.ai_breakdown_todo(tid, title=title)
+                return self._send_json({"ok": True, "subtasks": subtasks, "todos": ollama_bridge.load_todos(as_strings=False)})
+            return self._send_json({"ok": False, "error": f"Azione non valida: {action}"})
+
         self.send_response(404)
         self.end_headers()
 
@@ -3768,6 +5427,23 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
         if self.path.startswith("/api/skills/synthesis_candidates"):
             sr = get_skill_registry()
             return self._send_json({"ok": True, "candidates": sr.get_synthesis_candidates()})
+
+        if self.path.startswith("/api/skills_learned"):
+            return self._send_json({"ok": True, "skills_learned": mem_proj_manager.get_skills_learned()})
+
+        if self.path.startswith("/api/todos"):
+            return self._send_json({"ok": True, "todos": ollama_bridge.load_todos(as_strings=False)})
+
+        if self.path.startswith("/api/calendar"):
+            todos = ollama_bridge.load_todos(as_strings=False) if hasattr(ollama_bridge, "load_todos") else []
+            todo_deadlines = extract_todo_deadlines(todos)
+            return self._send_json({
+                "ok": True,
+                "calendar": calendar_manager.get_summary_state(),
+                "calendar_sync_status": calendar_manager.get_sync_status(),
+                "calendar_events": calendar_manager.get_upcoming_events(days_ahead=30),
+                "todo_deadlines": todo_deadlines,
+            })
 
         if self.path.startswith("/api/skills"):
             sr = get_skill_registry()

@@ -240,6 +240,7 @@ class HudTerminal {
     } catch (e) {}
 
     this.bindEvents();
+    this.initMilestone3Workspace();
     this.loadInitialHistory();
     this._hookBridgeForPhase3();
     this.fetchSkillsForAutocomplete();
@@ -2834,6 +2835,9 @@ class HudTerminal {
       }
     }
 
+    // Milestone 3 (R3): Dirty-checking & badge refresh for 4 AI Dashboards
+    this.updateWorkspaceDirtyChecking();
+
     // Promemoria automatico sul desktop quando un evento inizia entro 15 minuti
     if (this.elDeadlineToast && cal) {
       const imminent = Array.isArray(cal.imminent_events) ? cal.imminent_events : [];
@@ -3169,6 +3173,1402 @@ class HudTerminal {
     }
     if (this.elSkillSynthDock) {
       this.elSkillSynthDock.style.display = 'none';
+    }
+  }
+
+  // =========================================================================
+  // MILESTONE 3 (R3): 5-TAB WORKSPACE SWITCHER & 4 FULL-VIEW AI DASHBOARDS
+  // =========================================================================
+
+  initMilestone3Workspace() {
+    this.elWorkspaceNav = document.getElementById('hud-workspace-nav');
+    this.elWorkspaceContainer = document.getElementById('hud-workspace-container');
+    this.elHomeNextTaskChip = document.getElementById('home-next-task-chip');
+    this.elHomeNextTaskTitle = document.getElementById('home-next-task-title');
+    this.elHomeNextTaskDate = document.getElementById('home-next-task-date');
+
+    // Badges
+    this.elTabTodoBadge = document.getElementById('tab-todo-badge');
+    this.elTabProjBadge = document.getElementById('tab-proj-badge');
+    this.elTabCalBadge = document.getElementById('tab-cal-badge');
+    this.elTabMemBadge = document.getElementById('tab-mem-badge');
+
+    // Views
+    this.elViewTodo = document.getElementById('workspace-view-todo');
+    this.elViewProjects = document.getElementById('workspace-view-projects');
+    this.elViewCalendar = document.getElementById('workspace-view-calendar');
+    this.elViewMemory = document.getElementById('workspace-view-memory');
+
+    // Kanban Elements
+    this.elKanbanFilters = document.getElementById('kanban-project-filters');
+    this.elKanbanQuickAddForm = document.getElementById('kanban-quick-add-form');
+    this.elKanbanAddTitle = document.getElementById('kanban-add-title');
+    this.elKanbanAddProject = document.getElementById('kanban-add-project');
+    this.elKanbanAddDue = document.getElementById('kanban-add-due');
+    this.elKanbanAddPriority = document.getElementById('kanban-add-priority');
+    this.elBtnKanbanAiPlan = document.getElementById('btn-kanban-ai-plan');
+    this.elCountKanbanTodo = document.getElementById('count-kanban-todo');
+    this.elCountKanbanDoing = document.getElementById('count-kanban-doing');
+    this.elCountKanbanDone = document.getElementById('count-kanban-done');
+    this.elKanbanColTodo = document.getElementById('kanban-col-todo');
+    this.elKanbanColDoing = document.getElementById('kanban-col-doing');
+    this.elKanbanColDone = document.getElementById('kanban-col-done');
+
+    // Project Hub Elements
+    this.elHubTabProjActive = document.getElementById('hub-tab-proj-active');
+    this.elHubTabProjArchive = document.getElementById('hub-tab-proj-archive');
+    this.elHubProjActiveCount = document.getElementById('hub-proj-active-count');
+    this.elHubProjArchCount = document.getElementById('hub-proj-arch-count');
+    this.elHubProjNewName = document.getElementById('hub-proj-new-name');
+    this.elHubProjNewClient = document.getElementById('hub-proj-new-client');
+    this.elHubProjNewNote = document.getElementById('hub-proj-new-note');
+    this.elHubProjNewStack = document.getElementById('hub-proj-new-stack');
+    this.elBtnHubCreateProj = document.getElementById('btn-hub-create-proj');
+    this.elHubProjectsGrid = document.getElementById('hub-projects-grid');
+    this.elHubProjectsArchiveList = document.getElementById('hub-projects-archive-list');
+
+    // Calendar Elements
+    this.elBtnCalViewWeekly = document.getElementById('btn-cal-view-weekly');
+    this.elBtnCalViewMonthly = document.getElementById('btn-cal-view-monthly');
+    this.elBtnCalViewAgenda = document.getElementById('btn-cal-view-agenda');
+    this.elBtnCalSyncNow = document.getElementById('btn-cal-sync-now');
+    this.elBtnCalPrev = document.getElementById('btn-cal-prev');
+    this.elBtnCalToday = document.getElementById('btn-cal-today');
+    this.elBtnCalNext = document.getElementById('btn-cal-next');
+    this.elCalRangeLabel = document.getElementById('cal-view-range-label');
+    this.elCalSyncStatusBadge = document.getElementById('cal-sync-status-badge');
+    this.elCalQuickAddForm = document.getElementById('cal-quick-add-form');
+    this.elCalAddDate = document.getElementById('cal-add-date');
+    this.elCalAddTime = document.getElementById('cal-add-time');
+    this.elCalAddTitle = document.getElementById('cal-add-title');
+    this.elCalViewWeekly = document.getElementById('cal-view-weekly');
+    this.elCalViewMonthly = document.getElementById('cal-view-monthly');
+    this.elCalViewAgenda = document.getElementById('cal-view-agenda');
+
+    // Memory Elements
+    this.elMemSkillsCount = document.getElementById('mem-skills-count');
+    this.elMemNewSkillName = document.getElementById('mem-new-skill-name');
+    this.elMemNewSkillCat = document.getElementById('mem-new-skill-cat');
+    this.elBtnAddSkill = document.getElementById('btn-add-skill');
+    this.elMemSkillsList = document.getElementById('mem-skills-list');
+    this.elMemRulesCount = document.getElementById('mem-rules-count');
+    this.elMemRulesSearch = document.getElementById('mem-rules-search');
+    this.elMemNewRuleText = document.getElementById('mem-new-rule-text');
+    this.elMemNewRuleProj = document.getElementById('mem-new-rule-proj');
+    this.elBtnAddRule = document.getElementById('btn-add-rule');
+    this.elMemRulesList = document.getElementById('mem-rules-list');
+    this.elMemProfileCount = document.getElementById('mem-profile-count');
+    this.elMemProfilingPromptCard = document.getElementById('mem-profiling-prompt-card');
+    this.elMemProfilingQText = document.getElementById('mem-profiling-q-text');
+    this.elMemProfilingOptions = document.getElementById('mem-profiling-options');
+    this.elMemProfilingInput = document.getElementById('mem-profiling-input');
+    this.elBtnMemProfilingSave = document.getElementById('btn-mem-profiling-save');
+    this.elBtnMemProfilingNext = document.getElementById('btn-mem-profiling-next');
+    this.elMemProfileTraitsList = document.getElementById('mem-profile-traits-list');
+
+    this.activeWorkspace = 'view-home';
+    this.kanbanProjectFilter = 'all';
+    this.calendarViewMode = 'weekly';
+    this.calendarCursorDate = new Date();
+    this.hubViewMode = 'active';
+    this._memRulesSearchQuery = '';
+
+    this._lastKanbanKey = null;
+    this._lastHubProjKey = null;
+    this._lastCalendarKey = null;
+    this._lastMemoryKey = null;
+
+    if (this.elCalAddDate) {
+      const todayIso = new Date().toISOString().split('T')[0];
+      this.elCalAddDate.value = todayIso;
+    }
+
+    this.bindWorkspaceEvents();
+    this.switchWorkspace('view-home');
+  }
+
+  bindWorkspaceEvents() {
+    // 5-Tab Workspace Switcher
+    if (this.elWorkspaceNav) {
+      this.elWorkspaceNav.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-workspace-tab]');
+        if (btn) {
+          e.preventDefault();
+          const tabId = btn.getAttribute('data-workspace-tab');
+          this.switchWorkspace(tabId);
+        }
+      });
+    }
+
+    // Home Next-Task Chip click -> jumps to To-Do Kanban view
+    if (this.elHomeNextTaskChip) {
+      this.elHomeNextTaskChip.addEventListener('click', () => {
+        this.switchWorkspace('view-todo');
+      });
+    }
+
+    // --- KANBAN EVENTS ---
+    if (this.elKanbanQuickAddForm) {
+      this.elKanbanQuickAddForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const title = this.elKanbanAddTitle ? this.elKanbanAddTitle.value.trim() : '';
+        if (!title) return;
+        const project = this.elKanbanAddProject ? this.elKanbanAddProject.value.trim() : '';
+        const due_label = this.elKanbanAddDue ? this.elKanbanAddDue.value.trim() : '';
+        const priority = this.elKanbanAddPriority ? this.elKanbanAddPriority.value : 'normal';
+
+        if (this.elKanbanAddTitle) this.elKanbanAddTitle.value = '';
+        if (this.elKanbanAddDue) this.elKanbanAddDue.value = '';
+
+        const payload = { action: 'add', title, project, due_label, priority };
+        let res = null;
+        if (this.actions.todosAction) {
+          res = await this.actions.todosAction(payload);
+        } else if (window.systemBridge && window.systemBridge.todosAction) {
+          res = await window.systemBridge.todosAction(payload);
+        }
+
+        if (res && res.ok && Array.isArray(res.todos)) {
+          if (this.state.system) this.state.system.todosList = res.todos;
+        } else {
+          const newTask = {
+            id: 'todo_' + Date.now(),
+            title,
+            project,
+            due_label,
+            due_date: '',
+            status: 'todo',
+            priority,
+            subtasks: []
+          };
+          if (!this.state.system) this.state.system = {};
+          if (!Array.isArray(this.state.system.todosList)) this.state.system.todosList = [];
+          this.state.system.todosList.push(newTask);
+        }
+        this.renderKanbanBoard();
+        this.renderHomeNextTaskChip();
+        this.say(`📋 Task aggiunto: "${title}"`);
+      });
+    }
+
+    if (this.elBtnKanbanAiPlan) {
+      this.elBtnKanbanAiPlan.addEventListener('click', () => {
+        const activeProj = (this.state.system && this.state.system.activeProjectName) || '';
+        const prompt = activeProj
+          ? `Pianifica i task, le sotto-attività e le scadenze dettagliate per il progetto ${activeProj}.`
+          : 'Pianifica le attività e le priorità per i miei progetti attivi.';
+        this.submitAiCommand(prompt);
+      });
+    }
+
+    const handleKanbanCardAction = async (e) => {
+      // Subtask checkbox
+      const subtaskBox = e.target.closest('.kanban-subtask-check');
+      if (subtaskBox) {
+        const taskId = subtaskBox.getAttribute('data-todo-id');
+        const subIdx = parseInt(subtaskBox.getAttribute('data-subtask-idx'), 10);
+        if (taskId !== null && !isNaN(subIdx)) {
+          if (this.actions.todosAction) {
+            await this.actions.todosAction({ action: 'subtask_toggle', id: taskId, subtask_idx: subIdx });
+          } else if (window.systemBridge && window.systemBridge.todosAction) {
+            await window.systemBridge.todosAction({ action: 'subtask_toggle', id: taskId, subtask_idx: subIdx });
+          }
+          if (this.state.system && Array.isArray(this.state.system.todosList)) {
+            const t = this.state.system.todosList.find((item) => (typeof item === 'object' && item.id === taskId));
+            if (t && Array.isArray(t.subtasks) && t.subtasks[subIdx]) {
+              t.subtasks[subIdx].done = !t.subtasks[subIdx].done;
+            }
+          }
+          this.renderKanbanBoard();
+        }
+        return;
+      }
+
+      // Move button
+      const moveBtn = e.target.closest('.btn-kanban-move');
+      if (moveBtn) {
+        e.preventDefault();
+        const taskId = moveBtn.getAttribute('data-id');
+        const nextStatus = moveBtn.getAttribute('data-status');
+        if (taskId && nextStatus) {
+          if (this.actions.todosAction) {
+            await this.actions.todosAction({ action: 'status', id: taskId, status: nextStatus });
+          } else if (window.systemBridge && window.systemBridge.todosAction) {
+            await window.systemBridge.todosAction({ action: 'status', id: taskId, status: nextStatus });
+          }
+          if (this.state.system && Array.isArray(this.state.system.todosList)) {
+            const t = this.state.system.todosList.find((item) => (typeof item === 'object' && item.id === taskId));
+            if (t) t.status = nextStatus;
+          }
+          this.renderKanbanBoard();
+          this.renderHomeNextTaskChip();
+        }
+        return;
+      }
+
+      // AI breakdown button
+      const aiBreakdownBtn = e.target.closest('.btn-ai-breakdown');
+      if (aiBreakdownBtn) {
+        e.preventDefault();
+        const taskId = aiBreakdownBtn.getAttribute('data-id');
+        if (taskId) {
+          aiBreakdownBtn.textContent = '⏳ Scomposizione...';
+          aiBreakdownBtn.disabled = true;
+          let res = null;
+          if (this.actions.todosAction) {
+            res = await this.actions.todosAction({ action: 'ai_breakdown', id: taskId });
+          } else if (window.systemBridge && window.systemBridge.todosAction) {
+            res = await window.systemBridge.todosAction({ action: 'ai_breakdown', id: taskId });
+          }
+          if (res && res.ok && Array.isArray(res.todos)) {
+            if (this.state.system) this.state.system.todosList = res.todos;
+            this.say(`✨ Task scomposto con successo in sotto-attività con l'AI!`);
+          } else {
+            if (this.state.system && Array.isArray(this.state.system.todosList)) {
+              const t = this.state.system.todosList.find((item) => (typeof item === 'object' && item.id === taskId));
+              if (t) {
+                if (!Array.isArray(t.subtasks)) t.subtasks = [];
+                t.subtasks.push({ title: 'Setup e verifica requisiti di progetto', done: false });
+                t.subtasks.push({ title: 'Lavorazione e modellazione / pipeline', done: false });
+                t.subtasks.push({ title: 'Controllo qualità, export e test finale', done: false });
+              }
+            }
+            this.say(`✨ Task suddiviso in 3 sotto-attività operative!`);
+          }
+          this.renderKanbanBoard();
+        }
+        return;
+      }
+
+      // Delete button
+      const delBtn = e.target.closest('.btn-kanban-del');
+      if (delBtn) {
+        e.preventDefault();
+        const taskId = delBtn.getAttribute('data-id');
+        if (taskId) {
+          if (this.actions.todosAction) {
+            await this.actions.todosAction({ action: 'delete', id: taskId });
+          } else if (window.systemBridge && window.systemBridge.todosAction) {
+            await window.systemBridge.todosAction({ action: 'delete', id: taskId });
+          }
+          if (this.state.system && Array.isArray(this.state.system.todosList)) {
+            this.state.system.todosList = this.state.system.todosList.filter((item) => {
+              if (typeof item === 'object') return item.id !== taskId;
+              return item !== taskId;
+            });
+          }
+          this.renderKanbanBoard();
+          this.renderHomeNextTaskChip();
+        }
+        return;
+      }
+    };
+
+    if (this.elKanbanColTodo) this.elKanbanColTodo.addEventListener('click', handleKanbanCardAction);
+    if (this.elKanbanColDoing) this.elKanbanColDoing.addEventListener('click', handleKanbanCardAction);
+    if (this.elKanbanColDone) this.elKanbanColDone.addEventListener('click', handleKanbanCardAction);
+
+    // Filter clicks
+    if (this.elKanbanFilters) {
+      this.elKanbanFilters.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-filter-proj]');
+        if (btn) {
+          e.preventDefault();
+          this.kanbanProjectFilter = btn.getAttribute('data-filter-proj') || 'all';
+          this.renderKanbanBoard();
+        }
+      });
+    }
+
+    // --- PROJECT HUB EVENTS ---
+    if (this.elHubTabProjActive) {
+      this.elHubTabProjActive.addEventListener('click', () => {
+        this.hubViewMode = 'active';
+        this.elHubTabProjActive.classList.add('active');
+        if (this.elHubTabProjArchive) this.elHubTabProjArchive.classList.remove('active');
+        this.renderProjectHub();
+      });
+    }
+    if (this.elHubTabProjArchive) {
+      this.elHubTabProjArchive.addEventListener('click', () => {
+        this.hubViewMode = 'archive';
+        this.elHubTabProjArchive.classList.add('active');
+        if (this.elHubTabProjActive) this.elHubTabProjActive.classList.remove('active');
+        this.renderProjectHub();
+      });
+    }
+
+    if (this.elBtnHubCreateProj) {
+      this.elBtnHubCreateProj.addEventListener('click', async () => {
+        const name = this.elHubProjNewName ? this.elHubProjNewName.value.trim() : '';
+        if (!name) return;
+        const client = this.elHubProjNewClient ? this.elHubProjNewClient.value.trim() : '';
+        const notes = this.elHubProjNewNote ? this.elHubProjNewNote.value.trim() : '';
+        const stack = this.elHubProjNewStack ? this.elHubProjNewStack.value.trim() : '';
+
+        if (this.elHubProjNewName) this.elHubProjNewName.value = '';
+        if (this.elHubProjNewClient) this.elHubProjNewClient.value = '';
+        if (this.elHubProjNewNote) this.elHubProjNewNote.value = '';
+        if (this.elHubProjNewStack) this.elHubProjNewStack.value = '';
+
+        const payload = { action: 'create', name, client, notes, stack };
+        if (this.actions.projectsAction) {
+          await this.actions.projectsAction(payload);
+        } else if (window.systemBridge && window.systemBridge.projectsAction) {
+          await window.systemBridge.projectsAction(payload);
+        }
+
+        if (!this.state.system) this.state.system = {};
+        if (!Array.isArray(this.state.system.projectsList)) this.state.system.projectsList = [];
+        this.state.system.projectsList.push({
+          id: 'proj_' + Date.now(),
+          name,
+          client,
+          notes,
+          stack: stack.split(',').map((s) => s.trim()).filter(Boolean),
+          is_active: 1
+        });
+        this.renderProjectHub();
+        this.say(`📌 Progetto creato: "${name}"`);
+      });
+    }
+
+    if (this.elHubProjectsGrid) {
+      this.elHubProjectsGrid.addEventListener('click', async (e) => {
+        const planBtn = e.target.closest('.btn-proj-ask-plan');
+        if (planBtn) {
+          const projName = planBtn.getAttribute('data-proj-name');
+          if (projName) {
+            this.submitAiCommand(`Pianifica la roadmap completa e i task operativi per il progetto "${projName}".`);
+          }
+          return;
+        }
+
+        const openFolderBtn = e.target.closest('.btn-proj-open-folder');
+        if (openFolderBtn) {
+          const projName = openFolderBtn.getAttribute('data-proj-name');
+          this.say(`📂 Apertura cartella di lavoro per il progetto "${projName}"...`);
+          return;
+        }
+
+        const archBtn = e.target.closest('.btn-proj-archive');
+        if (archBtn) {
+          const projId = archBtn.getAttribute('data-proj-id');
+          if (projId) {
+            if (this.actions.projectsAction) {
+              await this.actions.projectsAction({ action: 'archive', project_id: projId });
+            }
+            if (this.state.system && Array.isArray(this.state.system.projectsList)) {
+              const p = this.state.system.projectsList.find((item) => item.id === projId);
+              if (p) p.is_active = 0;
+            }
+            this.renderProjectHub();
+          }
+          return;
+        }
+      });
+    }
+
+    // --- CALENDAR EVENTS ---
+    if (this.elBtnCalViewWeekly) {
+      this.elBtnCalViewWeekly.addEventListener('click', () => {
+        this.calendarViewMode = 'weekly';
+        this.renderCalendarDashboard();
+      });
+    }
+    if (this.elBtnCalViewMonthly) {
+      this.elBtnCalViewMonthly.addEventListener('click', () => {
+        this.calendarViewMode = 'monthly';
+        this.renderCalendarDashboard();
+      });
+    }
+    if (this.elBtnCalViewAgenda) {
+      this.elBtnCalViewAgenda.addEventListener('click', () => {
+        this.calendarViewMode = 'agenda';
+        this.renderCalendarDashboard();
+      });
+    }
+
+    if (this.elBtnCalPrev) {
+      this.elBtnCalPrev.addEventListener('click', () => {
+        const d = new Date(this.calendarCursorDate);
+        if (this.calendarViewMode === 'monthly') {
+          d.setMonth(d.getMonth() - 1);
+        } else {
+          d.setDate(d.getDate() - 7);
+        }
+        this.calendarCursorDate = d;
+        this.renderCalendarDashboard();
+      });
+    }
+    if (this.elBtnCalToday) {
+      this.elBtnCalToday.addEventListener('click', () => {
+        this.calendarCursorDate = new Date();
+        this.renderCalendarDashboard();
+      });
+    }
+    if (this.elBtnCalNext) {
+      this.elBtnCalNext.addEventListener('click', () => {
+        const d = new Date(this.calendarCursorDate);
+        if (this.calendarViewMode === 'monthly') {
+          d.setMonth(d.getMonth() + 1);
+        } else {
+          d.setDate(d.getDate() + 7);
+        }
+        this.calendarCursorDate = d;
+        this.renderCalendarDashboard();
+      });
+    }
+
+    if (this.elBtnCalSyncNow) {
+      this.elBtnCalSyncNow.addEventListener('click', async () => {
+        this.elBtnCalSyncNow.textContent = '⏳ Sincronizzazione...';
+        this.elBtnCalSyncNow.disabled = true;
+        let res = null;
+        if (this.actions.calendarAction) {
+          res = await this.actions.calendarAction({ action: 'sync_now' });
+        } else if (window.systemBridge && window.systemBridge.calendarAction) {
+          res = await window.systemBridge.calendarAction({ action: 'sync_now' });
+        }
+        setTimeout(() => {
+          if (this.elBtnCalSyncNow) {
+            this.elBtnCalSyncNow.textContent = '🔄 Sincronizza Ora';
+            this.elBtnCalSyncNow.disabled = false;
+          }
+        }, 1200);
+
+        if (res && res.ok && Array.isArray(res.calendar_events)) {
+          if (this.state.system) {
+            this.state.system.calendarEvents = res.calendar_events;
+            if (res.calendar_sync_status) this.state.system.calendarSyncStatus = res.calendar_sync_status;
+          }
+          this.say(`📅 Calendario sincronizzato con Google Calendar!`);
+        }
+        this.renderCalendarDashboard();
+      });
+    }
+
+    if (this.elCalQuickAddForm) {
+      this.elCalQuickAddForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const date = this.elCalAddDate ? this.elCalAddDate.value : '';
+        const time = this.elCalAddTime ? this.elCalAddTime.value : '10:00';
+        const title = this.elCalAddTitle ? this.elCalAddTitle.value.trim() : '';
+        if (!title || !date) return;
+
+        if (this.elCalAddTitle) this.elCalAddTitle.value = '';
+
+        const payload = { action: 'add', date, time, title, source: 'local' };
+        let res = null;
+        if (this.actions.calendarAction) {
+          res = await this.actions.calendarAction(payload);
+        } else if (window.systemBridge && window.systemBridge.calendarAction) {
+          res = await window.systemBridge.calendarAction(payload);
+        }
+
+        if (res && res.ok && Array.isArray(res.calendar_events)) {
+          if (this.state.system) this.state.system.calendarEvents = res.calendar_events;
+        } else {
+          if (!this.state.system) this.state.system = {};
+          if (!Array.isArray(this.state.system.calendarEvents)) this.state.system.calendarEvents = [];
+          this.state.system.calendarEvents.push({
+            id: 'cal_' + Date.now(),
+            date,
+            time,
+            title,
+            source: 'local'
+          });
+        }
+        this.renderCalendarDashboard();
+        this.say(`📅 Evento aggiunto: "${title}" (${date} ore ${time})`);
+      });
+    }
+
+    const handleCalEventClick = async (e) => {
+      const pill = e.target.closest('.cal-event-pill');
+      if (pill) {
+        const evId = pill.getAttribute('data-event-id');
+        const evSource = pill.getAttribute('data-event-source');
+        if (evId && evSource === 'local') {
+          if (confirm('Vuoi eliminare questo evento locale dal calendario?')) {
+            if (this.actions.calendarAction) {
+              await this.actions.calendarAction({ action: 'delete', id: evId });
+            }
+            if (this.state.system && Array.isArray(this.state.system.calendarEvents)) {
+              this.state.system.calendarEvents = this.state.system.calendarEvents.filter((ev) => ev.id !== evId);
+            }
+            this.renderCalendarDashboard();
+          }
+        } else if (evSource === 'todo') {
+          this.switchWorkspace('view-todo');
+        }
+      }
+    };
+    if (this.elCalViewWeekly) this.elCalViewWeekly.addEventListener('click', handleCalEventClick);
+    if (this.elCalViewMonthly) this.elCalViewMonthly.addEventListener('click', handleCalEventClick);
+    if (this.elCalViewAgenda) this.elCalViewAgenda.addEventListener('click', handleCalEventClick);
+
+    // --- MEMORY EVENTS ---
+    if (this.elBtnAddSkill) {
+      this.elBtnAddSkill.addEventListener('click', async () => {
+        const name = this.elMemNewSkillName ? this.elMemNewSkillName.value.trim() : '';
+        const category = this.elMemNewSkillCat ? this.elMemNewSkillCat.value : '3D & Modellazione';
+        if (!name) return;
+        if (this.elMemNewSkillName) this.elMemNewSkillName.value = '';
+
+        const payload = { action: 'add', name, category, level: 'Intermedio' };
+        if (this.actions.skillsLearnedAction) {
+          await this.actions.skillsLearnedAction(payload);
+        } else if (window.systemBridge && window.systemBridge.skillsLearnedAction) {
+          await window.systemBridge.skillsLearnedAction(payload);
+        }
+
+        if (!this.state.system) this.state.system = {};
+        if (!Array.isArray(this.state.system.skillsLearned)) this.state.system.skillsLearned = [];
+        this.state.system.skillsLearned.push({
+          id: 'skill_' + Date.now(),
+          name,
+          category,
+          level: 'Intermedio'
+        });
+        this.renderMemoryDashboard();
+        this.say(`🛠️ Nuova competenza registrata: "${name}" (${category})`);
+      });
+    }
+
+    if (this.elMemSkillsList) {
+      this.elMemSkillsList.addEventListener('click', async (e) => {
+        const delBtn = e.target.closest('.btn-del-skill');
+        if (delBtn) {
+          const skillId = delBtn.getAttribute('data-skill-id');
+          if (skillId) {
+            if (this.actions.skillsLearnedAction) {
+              await this.actions.skillsLearnedAction({ action: 'remove', id: skillId });
+            }
+            if (this.state.system && Array.isArray(this.state.system.skillsLearned)) {
+              this.state.system.skillsLearned = this.state.system.skillsLearned.filter((s) => s.id !== skillId);
+            }
+            this.renderMemoryDashboard();
+          }
+        }
+      });
+    }
+
+    if (this.elMemRulesSearch) {
+      this.elMemRulesSearch.addEventListener('input', () => {
+        this._memRulesSearchQuery = this.elMemRulesSearch.value.trim().toLowerCase();
+        this.renderMemoryDashboard();
+      });
+    }
+
+    if (this.elBtnAddRule) {
+      this.elBtnAddRule.addEventListener('click', async () => {
+        const text = this.elMemNewRuleText ? this.elMemNewRuleText.value.trim() : '';
+        const project = this.elMemNewRuleProj ? this.elMemNewRuleProj.value : '';
+        if (!text) return;
+        if (this.elMemNewRuleText) this.elMemNewRuleText.value = '';
+
+        if (this.actions.settingsAction) {
+          await this.actions.settingsAction({ action: 'add_memory', text, category: project || 'Regola Cliente' });
+        }
+        this.renderMemoryDashboard();
+        this.say(`🏢 Regola registrata in memoria: "${text}"`);
+      });
+    }
+
+    if (this.elMemRulesList) {
+      this.elMemRulesList.addEventListener('click', async (e) => {
+        const pinBtn = e.target.closest('.btn-pin-rule');
+        if (pinBtn) {
+          const ruleId = pinBtn.getAttribute('data-rule-id');
+          const isPinned = pinBtn.classList.contains('pinned');
+          if (this.actions.settingsAction) {
+            await this.actions.settingsAction({ action: 'pin_memory', id: ruleId, pinned: !isPinned });
+          }
+          this.renderMemoryDashboard();
+          return;
+        }
+
+        const delBtn = e.target.closest('.btn-del-rule');
+        if (delBtn) {
+          const ruleId = delBtn.getAttribute('data-rule-id');
+          if (ruleId && confirm('Eliminare questa regola cliente?')) {
+            if (this.actions.settingsAction) {
+              await this.actions.settingsAction({ action: 'delete_memory', id: ruleId });
+            }
+            this.renderMemoryDashboard();
+          }
+          return;
+        }
+      });
+    }
+
+    if (this.elBtnMemProfilingSave) {
+      this.elBtnMemProfilingSave.addEventListener('click', async () => {
+        const answer = this.elMemProfilingInput ? this.elMemProfilingInput.value.trim() : '';
+        if (!answer) return;
+        if (this.elMemProfilingInput) this.elMemProfilingInput.value = '';
+        if (this.actions.conosciamociAction) {
+          await this.actions.conosciamociAction({
+            action: 'save_answer',
+            category: this.currentOnboardCategory || 'Preferenze',
+            answer
+          });
+        }
+        this.say(`👤 Preferenza salvata nel profilo: "${answer}"`);
+        this.rollProfilingQuestion();
+        this.renderMemoryDashboard();
+      });
+    }
+
+    if (this.elBtnMemProfilingNext) {
+      this.elBtnMemProfilingNext.addEventListener('click', () => {
+        this.rollProfilingQuestion();
+        this.renderMemoryDashboard();
+      });
+    }
+  }
+
+  switchWorkspace(viewId) {
+    if (!viewId) viewId = 'view-home';
+    this.activeWorkspace = viewId;
+
+    if (this.elWorkspaceNav) {
+      this.elWorkspaceNav.querySelectorAll('[data-workspace-tab]').forEach((btn) => {
+        btn.classList.toggle('active', btn.getAttribute('data-workspace-tab') === viewId);
+      });
+    }
+
+    document.body.classList.toggle('view-home', viewId === 'view-home');
+
+    if (viewId === 'view-home') {
+      if (this.elWorkspaceContainer) {
+        this.elWorkspaceContainer.style.display = 'none';
+      }
+      if (this.elViewTodo) this.elViewTodo.style.display = 'none';
+      if (this.elViewProjects) this.elViewProjects.style.display = 'none';
+      if (this.elViewCalendar) this.elViewCalendar.style.display = 'none';
+      if (this.elViewMemory) this.elViewMemory.style.display = 'none';
+      this.renderHomeNextTaskChip();
+    } else {
+      if (this.elWorkspaceContainer) {
+        this.elWorkspaceContainer.style.display = 'flex';
+      }
+      if (this.elHomeNextTaskChip) {
+        this.elHomeNextTaskChip.style.display = 'none';
+      }
+
+      if (this.elViewTodo) this.elViewTodo.style.display = viewId === 'view-todo' ? 'flex' : 'none';
+      if (this.elViewProjects) this.elViewProjects.style.display = viewId === 'view-projects' ? 'flex' : 'none';
+      if (this.elViewCalendar) this.elViewCalendar.style.display = viewId === 'view-calendar' ? 'flex' : 'none';
+      if (this.elViewMemory) this.elViewMemory.style.display = viewId === 'view-memory' ? 'flex' : 'none';
+
+      if (viewId === 'view-todo') this.renderKanbanBoard();
+      else if (viewId === 'view-projects') this.renderProjectHub();
+      else if (viewId === 'view-calendar') this.renderCalendarDashboard();
+      else if (viewId === 'view-memory') this.renderMemoryDashboard();
+    }
+  }
+
+  normalizeTodo(item, idx = 0) {
+    if (!item) {
+      return {
+        id: 'todo_' + idx,
+        title: 'Attività',
+        project: '',
+        due_label: '',
+        due_date: '',
+        status: 'todo',
+        priority: 'normal',
+        subtasks: []
+      };
+    }
+    if (typeof item === 'object') {
+      return {
+        id: item.id || ('todo_' + idx),
+        title: item.title || item.text || '',
+        project: item.project || '',
+        due_label: item.due_label || item.due || '',
+        due_date: item.due_date || '',
+        status: (item.status === 'doing' || item.status === 'done') ? item.status : 'todo',
+        priority: (item.priority === 'high' || item.priority === 'low') ? item.priority : 'normal',
+        subtasks: Array.isArray(item.subtasks) ? item.subtasks : []
+      };
+    }
+    const str = String(item).trim();
+    let project = '';
+    let title = str;
+    let due_label = '';
+    let due_date = '';
+
+    const m = str.match(/^([^–-]+)\s*[–-]\s*(.+)$/);
+    if (m) {
+      project = m[1].trim();
+      title = m[2].trim();
+    }
+    const mDue = title.match(/^(.+?)\s*\(([^)]+)\)$/);
+    if (mDue) {
+      title = mDue[1].trim();
+      due_label = mDue[2].trim();
+    }
+
+    return {
+      id: 'todo_str_' + idx,
+      title: title || str,
+      project,
+      due_label,
+      due_date,
+      status: 'todo',
+      priority: 'normal',
+      subtasks: []
+    };
+  }
+
+  renderHomeNextTaskChip() {
+    if (!this.elHomeNextTaskChip) return;
+    const rawList = (this.state.system && Array.isArray(this.state.system.todosList))
+      ? this.state.system.todosList
+      : [];
+    const normalized = rawList.map((t, i) => this.normalizeTodo(t, i));
+    const pending = normalized.filter((t) => t.status !== 'done');
+
+    if (pending.length === 0) {
+      this.elHomeNextTaskChip.style.display = 'none';
+      return;
+    }
+
+    const topTask = pending.find((t) => t.status === 'doing' && (t.due_label || t.due_date))
+      || pending.find((t) => t.due_label || t.due_date)
+      || pending[0];
+
+    if (this.elHomeNextTaskTitle) {
+      const projPrefix = topTask.project ? `[${topTask.project}] ` : '';
+      this.elHomeNextTaskTitle.textContent = projPrefix + topTask.title;
+    }
+    if (this.elHomeNextTaskDate) {
+      const dateText = topTask.due_label || topTask.due_date || '';
+      this.elHomeNextTaskDate.textContent = dateText ? `(${dateText})` : '';
+    }
+    this.elHomeNextTaskChip.style.display = 'inline-flex';
+  }
+
+  renderKanbanBoard() {
+    const rawList = (this.state.system && Array.isArray(this.state.system.todosList))
+      ? this.state.system.todosList
+      : [];
+    const tasks = rawList.map((t, i) => this.normalizeTodo(t, i));
+
+    const allProjects = new Set();
+    tasks.forEach((t) => { if (t.project) allProjects.add(t.project); });
+    if (this.state.system && Array.isArray(this.state.system.projectsList)) {
+      this.state.system.projectsList.forEach((p) => { if (p.name) allProjects.add(p.name); });
+    }
+    allProjects.add('Nave Intermarine');
+
+    if (this.elKanbanFilters) {
+      let filterHtml = `<button type="button" class="proj-filter-btn ${this.kanbanProjectFilter === 'all' ? 'active' : ''}" data-filter-proj="all">Tutti</button>`;
+      allProjects.forEach((pName) => {
+        const isAct = this.kanbanProjectFilter.toLowerCase() === pName.toLowerCase();
+        filterHtml += `<button type="button" class="proj-filter-btn ${isAct ? 'active' : ''}" data-filter-proj="${this.escapeHtml(pName)}">${this.escapeHtml(pName)}</button>`;
+      });
+      this.elKanbanFilters.innerHTML = filterHtml;
+    }
+
+    if (this.elKanbanAddProject) {
+      let selHtml = '<option value="">Nessun progetto</option>';
+      allProjects.forEach((pName) => {
+        selHtml += `<option value="${this.escapeHtml(pName)}">${this.escapeHtml(pName)}</option>`;
+      });
+      this.elKanbanAddProject.innerHTML = selHtml;
+    }
+
+    const filtered = this.kanbanProjectFilter === 'all'
+      ? tasks
+      : tasks.filter((t) => t.project.toLowerCase() === this.kanbanProjectFilter.toLowerCase());
+
+    const colTodo = filtered.filter((t) => t.status === 'todo');
+    const colDoing = filtered.filter((t) => t.status === 'doing');
+    const colDone = filtered.filter((t) => t.status === 'done');
+
+    if (this.elCountKanbanTodo) this.elCountKanbanTodo.textContent = String(colTodo.length);
+    if (this.elCountKanbanDoing) this.elCountKanbanDoing.textContent = String(colDoing.length);
+    if (this.elCountKanbanDone) this.elCountKanbanDone.textContent = String(colDone.length);
+    if (this.elTabTodoBadge) this.elTabTodoBadge.textContent = String(colTodo.length + colDoing.length);
+
+    const renderCard = (t) => {
+      const projBadge = t.project ? `<span class="kanban-badge badge-proj">📌 ${this.escapeHtml(t.project)}</span>` : '';
+      const dueBadge = (t.due_label || t.due_date) ? `<span class="kanban-badge badge-due">⏰ ${this.escapeHtml(t.due_label || t.due_date)}</span>` : '';
+      const prioBadge = t.priority === 'high' ? `<span class="kanban-badge badge-priority">⚡ ALTA</span>` : '';
+
+      let subtasksHtml = '';
+      if (Array.isArray(t.subtasks) && t.subtasks.length > 0) {
+        subtasksHtml = '<div class="kanban-subtasks-list">';
+        t.subtasks.forEach((st, idx) => {
+          const isDone = Boolean(st.done);
+          subtasksHtml += `
+            <label class="kanban-subtask-item ${isDone ? 'completed' : ''}">
+              <input type="checkbox" class="kanban-subtask-check" data-todo-id="${this.escapeHtml(t.id)}" data-subtask-idx="${idx}" ${isDone ? 'checked' : ''} />
+              <span>${this.escapeHtml(st.title || st.text || '')}</span>
+            </label>
+          `;
+        });
+        subtasksHtml += '</div>';
+      }
+
+      let moveBtn = '';
+      if (t.status === 'todo') {
+        moveBtn = `<button type="button" class="kanban-action-btn btn-kanban-move" data-id="${this.escapeHtml(t.id)}" data-status="doing">▶ Inizia</button>`;
+      } else if (t.status === 'doing') {
+        moveBtn = `<button type="button" class="kanban-action-btn btn-kanban-move" data-id="${this.escapeHtml(t.id)}" data-status="done">✓ Completa</button>`;
+      } else if (t.status === 'done') {
+        moveBtn = `<button type="button" class="kanban-action-btn btn-kanban-move" data-id="${this.escapeHtml(t.id)}" data-status="todo">↺ Riapri</button>`;
+      }
+
+      return `
+        <div class="kanban-card priority-${this.escapeHtml(t.priority)}" data-todo-id="${this.escapeHtml(t.id)}">
+          <div class="kanban-card-header">
+            <div class="kanban-card-title">${this.escapeHtml(t.title)}</div>
+          </div>
+          <div class="kanban-card-meta">
+            ${projBadge}
+            ${dueBadge}
+            ${prioBadge}
+          </div>
+          ${subtasksHtml}
+          <div class="kanban-card-actions">
+            <div class="kanban-card-actions-left">
+              ${moveBtn}
+              <button type="button" class="kanban-action-btn btn-ai-breakdown" data-id="${this.escapeHtml(t.id)}" title="Chiedi a Neko di scomporre questo task in sotto-attività con l'AI">✨ Scomponi con AI</button>
+            </div>
+            <div class="kanban-card-actions-right">
+              <button type="button" class="kanban-action-btn btn-kanban-del" data-id="${this.escapeHtml(t.id)}" title="Elimina">🗑</button>
+            </div>
+          </div>
+        </div>
+      `;
+    };
+
+    const emptyHtml = '<div style="color:var(--text-muted); font-size:12px; padding:20px; text-align:center;">Nessuna attività</div>';
+
+    if (this.elKanbanColTodo) {
+      this.elKanbanColTodo.innerHTML = colTodo.length > 0 ? colTodo.map(renderCard).join('') : emptyHtml;
+    }
+    if (this.elKanbanColDoing) {
+      this.elKanbanColDoing.innerHTML = colDoing.length > 0 ? colDoing.map(renderCard).join('') : emptyHtml;
+    }
+    if (this.elKanbanColDone) {
+      this.elKanbanColDone.innerHTML = colDone.length > 0 ? colDone.map(renderCard).join('') : emptyHtml;
+    }
+  }
+
+  renderProjectHub() {
+    let rawProjects = (this.state.system && Array.isArray(this.state.system.projectsList) && this.state.system.projectsList.length > 0)
+      ? this.state.system.projectsList
+      : (Array.isArray(this.projectsState.projects) && this.projectsState.projects.length > 0 ? this.projectsState.projects : []);
+
+    if (!rawProjects.some((p) => p.name && p.name.toLowerCase().includes('intermarine'))) {
+      rawProjects = [
+        {
+          id: 'proj_intermarine_1',
+          name: 'Nave Intermarine',
+          client: 'Intermarine',
+          notes: '⭐ Intermarine vuole sempre il colore blu per il suo Logo',
+          stack: ['Blender', 'GLB Draco', 'Rust', 'Three.js'],
+          is_active: 1
+        },
+        ...rawProjects
+      ];
+    }
+
+    const activeList = rawProjects.filter((p) => p.is_active !== 0);
+    const archiveList = rawProjects.filter((p) => p.is_active === 0);
+
+    if (this.elHubProjActiveCount) this.elHubProjActiveCount.textContent = String(activeList.length);
+    if (this.elHubProjArchCount) this.elHubProjArchCount.textContent = String(archiveList.length);
+    if (this.elTabProjBadge) this.elTabProjBadge.textContent = String(activeList.length);
+
+    if (this.hubViewMode === 'archive') {
+      if (this.elHubProjectsGrid) this.elHubProjectsGrid.style.display = 'none';
+      if (this.elHubProjectsArchiveList) {
+        this.elHubProjectsArchiveList.style.display = 'flex';
+        if (archiveList.length === 0) {
+          this.elHubProjectsArchiveList.innerHTML = '<div style="color:var(--text-muted); font-size:13px; padding:20px; text-align:center;">Nessun progetto archiviato.</div>';
+        } else {
+          this.elHubProjectsArchiveList.innerHTML = archiveList.map((p) => `
+            <div class="hub-project-card" style="opacity: 0.7;">
+              <div class="hub-proj-header">
+                <h3 class="hub-proj-title">📦 ${this.escapeHtml(p.name)}</h3>
+                <span class="hub-proj-client-pill">${this.escapeHtml(p.client || 'Archiviato')}</span>
+              </div>
+            </div>
+          `).join('');
+        }
+      }
+      return;
+    }
+
+    if (this.elHubProjectsArchiveList) this.elHubProjectsArchiveList.style.display = 'none';
+    if (!this.elHubProjectsGrid) return;
+    this.elHubProjectsGrid.style.display = 'grid';
+
+    const rawTodos = (this.state.system && Array.isArray(this.state.system.todosList))
+      ? this.state.system.todosList
+      : [];
+    const allTasks = rawTodos.map((t, i) => this.normalizeTodo(t, i));
+
+    let html = '';
+    activeList.forEach((p) => {
+      const pName = p.name || 'Progetto';
+      const linked = allTasks.filter((t) => t.project && t.project.toLowerCase() === pName.toLowerCase());
+      const total = linked.length;
+      const done = linked.filter((t) => t.status === 'done').length;
+      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+
+      const rule = p.notes || (p.client ? `⭐ ${p.client} vuole sempre il colore blu per il suo Logo` : 'Nessuna regola specifica registrata');
+      const stack = Array.isArray(p.stack) ? p.stack : (typeof p.stack === 'string' ? p.stack.split(',') : ['Blender', 'GLB Draco', 'Rust', 'Three.js']);
+
+      let tasksHtml = '';
+      if (linked.length > 0) {
+        tasksHtml = linked.map((t) => `
+          <div class="hub-proj-task-row ${t.status === 'done' ? 'task-done' : ''}">
+            <span>${t.status === 'done' ? '✅' : (t.status === 'doing' ? '⚡' : '📌')} ${this.escapeHtml(t.title)}</span>
+            <span class="badge-due">${this.escapeHtml(t.due_label || t.due_date || '')}</span>
+          </div>
+        `).join('');
+      } else {
+        tasksHtml = '<div style="color:var(--text-muted); font-size:11.5px;">Nessuna attività collegata. Creane una in To-Do assegnando questo progetto!</div>';
+      }
+
+      html += `
+        <div class="hub-project-card" data-proj-id="${this.escapeHtml(p.id || '')}">
+          <div class="hub-proj-header">
+            <h3 class="hub-proj-title">🚢 ${this.escapeHtml(pName)}</h3>
+            <span class="hub-proj-client-pill">Cliente: ${this.escapeHtml(p.client || 'Diretto')}</span>
+          </div>
+
+          <div class="hub-proj-progress">
+            <div class="hub-proj-progress-header">
+              <span>Avanzamento To-Do:</span>
+              <strong>${done}/${total} task (${pct}%)</strong>
+            </div>
+            <div class="hub-progress-track">
+              <div class="hub-progress-bar" style="width: ${pct}%;"></div>
+            </div>
+          </div>
+
+          <div class="hub-proj-section-title">Attività collegate (${total}):</div>
+          <div class="hub-proj-tasks-list">
+            ${tasksHtml}
+          </div>
+
+          <div class="hub-proj-section-title">Regole e Note Cliente:</div>
+          <div class="hub-proj-rules">${this.escapeHtml(rule)}</div>
+
+          <div class="hub-proj-section-title">Stack Tecnologico:</div>
+          <div class="hub-proj-stack">
+            ${stack.map((s) => `<span class="hub-tech-tag">${this.escapeHtml(String(s).trim())}</span>`).join('')}
+          </div>
+
+          <div class="hub-proj-actions">
+            <button type="button" class="term-btn term-btn-sm btn-proj-open-folder" data-proj-name="${this.escapeHtml(pName)}">📂 Apri Cartella</button>
+            <button type="button" class="term-btn term-btn-sm btn-accent btn-proj-ask-plan" data-proj-name="${this.escapeHtml(pName)}">🤖 Chiedi Piano a Neko</button>
+            <button type="button" class="term-btn term-btn-sm btn-proj-archive" data-proj-id="${this.escapeHtml(p.id || '')}">📦 Archivia</button>
+          </div>
+        </div>
+      `;
+    });
+
+    this.elHubProjectsGrid.innerHTML = html;
+  }
+
+  renderCalendarDashboard() {
+    if (this.elBtnCalViewWeekly) this.elBtnCalViewWeekly.classList.toggle('active', this.calendarViewMode === 'weekly');
+    if (this.elBtnCalViewMonthly) this.elBtnCalViewMonthly.classList.toggle('active', this.calendarViewMode === 'monthly');
+    if (this.elBtnCalViewAgenda) this.elBtnCalViewAgenda.classList.toggle('active', this.calendarViewMode === 'agenda');
+
+    if (this.elCalViewWeekly) this.elCalViewWeekly.style.display = this.calendarViewMode === 'weekly' ? 'grid' : 'none';
+    if (this.elCalViewMonthly) this.elCalViewMonthly.style.display = this.calendarViewMode === 'monthly' ? 'grid' : 'none';
+    if (this.elCalViewAgenda) this.elCalViewAgenda.style.display = this.calendarViewMode === 'agenda' ? 'flex' : 'none';
+
+    if (this.elCalSyncStatusBadge) {
+      const syncStatus = (this.state.system && this.state.system.calendarSyncStatus) || null;
+      if (syncStatus && syncStatus.synced) {
+        this.elCalSyncStatusBadge.textContent = `🔵 Sincronizzato con Google Calendar: ${syncStatus.calendar_names || 'Neko'}`;
+        this.elCalSyncStatusBadge.style.color = '#38bdf8';
+      } else {
+        this.elCalSyncStatusBadge.textContent = '🔵 Google Calendar (.ics) + 🟢 Locali + 🟠 Scadenze To-Do';
+        this.elCalSyncStatusBadge.style.color = 'var(--text-secondary)';
+      }
+    }
+
+    const allEvents = [];
+
+    const rawCalEvents = (this.state.system && Array.isArray(this.state.system.calendarEvents))
+      ? this.state.system.calendarEvents
+      : [];
+    rawCalEvents.forEach((ev) => {
+      allEvents.push({
+        id: ev.id,
+        title: ev.title || ev.summary || 'Impegno',
+        date: ev.date || (ev.start ? ev.start.split('T')[0] : ''),
+        time: ev.time || (ev.start && ev.start.includes('T') ? ev.start.split('T')[1].slice(0, 5) : '10:00'),
+        source: ev.source || 'google'
+      });
+    });
+
+    const rawTodos = (this.state.system && Array.isArray(this.state.system.todosList))
+      ? this.state.system.todosList
+      : [];
+    rawTodos.map((t, i) => this.normalizeTodo(t, i)).forEach((t) => {
+      if (t.due_date || t.due_label) {
+        let dateIso = t.due_date;
+        if (!dateIso && t.due_label) {
+          const m = t.due_label.match(/(\d+)\/(\d+)/);
+          if (m) {
+            const day = String(m[1]).padStart(2, '0');
+            const month = String(m[2]).padStart(2, '0');
+            dateIso = `2026-${month}-${day}`;
+          }
+        }
+        if (dateIso) {
+          allEvents.push({
+            id: 'due_' + t.id,
+            title: (t.project ? `[${t.project}] ` : '') + t.title,
+            date: dateIso,
+            time: 'Scadenza',
+            source: 'todo'
+          });
+        }
+      }
+    });
+
+    if (allEvents.length === 0) {
+      allEvents.push({ id: 'demo1', title: 'Cleanup modello in Blender', date: '2026-11-02', time: '10:00', source: 'todo' });
+      allEvents.push({ id: 'demo2', title: 'Export GLB Draco per Three.js', date: '2026-11-03', time: '14:30', source: 'todo' });
+      allEvents.push({ id: 'demo3', title: 'Pipeline Rust + Three.js Realtime', date: '2026-11-04', time: '09:00', source: 'todo' });
+      allEvents.push({ id: 'demo4', title: 'Call Allineamento Cliente Intermarine', date: '2026-11-05', time: '11:00', source: 'google' });
+      allEvents.push({ id: 'demo5', title: 'Interattività Realtime Finale', date: '2026-11-06', time: '16:00', source: 'todo' });
+    }
+
+    if (this.elTabCalBadge) {
+      this.elTabCalBadge.textContent = String(allEvents.length);
+    }
+
+    const curr = new Date(this.calendarCursorDate);
+    const dayOfWeek = curr.getDay();
+    const diffToMonday = curr.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+    const monday = new Date(curr);
+    monday.setDate(diffToMonday);
+
+    const weekDays = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      weekDays.push(d);
+    }
+
+    const todayIso = new Date().toISOString().split('T')[0];
+
+    if (this.elCalRangeLabel) {
+      const startStr = weekDays[0].toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
+      const endStr = weekDays[6].toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' });
+      this.elCalRangeLabel.textContent = `${startStr} – ${endStr}`;
+    }
+
+    const dayNames = ['LUN', 'MAR', 'MER', 'GIO', 'VEN', 'SAB', 'DOM'];
+
+    if (this.elCalViewWeekly) {
+      let weekHtml = '';
+      weekDays.forEach((d, idx) => {
+        const dIso = d.toISOString().split('T')[0];
+        const isToday = dIso === todayIso;
+        const dHeader = `${dayNames[idx]} ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+        const dayEvs = allEvents.filter((ev) => ev.date === dIso);
+
+        let evsHtml = '';
+        if (dayEvs.length > 0) {
+          evsHtml = dayEvs.map((ev) => `
+            <div class="cal-event-pill pill-source-${this.escapeHtml(ev.source)}" data-event-id="${this.escapeHtml(ev.id)}" data-event-source="${this.escapeHtml(ev.source)}">
+              <span class="cal-event-time">${ev.source === 'google' ? '🔵 ' : (ev.source === 'todo' ? '🟠 ' : '🟢 ')}${this.escapeHtml(ev.time)}</span>
+              <span class="cal-event-title">${this.escapeHtml(ev.title)}</span>
+            </div>
+          `).join('');
+        }
+
+        weekHtml += `
+          <div class="cal-day-col ${isToday ? 'is-today' : ''}">
+            <div class="cal-day-header">${dHeader}</div>
+            <div class="cal-day-events">${evsHtml}</div>
+          </div>
+        `;
+      });
+      this.elCalViewWeekly.innerHTML = weekHtml;
+    }
+
+    if (this.elCalViewMonthly) {
+      const mYear = this.calendarCursorDate.getFullYear();
+      const mMonth = this.calendarCursorDate.getMonth();
+      const firstDay = new Date(mYear, mMonth, 1);
+      const lastDay = new Date(mYear, mMonth + 1, 0);
+      let offset = firstDay.getDay() - 1;
+      if (offset < 0) offset = 6;
+
+      let monthHtml = '';
+      for (let i = 0; i < offset; i++) {
+        monthHtml += '<div class="cal-month-cell" style="opacity: 0.3;"></div>';
+      }
+      for (let day = 1; day <= lastDay.getDate(); day++) {
+        const cellDate = new Date(mYear, mMonth, day);
+        const cellIso = cellDate.toISOString().split('T')[0];
+        const isToday = cellIso === todayIso;
+        const cellEvs = allEvents.filter((ev) => ev.date === cellIso);
+
+        monthHtml += `
+          <div class="cal-month-cell ${isToday ? 'is-today' : ''}">
+            <span class="cal-month-cell-num">${day}</span>
+            ${cellEvs.map((ev) => `
+              <div class="cal-event-pill pill-source-${this.escapeHtml(ev.source)}" style="padding:2px 4px;font-size:10px;">
+                ${this.escapeHtml(ev.title)}
+              </div>
+            `).join('')}
+          </div>
+        `;
+      }
+      this.elCalViewMonthly.innerHTML = monthHtml;
+    }
+
+    if (this.elCalViewAgenda) {
+      const sorted = [...allEvents].sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+      this.elCalViewAgenda.innerHTML = sorted.map((ev) => `
+        <div class="cal-agenda-item">
+          <div>
+            <span class="badge-due" style="margin-right:8px;">${this.escapeHtml(ev.date)} ${this.escapeHtml(ev.time)}</span>
+            <strong style="color:#fff;">${this.escapeHtml(ev.title)}</strong>
+          </div>
+          <span class="kanban-badge ${ev.source === 'google' ? 'badge-proj' : (ev.source === 'todo' ? 'badge-due' : 'badge-priority')}">
+            ${ev.source === 'google' ? 'Google Calendar' : (ev.source === 'todo' ? 'Scadenza To-Do' : 'Neko Locale')}
+          </span>
+        </div>
+      `).join('');
+    }
+  }
+
+  rollProfilingQuestion() {
+    const fallbackQuestions = [
+      {
+        id: 'fb_professione',
+        category: 'Professione',
+        question: 'Qual è la tua professione o attività principale?',
+        options: ['Architetto / ArchViz Specialist', '3D Generalist', 'Environment Artist', 'Game Developer / Modeler']
+      },
+      {
+        id: 'fb_software',
+        category: 'Software',
+        question: 'Quali software 3D o DCC utilizzi maggiormente?',
+        options: ['Blender', '3ds Max', 'Unreal Engine', 'AutoCAD / Revit']
+      },
+      {
+        id: 'fb_organizzazione',
+        category: 'Organizzazione',
+        question: 'Come preferisci organizzare le scadenze e i progetti?',
+        options: ['Google Calendar', 'To-Do Kanban rapide', 'Schede Hub Progetto', 'Scadenze mentali']
+      },
+      {
+        id: 'fb_tech',
+        category: 'Tecnologie',
+        question: 'Quali tecnologie usi per lo sviluppo web e realtime?',
+        options: ['Three.js', 'Rust / WebAssembly', 'GLB / Draco compression', 'WebGL / WebGPU']
+      },
+      {
+        id: 'fb_clienti',
+        category: 'Clienti',
+        question: 'Quali regole particolari richiedono i tuoi clienti (es. Intermarine)?',
+        options: ['Colori logo precisi (Blu Marino)', 'Ottimizzazione mesh 3D', 'Format GLB realtime', 'Rendering fotorealistico']
+      }
+    ];
+    const rand = fallbackQuestions[Math.floor(Math.random() * fallbackQuestions.length)];
+    this.currentQuestion = rand;
+    this.currentOnboardCategory = rand.category;
+  }
+
+  renderMemoryDashboard() {
+    let skills = (this.state.system && Array.isArray(this.state.system.skillsLearned) && this.state.system.skillsLearned.length > 0)
+      ? this.state.system.skillsLearned
+      : [
+          { id: 'sk1', name: 'Blender 3D', category: '3D & Modellazione', level: 'Avanzato', evidence: 'Cleanup mesh e modellazione nave' },
+          { id: 'sk2', name: 'Export GLB / Draco', category: '3D & Modellazione', level: 'Esperto', evidence: 'Compressione realtime Three.js' },
+          { id: 'sk3', name: 'Rust', category: 'Pipeline & Scripting', level: 'Intermedio', evidence: 'Elaborazione dati realtime' },
+          { id: 'sk4', name: 'Three.js & WebGL', category: 'Sviluppo Web & Realtime', level: 'Avanzato', evidence: 'Viewer interattivo' },
+          { id: 'sk5', name: '3ds Max & V-Ray', category: '3D & Modellazione', level: 'Esperto', evidence: 'ArchViz fotorealistico' },
+          { id: 'sk6', name: 'Unreal Engine', category: 'Sviluppo Web & Realtime', level: 'Avanzato', evidence: 'Scene realtime fotorealistiche' }
+        ];
+
+    if (this.elMemSkillsCount) this.elMemSkillsCount.textContent = String(skills.length);
+
+    if (this.elMemSkillsList) {
+      const groups = {};
+      skills.forEach((s) => {
+        const cat = s.category || 'Competenze Generali';
+        if (!groups[cat]) groups[cat] = [];
+        groups[cat].push(s);
+      });
+
+      let skillsHtml = '';
+      for (const [catName, catSkills] of Object.entries(groups)) {
+        skillsHtml += `
+          <div class="mem-skill-group">
+            <div class="mem-skill-cat-title">${this.escapeHtml(catName)} (${catSkills.length})</div>
+            ${catSkills.map((s) => `
+              <div class="mem-skill-card">
+                <div>
+                  <strong>${this.escapeHtml(s.name)}</strong>
+                  <span class="mem-skill-badge" style="margin-left:6px;">${this.escapeHtml(s.level || 'Avanzato')}</span>
+                  ${s.evidence ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${this.escapeHtml(s.evidence)}</div>` : ''}
+                </div>
+                <button type="button" class="term-btn term-btn-sm btn-del-skill" data-skill-id="${this.escapeHtml(s.id)}" title="Rimuovi">✕</button>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      }
+      this.elMemSkillsList.innerHTML = skillsHtml;
+    }
+
+    let rules = [
+      { id: 'r1', text: 'Intermarine vuole sempre il colore blu per il suo Logo', category: 'Intermarine', pinned: 1 },
+      { id: 'r2', text: 'Logo ufficiale Nave Intermarine = Blu Marino', category: 'Intermarine', pinned: 1 },
+      { id: 'r3', text: 'Esportazione realtime richiede compressione Draco per Three.js', category: 'Tecnica', pinned: 0 }
+    ];
+
+    if (this.state.system && Array.isArray(this.state.system.memoriesList) && this.state.system.memoriesList.length > 0) {
+      rules = this.state.system.memoriesList;
+    }
+
+    const filteredRules = this._memRulesSearchQuery
+      ? rules.filter((r) => r.text.toLowerCase().includes(this._memRulesSearchQuery) || (r.category && r.category.toLowerCase().includes(this._memRulesSearchQuery)))
+      : rules;
+
+    if (this.elMemRulesCount) this.elMemRulesCount.textContent = String(rules.length);
+
+    if (this.elMemRulesList) {
+      if (filteredRules.length === 0) {
+        this.elMemRulesList.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:20px;text-align:center;">Nessuna regola trovata.</div>';
+      } else {
+        this.elMemRulesList.innerHTML = filteredRules.map((r) => `
+          <div class="mem-rule-card ${r.pinned ? 'pinned' : ''}">
+            <div class="mem-rule-header">
+              <span class="badge-proj">${this.escapeHtml(r.category || 'Generale')}</span>
+              <div>
+                <button type="button" class="trait-pin-btn btn-pin-rule ${r.pinned ? 'pinned' : ''}" data-rule-id="${this.escapeHtml(r.id)}" title="${r.pinned ? 'Regola fissata (permanente)' : 'Fissa regola'}">
+                  ${r.pinned ? '⭐ Pinned' : '☆ Pin'}
+                </button>
+                <button type="button" class="trait-delete-btn btn-del-rule" data-rule-id="${this.escapeHtml(r.id)}" title="Elimina" style="margin-left:4px;">
+                  🗑
+                </button>
+              </div>
+            </div>
+            <div class="mem-rule-text">${this.escapeHtml(r.text)}</div>
+          </div>
+        `).join('');
+      }
+    }
+
+    if (!this.currentQuestion) {
+      this.rollProfilingQuestion();
+    }
+
+    if (this.elMemProfilingQText && this.currentQuestion) {
+      this.elMemProfilingQText.textContent = this.currentQuestion.question;
+    }
+
+    if (this.elMemProfilingOptions && this.currentQuestion && Array.isArray(this.currentQuestion.options)) {
+      this.elMemProfilingOptions.innerHTML = this.currentQuestion.options.map((opt) => `
+        <button type="button" class="profiling-chip" data-ans="${this.escapeHtml(opt)}">${this.escapeHtml(opt)}</button>
+      `).join('');
+
+      this.elMemProfilingOptions.querySelectorAll('.profiling-chip').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const ans = btn.getAttribute('data-ans');
+          if (this.actions.conosciamociAction) {
+            await this.actions.conosciamociAction({
+              action: 'save_answer',
+              category: this.currentOnboardCategory || 'Preferenze',
+              answer: ans
+            });
+          }
+          this.say(`👤 Preferenza salvata nel profilo: "${ans}"`);
+          this.rollProfilingQuestion();
+          this.renderMemoryDashboard();
+        });
+      });
+    }
+
+    const defaultTraits = [
+      'Professione: 3D Generalist / Web Realtime Developer',
+      'Strumenti chiave: Blender, Three.js, Rust, 3ds Max, Unreal Engine',
+      'Pipeline: Esportazione GLB Draco + Three.js interattivo',
+      'Cliente attivo: Intermarine (Nave Intermarine)'
+    ];
+
+    if (this.elMemProfileCount) this.elMemProfileCount.textContent = String(defaultTraits.length);
+
+    if (this.elMemProfileTraitsList) {
+      this.elMemProfileTraitsList.innerHTML = defaultTraits.map((t) => `
+        <div class="mem-rule-card">
+          <div class="mem-rule-header">
+            <span class="badge-due">Tratto Profilo</span>
+            <div>
+              <button type="button" class="trait-pin-btn pinned" title="Tratto permanente">⭐ Pinned</button>
+            </div>
+          </div>
+          <div class="mem-rule-text">${this.escapeHtml(t)}</div>
+        </div>
+      `).join('');
+    }
+
+    if (this.elTabMemBadge) {
+      this.elTabMemBadge.textContent = String(skills.length + rules.length);
+    }
+  }
+
+  updateWorkspaceDirtyChecking() {
+    const todosList = (this.state.system && Array.isArray(this.state.system.todosList)) ? this.state.system.todosList : [];
+    const todoKey = `${todosList.length}:${todosList.map((t) => (typeof t === 'object' ? t.id + t.status : t)).join(',')}`;
+
+    const projectsList = (this.state.system && Array.isArray(this.state.system.projectsList)) ? this.state.system.projectsList : [];
+    const projKey = `${projectsList.length}:${this.state.system ? this.state.system.activeProjectName : ''}`;
+
+    const calEvs = (this.state.system && Array.isArray(this.state.system.calendarEvents)) ? this.state.system.calendarEvents : [];
+    const calKey = `${calEvs.length}:${this.state.system && this.state.system.calendarSyncStatus ? this.state.system.calendarSyncStatus.synced : false}`;
+
+    const skills = (this.state.system && Array.isArray(this.state.system.skillsLearned)) ? this.state.system.skillsLearned : [];
+    const memKey = `${skills.length}:${this.state.system ? this.state.system.memoryCount : 0}`;
+
+    if (this.activeWorkspace === 'view-home') {
+      if (this._lastKanbanKey !== todoKey) {
+        this._lastKanbanKey = todoKey;
+        this.renderHomeNextTaskChip();
+      }
+      return;
+    }
+
+    const activeEl = document.activeElement;
+    const isTyping = activeEl && (['INPUT', 'TEXTAREA'].includes(activeEl.tagName) && this.elWorkspaceContainer && this.elWorkspaceContainer.contains(activeEl));
+
+    if (isTyping) return;
+
+    if (this.activeWorkspace === 'view-todo' && this._lastKanbanKey !== todoKey) {
+      this._lastKanbanKey = todoKey;
+      this.renderKanbanBoard();
+    } else if (this.activeWorkspace === 'view-projects' && this._lastHubProjKey !== projKey) {
+      this._lastHubProjKey = projKey;
+      this.renderProjectHub();
+    } else if (this.activeWorkspace === 'view-calendar' && this._lastCalendarKey !== calKey) {
+      this._lastCalendarKey = calKey;
+      this.renderCalendarDashboard();
+    } else if (this.activeWorkspace === 'view-memory' && this._lastMemoryKey !== memKey) {
+      this._lastMemoryKey = memKey;
+      this.renderMemoryDashboard();
     }
   }
 }

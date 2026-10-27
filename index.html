@@ -38,20 +38,41 @@
 
       <div class="top-bar-divider hud-collapsible">│</div>
 
-      <!-- 4 Pulsanti Principali Chiari e Leggibili (Inclusi Trigger Cassetto F15) -->
-      <div class="top-bar-section" id="hud-assistant-section">
-        <button class="hud-pill hud-pill-agenda" id="agenda-pill" title="Clicca per leggere i prossimi appuntamenti">
-          📅 Agenda: 0
+      <!-- 5-Tab Workspace Switcher (R3) -->
+      <nav class="hud-workspace-nav" id="hud-workspace-nav">
+        <button type="button" class="workspace-tab-btn active" data-workspace-tab="view-home" id="tab-nav-home" title="🐾 Neko Home [Alt+1]">
+          🐾 Neko
         </button>
-        <button class="hud-pill hud-pill-todo" id="todo-pill" title="Apri Cassetto Attività e To-Do">
-          ✅ To-Do: 0
+        <button type="button" class="workspace-tab-btn" data-workspace-tab="view-todo" id="tab-nav-todo" title="📋 To-Do Kanban Board [Alt+2]">
+          📋 To-Do <span class="tab-badge" id="tab-todo-badge">0</span>
         </button>
-        <button class="hud-pill hud-pill-proj" id="projects-pill" title="Apri Cassetto Schede Progetto e Server">
-          📌 Progetti: 0
+        <button type="button" class="workspace-tab-btn" data-workspace-tab="view-projects" id="tab-nav-projects" title="📌 Hub Progetti [Alt+3]">
+          📌 Progetti <span class="tab-badge" id="tab-proj-badge">0</span>
         </button>
-        <button class="hud-pill hud-pill-conn" id="btn-open-settings" title="Apri Impostazioni, Conosciamoci, Gestione Memorie, Connessioni, Scorciatoia e Reset">
-          ⚙️ Impostazioni &amp; Memorie (<span id="mem-total-badge">0</span>)
+        <button type="button" class="workspace-tab-btn" data-workspace-tab="view-calendar" id="tab-nav-calendar" title="📅 Calendario &amp; Scadenze [Alt+4]">
+          📅 Calendario <span class="tab-badge" id="tab-cal-badge">0</span>
         </button>
+        <button type="button" class="workspace-tab-btn" data-workspace-tab="view-memory" id="tab-nav-memory" title="🧠 Memoria &amp; Competenze [Alt+5]">
+          🧠 Memoria <span class="tab-badge" id="tab-mem-badge">0</span>
+        </button>
+        <button type="button" class="workspace-tab-btn tab-btn-settings" id="btn-open-settings" title="⚙️ Centro di Controllo Neko">
+          ⚙️ <span id="mem-total-badge" style="display:none;">0</span>
+        </button>
+      </nav>
+
+      <!-- Subtle Next-Task Chip for 🐾 Neko Home View -->
+      <div class="home-next-task-chip" id="home-next-task-chip" style="display: none;" title="Prossima scadenza in arrivo. Clicca per aprire To-Do.">
+        <span class="chip-clock-icon">⏰</span>
+        <span class="chip-task-label">Prossima:</span>
+        <strong class="chip-task-title" id="home-next-task-title">...</strong>
+        <span class="chip-task-date" id="home-next-task-date">...</span>
+      </div>
+
+      <!-- Compatibility fallback container (hidden) -->
+      <div style="display: none;" aria-hidden="true">
+        <button id="agenda-pill"></button>
+        <button id="todo-pill"></button>
+        <button id="projects-pill"></button>
       </div>
 
       <!-- Timer Sessione (visibile quando attivo) -->
@@ -554,6 +575,211 @@
       </div>
     </div>
 
+    <!-- MAIN FULL-VIEW WORKSPACE: 4 AI DASHBOARDS (Hidden in 🐾 Neko Home) -->
+    <main class="hud-workspace-container" id="hud-workspace-container" style="display: none;">
+      <!-- VIEW 1: 📋 TO-DO KANBAN DASHBOARD -->
+      <section class="workspace-view" id="workspace-view-todo" style="display: none;">
+        <div class="workspace-view-header">
+          <div class="view-title-group">
+            <span class="view-icon">📋</span>
+            <div>
+              <h2 class="view-title">TO-DO KANBAN BOARD</h2>
+              <div class="view-subtitle">Gestione visuale attività, scadenze e scomposizione AI</div>
+            </div>
+          </div>
+          <div class="kanban-project-filters" id="kanban-project-filters">
+            <button type="button" class="proj-filter-btn active" data-filter-proj="all">Tutti</button>
+          </div>
+        </div>
+
+        <!-- Quick-Add Bar -->
+        <form class="kanban-quick-add-form" id="kanban-quick-add-form" autocomplete="off">
+          <input type="text" id="kanban-add-title" class="modal-input" placeholder="Nuova task (es. Cleanup mesh)..." required />
+          <select id="kanban-add-project" class="conn-select" style="max-width: 170px;">
+            <option value="">Nessun progetto</option>
+          </select>
+          <input type="text" id="kanban-add-due" class="modal-input" placeholder="Scadenza (es. lun 2/11)..." style="max-width: 160px;" />
+          <select id="kanban-add-priority" class="conn-select" style="max-width: 130px;">
+            <option value="normal">Normale</option>
+            <option value="high">⚡ Alta</option>
+            <option value="low">Bassa</option>
+          </select>
+          <button type="submit" class="term-btn btn-accent" id="btn-kanban-add">+ Aggiungi Task</button>
+          <button type="button" class="term-btn" id="btn-kanban-ai-plan" title="Chiedi a Neko di pianificare i task per il progetto attivo">✨ Pianifica con AI</button>
+        </form>
+
+        <!-- 3 Kanban Columns -->
+        <div class="kanban-board-grid">
+          <div class="kanban-column" id="kanban-col-todo-wrapper">
+            <div class="kanban-col-header header-todo">
+              <span>📌 DA FARE (<span id="count-kanban-todo">0</span>)</span>
+            </div>
+            <div class="kanban-card-list" id="kanban-col-todo"></div>
+          </div>
+          <div class="kanban-column" id="kanban-col-doing-wrapper">
+            <div class="kanban-col-header header-doing">
+              <span>⚡ IN CORSO (<span id="count-kanban-doing">0</span>)</span>
+            </div>
+            <div class="kanban-card-list" id="kanban-col-doing"></div>
+          </div>
+          <div class="kanban-column" id="kanban-col-done-wrapper">
+            <div class="kanban-col-header header-done">
+              <span>✅ COMPLETATI (<span id="count-kanban-done">0</span>)</span>
+            </div>
+            <div class="kanban-card-list" id="kanban-col-done"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 2: 📌 PROGETTI PROJECT HUB DASHBOARD -->
+      <section class="workspace-view" id="workspace-view-projects" style="display: none;">
+        <div class="workspace-view-header">
+          <div class="view-title-group">
+            <span class="view-icon">📌</span>
+            <div>
+              <h2 class="view-title">HUB PROGETTI &amp; SERVER</h2>
+              <div class="view-subtitle">Avanzamento To-Do, regole clienti, stack tecnologico e cartelle</div>
+            </div>
+          </div>
+          <div class="proj-view-modes">
+            <button type="button" class="term-btn active" id="hub-tab-proj-active">🔥 Attivi (<span id="hub-proj-active-count">0</span>)</button>
+            <button type="button" class="term-btn" id="hub-tab-proj-archive">📦 Archivio (<span id="hub-proj-arch-count">0</span>)</button>
+          </div>
+        </div>
+
+        <!-- Quick Project Creation Bar -->
+        <div class="proj-create-bar">
+          <input type="text" id="hub-proj-new-name" class="modal-input" placeholder="Nome Progetto (es. Nave Intermarine)" style="max-width:180px;" />
+          <input type="text" id="hub-proj-new-client" class="modal-input" placeholder="Cliente (es. Intermarine)" style="max-width:150px;" />
+          <input type="text" id="hub-proj-new-note" class="modal-input" placeholder="Regola cliente (es. Logo sempre Blu Marino)..." style="flex:1;" />
+          <input type="text" id="hub-proj-new-stack" class="modal-input" placeholder="Tech stack (es. Blender, Rust, Three.js)" style="max-width:210px;" />
+          <button type="button" class="term-btn btn-accent" id="btn-hub-create-proj">+ Crea Progetto</button>
+        </div>
+
+        <div class="hub-projects-scroll">
+          <div class="hub-projects-grid" id="hub-projects-grid"></div>
+          <div class="hub-projects-archive-list" id="hub-projects-archive-list" style="display: none;"></div>
+        </div>
+      </section>
+
+      <!-- VIEW 3: 📅 CALENDARIO INTERACTIVE DASHBOARD -->
+      <section class="workspace-view" id="workspace-view-calendar" style="display: none;">
+        <div class="workspace-view-header">
+          <div class="view-title-group">
+            <span class="view-icon">📅</span>
+            <div>
+              <h2 class="view-title">CALENDARIO &amp; SCADENZE</h2>
+              <div class="view-subtitle">Sincronizzazione Google Calendar (.ics) + Scadenze To-Do unificate</div>
+            </div>
+          </div>
+          <div class="cal-header-actions">
+            <div class="cal-view-selector">
+              <button type="button" class="term-btn active" data-cal-view="weekly" id="btn-cal-view-weekly">📅 Settimana</button>
+              <button type="button" class="term-btn" data-cal-view="monthly" id="btn-cal-view-monthly">📆 Mese</button>
+              <button type="button" class="term-btn" data-cal-view="agenda" id="btn-cal-view-agenda">📋 Agenda</button>
+            </div>
+            <button type="button" class="term-btn btn-accent" id="btn-cal-sync-now" title="Forza la rilettura immediata del feed Google Calendar">
+              🔄 Sincronizza Ora
+            </button>
+          </div>
+        </div>
+
+        <!-- Calendar Controls & Quick Add -->
+        <div class="cal-toolbar-row">
+          <div class="cal-nav-group">
+            <button type="button" class="term-btn term-btn-sm" id="btn-cal-prev">◀</button>
+            <button type="button" class="term-btn term-btn-sm" id="btn-cal-today">Oggi</button>
+            <button type="button" class="term-btn term-btn-sm" id="btn-cal-next">▶</button>
+            <span class="cal-range-label" id="cal-view-range-label">Caricamento data...</span>
+          </div>
+          <span class="conn-status-badge" id="cal-sync-status-badge">⏳ Verifica sync...</span>
+          <form class="cal-quick-add-form" id="cal-quick-add-form" autocomplete="off">
+            <input type="date" id="cal-add-date" class="modal-input modal-input-sm" required />
+            <input type="time" id="cal-add-time" class="modal-input" style="max-width: 95px;" value="10:00" required />
+            <input type="text" id="cal-add-title" class="modal-input" placeholder="Nuovo impegno o riunione..." required />
+            <button type="submit" class="term-btn btn-accent">+ Crea Evento</button>
+          </form>
+        </div>
+
+        <div class="cal-view-scroll">
+          <div class="cal-weekly-grid" id="cal-view-weekly"></div>
+          <div class="cal-monthly-grid" id="cal-view-monthly" style="display: none;"></div>
+          <div class="cal-agenda-list" id="cal-view-agenda" style="display: none;"></div>
+        </div>
+      </section>
+
+      <!-- VIEW 4: 🧠 MEMORIA & SKILLS DASHBOARD -->
+      <section class="workspace-view" id="workspace-view-memory" style="display: none;">
+        <div class="workspace-view-header">
+          <div class="view-title-group">
+            <span class="view-icon">🧠</span>
+            <div>
+              <h2 class="view-title">MEMORIA, COMPETENZE &amp; PROFILO</h2>
+              <div class="view-subtitle">Conoscenze apprese da Neko, regole persistenti dei clienti e tratti del tuo profilo</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="memory-dashboard-grid">
+          <!-- Column 1: Skills -->
+          <div class="memory-column" id="mem-col-skills-wrapper">
+            <div class="memory-col-header">
+              <strong>🛠️ COSA SO FARE (<span id="mem-skills-count">0</span>)</strong>
+              <small>Apprendimento evolutivo</small>
+            </div>
+            <div class="mem-quick-add-row">
+              <input type="text" id="mem-new-skill-name" class="modal-input" placeholder="Competenza (es. Rust, Draco)..." />
+              <select id="mem-new-skill-cat" class="conn-select" style="max-width: 140px;">
+                <option value="3D &amp; Modellazione">3D</option>
+                <option value="Sviluppo Web &amp; Realtime">Web/Realtime</option>
+                <option value="Pipeline &amp; Scripting">Pipeline</option>
+                <option value="Design &amp; Creatività">Design</option>
+              </select>
+              <button type="button" class="term-btn btn-accent" id="btn-add-skill">+</button>
+            </div>
+            <div class="memory-col-list" id="mem-skills-list"></div>
+          </div>
+
+          <!-- Column 2: Client Rules -->
+          <div class="memory-column" id="mem-col-rules-wrapper">
+            <div class="memory-col-header">
+              <strong>🏢 REGOLE CLIENTI (<span id="mem-rules-count">0</span>)</strong>
+              <small>FTS5 + Pin permanente</small>
+            </div>
+            <div class="mem-search-row">
+              <input type="text" id="mem-rules-search" class="modal-input" placeholder="Cerca regola o cliente..." />
+            </div>
+            <div class="mem-quick-add-row">
+              <input type="text" id="mem-new-rule-text" class="modal-input" placeholder="Nuova regola (es. Logo Blu Marino)..." />
+              <select id="mem-new-rule-proj" class="conn-select" style="max-width: 140px;">
+                <option value="">Generale</option>
+              </select>
+              <button type="button" class="term-btn btn-accent" id="btn-add-rule">+</button>
+            </div>
+            <div class="memory-col-list" id="mem-rules-list"></div>
+          </div>
+
+          <!-- Column 3: Profile & Profiling -->
+          <div class="memory-column" id="mem-col-profile-wrapper">
+            <div class="memory-col-header">
+              <strong>👤 PROFILO UTENTE (<span id="mem-profile-count">0</span>)</strong>
+              <small>Tratti deduplicati</small>
+            </div>
+            <div class="mem-profiling-prompt-card" id="mem-profiling-prompt-card">
+              <div class="profiling-prompt-text" id="mem-profiling-q-text">Caricamento domanda...</div>
+              <div class="profiling-options-row" id="mem-profiling-options"></div>
+              <div class="profiling-input-row">
+                <input type="text" id="mem-profiling-input" class="modal-input" placeholder="Rispondi a Neko..." />
+                <button type="button" class="term-btn btn-accent" id="btn-mem-profiling-save">Salva</button>
+                <button type="button" class="term-btn" id="btn-mem-profiling-next" title="Nuova domanda">🎲</button>
+              </div>
+            </div>
+            <div class="memory-col-list" id="mem-profile-traits-list"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
     <!-- BOTTOM COMMAND & CHAT BAR (Stile Spotlight / Raycast — Pulita e Leggibile) -->
     <div class="ai-terminal-dock" id="ai-terminal-dock">
       <div class="ai-term-header">
@@ -703,11 +929,11 @@
   </div>
 
   <!-- Moduli JS -->
-  <script src="js/ascii-renderer.js"></script>
-  <script src="js/fluid-field.js"></script>
-  <script src="js/companion-face.js"></script>
-  <script src="js/system-bridge.js"></script>
-  <script src="js/hud-terminal.js"></script>
-  <script src="js/main.js"></script>
+  <script src="js/ascii-renderer.js?v=4"></script>
+  <script src="js/fluid-field.js?v=4"></script>
+  <script src="js/companion-face.js?v=4"></script>
+  <script src="js/system-bridge.js?v=4"></script>
+  <script src="js/hud-terminal.js?v=4"></script>
+  <script src="js/main.js?v=4"></script>
 </body>
 </html>

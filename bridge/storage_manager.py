@@ -557,11 +557,23 @@ class StorageManager:
                                 t_status = item.get("status") if item.get("status") in (
                                     'QUEUED', 'RUNNING', 'WAITING_INPUT', 'RETRY', 'COMPLETED', 'FAILED', 'ABORTED'
                                 ) else "QUEUED"
-                                t_prio = int(item.get("priority", 1))
+                                prio_val = item.get("priority", 1)
+                                if isinstance(prio_val, str):
+                                    t_prio = 2 if prio_val.lower() == "high" else (0 if prio_val.lower() == "low" else 1)
+                                else:
+                                    try:
+                                        t_prio = int(prio_val)
+                                    except Exception:
+                                        t_prio = 1
                                 t_cur_step = int(item.get("current_step", 0))
                                 t_tot_step = int(item.get("total_steps", 1))
                                 t_steps_json = json.dumps(item.get("steps", []))
-                                t_created = float(item.get("created_at") or time.time())
+                                cr = item.get("created_at")
+                                try:
+                                    t_created = float(cr)
+                                except (ValueError, TypeError):
+                                    t_created = time.time()
+                                t_project_id = item.get("project_id")
                             else:
                                 continue
 
@@ -572,10 +584,10 @@ class StorageManager:
                             if cur.fetchone() is None:
                                 conn.execute(
                                     """
-                                    INSERT INTO tasks (id, title, status, priority, current_step, total_steps, steps_json, created_at)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                    INSERT INTO tasks (id, title, status, project_id, priority, current_step, total_steps, steps_json, created_at)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                                     """,
-                                    (t_id, t_title, t_status, t_prio, t_cur_step, t_tot_step, t_steps_json, t_created),
+                                    (t_id, t_title, t_status, t_project_id, t_prio, t_cur_step, t_tot_step, t_steps_json, t_created),
                                 )
                                 counts["tasks"] += 1
             except Exception as e:
@@ -734,6 +746,7 @@ class StorageManager:
         project_id: Optional[str] = None,
         importance: float = 0.5,
         pinned: bool = False,
+        source: str = "user",
     ) -> str:
         """
         Hybrid deduplication (threshold >= 0.85): updates timestamp & frequency if duplicate,
@@ -746,7 +759,7 @@ class StorageManager:
                 project_id=project_id,
                 importance=importance,
                 pinned=pinned,
-                source="user",
+                source=source,
             )
             return mid
 
@@ -765,16 +778,16 @@ class StorageManager:
             if not clean_text:
                 raise ValueError("Memory text cannot be empty.")
             now = time.time()
-            if project_id:
-                try:
-                    conn.execute(
-                        "INSERT OR IGNORE INTO projects (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
-                        (project_id, project_id, now, now),
-                    )
-                except Exception:
-                    pass
             mem_id = f"mem_{int(now * 1000)}_{uuid.uuid4().hex[:6]}"
             with self.transaction() as conn:
+                if project_id:
+                    try:
+                        conn.execute(
+                            "INSERT OR IGNORE INTO projects (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                            (project_id, project_id, now, now),
+                        )
+                    except Exception:
+                        pass
                 conn.execute(
                     """
                     INSERT INTO memories (id, text, category, project_id, importance, pinned, frequency, source, created_at, updated_at)
@@ -794,6 +807,8 @@ class StorageManager:
                 "created_at": now,
                 "updated_at": now,
             }
+
+    insert_memory = add_memory
 
     def get_memories(self, project_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Returns all memories, optionally filtered by project_id."""

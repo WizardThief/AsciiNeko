@@ -27,6 +27,11 @@ class SystemBridge {
     if (!this.state.system) this.state.system = {};
     this.state.system.memoryCount = 0;
     this.state.system.todoCount = 0;
+    this.state.system.calendarEvents = [];
+    this.state.system.todoDeadlines = [];
+    this.state.system.calendarSyncStatus = null;
+    this.state.system.skillsLearned = [];
+    this.state.system.projectsList = [];
     this.state.system.calendar = {
       configured: false,
       ical_urls: [],
@@ -360,6 +365,42 @@ class SystemBridge {
     return { ok: false, skills: [] };
   }
 
+  async todosAction(payload) {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/todos/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {})
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return { ok: false, error: 'Network error' };
+  }
+
+  async skillsLearnedAction(payload) {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/skills_learned/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {})
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return { ok: false, error: 'Network error' };
+  }
+
+  async calendarAction(payload) {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/calendar/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {})
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return { ok: false, error: 'Network error' };
+  }
+
   applyBridgeData(data) {
     this.bridgeConnected = true;
     this.state.system.bridgeOnline = true;
@@ -433,6 +474,21 @@ class SystemBridge {
     }
     if (data.calendar) {
       this.state.system.calendar = data.calendar;
+    }
+    if (Array.isArray(data.calendar_events)) {
+      this.state.system.calendarEvents = data.calendar_events;
+    }
+    if (Array.isArray(data.todo_deadlines)) {
+      this.state.system.todoDeadlines = data.todo_deadlines;
+    }
+    if (data.calendar_sync_status) {
+      this.state.system.calendarSyncStatus = data.calendar_sync_status;
+    }
+    if (Array.isArray(data.skills_learned)) {
+      this.state.system.skillsLearned = data.skills_learned;
+    }
+    if (Array.isArray(data.projects)) {
+      this.state.system.projectsList = data.projects;
     }
 
     if (typeof data.code_version === 'number' && data.code_version > 0) {
