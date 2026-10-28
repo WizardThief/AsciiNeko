@@ -3278,9 +3278,29 @@ class HudTerminal {
   initMilestone3Workspace() {
     this.elWorkspaceNav = document.getElementById('hud-workspace-nav');
     this.elWorkspaceContainer = document.getElementById('hud-workspace-container');
+    this.elHudLayer = document.getElementById('hud-layer');
     this.elHomeNextTaskChip = document.getElementById('home-next-task-chip');
     this.elHomeNextTaskTitle = document.getElementById('home-next-task-title');
     this.elHomeNextTaskDate = document.getElementById('home-next-task-date');
+
+    // Cyber-Studio Tactile Co-Pilot HUD Elements (R2)
+    this.elNekoCopilotHud = document.getElementById('neko-copilot-hud');
+    this.elCopilotCardRadar = document.getElementById('copilot-card-radar');
+    this.elCopilotRadarBody = document.getElementById('copilot-radar-body');
+    this.elCopilotCardTask = document.getElementById('copilot-card-task');
+    this.elCopilotTaskBody = document.getElementById('copilot-task-body');
+    this.elCopilotTaskStatus = document.getElementById('copilot-task-status');
+    this.elCopilotCardBrain = document.getElementById('copilot-card-brain');
+    this.elCopilotBrainBody = document.getElementById('copilot-brain-body');
+    this.elCopilotTokVal = document.getElementById('copilot-tok-val');
+    this._lastCopilotKey = null;
+
+    // Progressive Disclosure Drawers & Subtabs (R3)
+    this.elBtnToggleNewProjDrawer = document.getElementById('btn-toggle-new-proj-drawer');
+    this.elBtnTogglePlaybookDrawer = document.getElementById('btn-toggle-playbook-drawer');
+    this.elProjCreateBar = document.getElementById('proj-create-bar');
+    this.elMemorySubtabs = document.getElementById('memory-view-subtabs');
+    this.activeMemSubtab = 'instincts-rules';
 
     // Badges
     this.elTabTodoBadge = document.getElementById('tab-todo-badge');
@@ -3491,6 +3511,42 @@ class HudTerminal {
           e.preventDefault();
           const tabId = btn.getAttribute('data-workspace-tab');
           this.switchWorkspace(tabId);
+        }
+      });
+    }
+
+    // Hotkeys unificati [Alt+1] .. [Alt+5] per navigazione rapida workspace
+    if (typeof window !== 'undefined') {
+      window.addEventListener('keydown', (e) => {
+        // Ignora se l'utente sta digitando in un campo input/textarea/select
+        const active = typeof document !== 'undefined' ? document.activeElement : null;
+        if (
+          active &&
+          (['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName) || active.isContentEditable)
+        ) {
+          return;
+        }
+
+        // Intercetta solo combinazioni Alt pure (escludi AltGr/ctrlKey, shiftKey, metaKey)
+        if (e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+          if (e.key && e.key.toLowerCase() === 'h') {
+            e.preventDefault();
+            this.cycleHudVisibility();
+            return;
+          }
+
+          const workspaceKeyMap = {
+            '1': 'view-home',
+            '2': 'view-todo',
+            '3': 'view-projects',
+            '4': 'view-calendar',
+            '5': 'view-memory'
+          };
+          const targetWorkspace = workspaceKeyMap[e.key];
+          if (targetWorkspace) {
+            e.preventDefault();
+            this.switchWorkspace(targetWorkspace);
+          }
         }
       });
     }
@@ -3730,6 +3786,20 @@ class HudTerminal {
 
     if (this.elHubProjectsGrid) {
       this.elHubProjectsGrid.addEventListener('click', async (e) => {
+        const focusBtn = e.target.closest('.btn-proj-focus');
+        if (focusBtn) {
+          const projName = focusBtn.getAttribute('data-proj-name');
+          if (projName) {
+            if (!this.state.system) this.state.system = {};
+            this.state.system.activeProjectName = projName;
+            this.renderProjectHub();
+            this.renderHomeNextTaskChip();
+            if (typeof this.renderCopilotHud === 'function') this.renderCopilotHud();
+            this.say(`🎯 Progetto focus impostato: "${projName}"`);
+          }
+          return;
+        }
+
         const planBtn = e.target.closest('.btn-proj-ask-plan');
         if (planBtn) {
           const projName = planBtn.getAttribute('data-proj-name');
@@ -4402,6 +4472,148 @@ class HudTerminal {
         }
       });
     }
+
+    // Progressive Disclosure Drawers in Progetti (R3)
+    if (this.elBtnToggleNewProjDrawer) {
+      this.elBtnToggleNewProjDrawer.addEventListener('click', () => {
+        if (!this.elProjCreateBar) this.elProjCreateBar = document.getElementById('proj-create-bar');
+        if (this.elProjCreateBar) {
+          const isOpen = this.elProjCreateBar.classList.contains('drawer-open') || (this.elProjCreateBar.style.display !== 'none' && this.elProjCreateBar.style.display !== '');
+          this.elProjCreateBar.style.display = isOpen ? 'none' : 'flex';
+          this.elProjCreateBar.classList.toggle('drawer-open', !isOpen);
+          this.elBtnToggleNewProjDrawer.classList.toggle('active', !isOpen);
+        }
+      });
+    }
+
+    if (this.elBtnTogglePlaybookDrawer) {
+      this.elBtnTogglePlaybookDrawer.addEventListener('click', () => {
+        if (!this.elPlaybookQuickBar) this.elPlaybookQuickBar = document.getElementById('playbook-quick-bar');
+        if (this.elPlaybookQuickBar) {
+          const isOpen = this.elPlaybookQuickBar.classList.contains('drawer-open') || (this.elPlaybookQuickBar.style.display !== 'none' && this.elPlaybookQuickBar.style.display !== '');
+          this.elPlaybookQuickBar.style.display = isOpen ? 'none' : 'flex';
+          this.elPlaybookQuickBar.classList.toggle('drawer-open', !isOpen);
+          this.elBtnTogglePlaybookDrawer.classList.toggle('active', !isOpen);
+        }
+      });
+    }
+
+    // Memoria 3-Subtab Switcher (R3)
+    if (this.elMemorySubtabs) {
+      this.elMemorySubtabs.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-mem-view]');
+        if (btn) {
+          e.preventDefault();
+          const subtabId = btn.getAttribute('data-mem-view');
+          this.switchMemorySubtab(subtabId);
+        }
+      });
+    }
+
+    // Co-Pilot HUD 1-Click Collaborative Actions (R2)
+    if (this.elNekoCopilotHud) {
+      this.elNekoCopilotHud.addEventListener('click', async (e) => {
+        const openFolderBtn = e.target.closest('.btn-copilot-open-folder');
+        if (openFolderBtn) {
+          const projId = openFolderBtn.getAttribute('data-proj-id');
+          const wsPath = openFolderBtn.getAttribute('data-path') || '';
+          this.say('📂 Apertura cartella di lavoro in Esplora Risorse...');
+          if (window.systemBridge && window.systemBridge.openProjectFolder) {
+            const res = await window.systemBridge.openProjectFolder(projId, wsPath, false);
+            if (res && !res.ok) {
+              this.say(`⚠️ Impossibile aprire cartella: ${res.error || 'percorso non valido'}`);
+            }
+          }
+          return;
+        }
+
+        const scanFolderBtn = e.target.closest('.btn-copilot-scan-folder');
+        if (scanFolderBtn) {
+          const projId = scanFolderBtn.getAttribute('data-proj-id');
+          if (projId && window.systemBridge && window.systemBridge.scanProjectFolder) {
+            scanFolderBtn.textContent = '⏳';
+            scanFolderBtn.disabled = true;
+            const res = await window.systemBridge.scanProjectFolder(projId, true);
+            scanFolderBtn.textContent = '🔄';
+            scanFolderBtn.disabled = false;
+            if (res && res.ok) {
+              const count = (res.workspace_summary && res.workspace_summary.total_files !== undefined) ? res.workspace_summary.total_files : 0;
+              this.say(`✅ Scansione completata: ${count} file rilevati.`);
+              this.renderCopilotHud();
+            } else {
+              this.say(`⚠️ Scansione fallita: ${res ? res.error : 'errore di rete'}`);
+            }
+          }
+          return;
+        }
+
+        const bindFolderBtn = e.target.closest('.btn-copilot-bind-folder');
+        if (bindFolderBtn) {
+          this.switchWorkspace('view-projects');
+          return;
+        }
+
+        const startTaskBtn = e.target.closest('.btn-copilot-start-task');
+        if (startTaskBtn) {
+          const taskId = startTaskBtn.getAttribute('data-task-id');
+          const taskTitle = startTaskBtn.getAttribute('data-task-title') || 'Task';
+          if (taskId) {
+            if (this.actions.todosAction) {
+              await this.actions.todosAction({ action: 'status', id: taskId, status: 'doing' });
+            } else if (window.systemBridge && window.systemBridge.todosAction) {
+              await window.systemBridge.todosAction({ action: 'status', id: taskId, status: 'doing' });
+            }
+            if (this.state.system && Array.isArray(this.state.system.todosList)) {
+              const t = this.state.system.todosList.find((item) => typeof item === 'object' && item.id === taskId);
+              if (t) t.status = 'doing';
+            }
+            this.renderCopilotHud();
+            this.renderHomeNextTaskChip();
+            this.say(`⚡ Task avviato: "${taskTitle}"`);
+          }
+          return;
+        }
+
+        const completeTaskBtn = e.target.closest('.btn-copilot-complete-task');
+        if (completeTaskBtn) {
+          const taskId = completeTaskBtn.getAttribute('data-task-id');
+          const taskTitle = completeTaskBtn.getAttribute('data-task-title') || 'Task';
+          if (taskId) {
+            if (this.actions.todosAction) {
+              await this.actions.todosAction({ action: 'status', id: taskId, status: 'done' });
+            } else if (window.systemBridge && window.systemBridge.todosAction) {
+              await window.systemBridge.todosAction({ action: 'status', id: taskId, status: 'done' });
+            }
+            if (this.state.system && Array.isArray(this.state.system.todosList)) {
+              const t = this.state.system.todosList.find((item) => typeof item === 'object' && item.id === taskId);
+              if (t) t.status = 'done';
+            }
+            this.renderCopilotHud();
+            this.renderHomeNextTaskChip();
+            this.say(`✅ Task completato: "${taskTitle}"`);
+          }
+          return;
+        }
+
+        const qgBtn = e.target.closest('.btn-copilot-quality-gate');
+        if (qgBtn) {
+          const projId = qgBtn.getAttribute('data-proj-id');
+          const projName = qgBtn.getAttribute('data-proj-name') || 'Progetto';
+          if (projId) {
+            this.openQualityGateModal(projId, projName);
+          } else {
+            this.say('⚠️ Seleziona un progetto attivo prima di avviare il Quality Gate.');
+          }
+          return;
+        }
+
+        const inspectMemBtn = e.target.closest('.btn-copilot-inspect-mem');
+        if (inspectMemBtn) {
+          this.switchWorkspace('view-memory');
+          return;
+        }
+      });
+    }
   }
 
   async openBindFolderPrompt(projId) {
@@ -4439,6 +4651,19 @@ class HudTerminal {
     if (this.state && this.state.system) {
       this.state.system.contextMode = mode;
     }
+
+    if (typeof document !== 'undefined') {
+      if (document.body) {
+        document.body.setAttribute('data-context-mode', mode);
+      }
+      if (!this.elHudLayer) {
+        this.elHudLayer = document.getElementById('hud-layer');
+      }
+      if (this.elHudLayer) {
+        this.elHudLayer.setAttribute('data-context-mode', mode);
+      }
+    }
+
     if (this.elContextModePill) {
       this.elContextModePill.classList.remove('mode-operativo', 'mode-project_manager', 'mode-knowledge_curator');
       this.elContextModePill.classList.add(`mode-${mode}`);
@@ -4478,12 +4703,19 @@ class HudTerminal {
       if (this.elWorkspaceContainer) {
         this.elWorkspaceContainer.style.display = 'none';
       }
+      if (this.elNekoCopilotHud) {
+        this.elNekoCopilotHud.style.display = 'flex';
+      }
       if (this.elViewTodo) this.elViewTodo.style.display = 'none';
       if (this.elViewProjects) this.elViewProjects.style.display = 'none';
       if (this.elViewCalendar) this.elViewCalendar.style.display = 'none';
       if (this.elViewMemory) this.elViewMemory.style.display = 'none';
       this.renderHomeNextTaskChip();
+      this.renderCopilotHud();
     } else {
+      if (this.elNekoCopilotHud) {
+        this.elNekoCopilotHud.style.display = 'none';
+      }
       if (this.elWorkspaceContainer) {
         this.elWorkspaceContainer.style.display = 'flex';
       }
@@ -4557,6 +4789,166 @@ class HudTerminal {
       priority: 'normal',
       subtasks: []
     };
+  }
+
+  renderCopilotHud() {
+    if (!this.elNekoCopilotHud) return;
+
+    const system = (this.state && this.state.system) ? this.state.system : {};
+    const projects = Array.isArray(system.projectsList) ? system.projectsList : [];
+    const activeProjName = system.activeProjectName || (projects.length > 0 && projects[0] ? projects[0].name : 'Nave Intermarine');
+    const activeProj = projects.find((p) => p && p.name === activeProjName) || (projects.length > 0 ? projects[0] : null);
+
+    // 1. Radar Card (#copilot-radar-body)
+    if (this.elCopilotRadarBody) {
+      const activeWin = system.activeWindow || {};
+      const activeApp = activeWin.app || system.active_app || '3ds Max 2026';
+      const activeDoc = activeWin.title || (activeProj ? activeProj.name : 'Nave Intermarine.max');
+      const wsPath = activeProj ? (activeProj.workspace_path || '') : '';
+      const wsSummary = activeProj ? (activeProj.workspace_summary || null) : null;
+      const modToday = (wsSummary && wsSummary.modified_today_count !== undefined) ? wsSummary.modified_today_count : 0;
+      const totalFiles = (wsSummary && wsSummary.total_files !== undefined) ? wsSummary.total_files : 0;
+      const gitBranch = (wsSummary && wsSummary.git_info && wsSummary.git_info.branch) ? wsSummary.git_info.branch : 'main';
+
+      let folderActionHtml = '';
+      if (wsPath) {
+        folderActionHtml = `
+          <div class="copilot-ws-row">
+            <span class="copilot-ws-path" title="${this.escapeHtml(wsPath)}">📁 ${this.escapeHtml(wsPath)}</span>
+            <div class="copilot-ws-btns">
+              <button type="button" class="copilot-mini-btn btn-copilot-open-folder" data-proj-id="${activeProj ? this.escapeHtml(activeProj.id || '') : ''}" data-path="${this.escapeHtml(wsPath)}" title="Apri cartella">📂</button>
+              <button type="button" class="copilot-mini-btn btn-copilot-scan-folder" data-proj-id="${activeProj ? this.escapeHtml(activeProj.id || '') : ''}" title="Scansiona radar">🔄</button>
+            </div>
+          </div>
+        `;
+      } else {
+        folderActionHtml = `
+          <div class="copilot-ws-row copilot-unbound">
+            <span class="copilot-ws-unbound">📁 <em>Cartella non associata</em></span>
+            <button type="button" class="copilot-mini-btn btn-accent btn-copilot-bind-folder" title="Associa cartella">🔗 Associa</button>
+          </div>
+        `;
+      }
+
+      this.elCopilotRadarBody.innerHTML = `
+        <div class="copilot-metric-row">
+          <span class="copilot-metric-label">Finestra Attiva:</span>
+          <span class="copilot-app-tag">🖥️ ${this.escapeHtml(activeApp)}</span>
+        </div>
+        <div class="copilot-doc-title" title="${this.escapeHtml(activeDoc)}">
+          📄 ${this.escapeHtml(activeDoc)}
+        </div>
+        <div class="copilot-metric-row">
+          <span class="copilot-metric-label">Progetto Focus:</span>
+          <strong class="copilot-proj-focus">🚢 ${this.escapeHtml(activeProj ? activeProj.name : activeProjName)}</strong>
+        </div>
+        ${folderActionHtml}
+        <div class="copilot-radar-telemetry">
+          <span class="radar-chip ${modToday > 0 ? 'chip-active' : ''}">⚡ ${modToday} modif. oggi</span>
+          <span class="radar-chip">📦 ${totalFiles} file</span>
+          <span class="radar-chip chip-git">🌿 ${this.escapeHtml(gitBranch)}</span>
+        </div>
+      `;
+    }
+
+    // 2. Task Focus Card (#copilot-task-body & #copilot-task-status)
+    if (this.elCopilotTaskBody) {
+      const rawTodos = Array.isArray(system.todosList) ? system.todosList : [];
+      const todos = rawTodos.map((t, i) => this.normalizeTodo(t, i));
+      const doingTask = todos.find((t) => t.status === 'doing');
+      const nextTodo = todos.find((t) => t.status === 'todo');
+      const activeTask = doingTask || nextTodo || null;
+
+      if (this.elCopilotTaskStatus) {
+        if (doingTask) {
+          this.elCopilotTaskStatus.textContent = 'IN CORSO';
+          this.elCopilotTaskStatus.className = 'card-status-badge status-doing';
+        } else if (nextTodo) {
+          this.elCopilotTaskStatus.textContent = 'PROSSIMO';
+          this.elCopilotTaskStatus.className = 'card-status-badge status-todo';
+        } else {
+          this.elCopilotTaskStatus.textContent = 'LIBERO';
+          this.elCopilotTaskStatus.className = 'card-status-badge status-free';
+        }
+      }
+
+      if (activeTask) {
+        const isDoing = activeTask.status === 'doing';
+        const projName = activeTask.project || (activeProj ? activeProj.name : '');
+        const dueText = activeTask.due_label || activeTask.due_date || '';
+
+        this.elCopilotTaskBody.innerHTML = `
+          <div class="copilot-task-title-row">
+            <span class="copilot-task-indicator">${isDoing ? '⚡' : '📌'}</span>
+            <div class="copilot-task-details">
+              <strong class="copilot-task-name">${this.escapeHtml(activeTask.title)}</strong>
+              <div class="copilot-task-meta">
+                ${projName ? `<span class="badge-proj-tag">${this.escapeHtml(projName)}</span>` : ''}
+                ${dueText ? `<span class="badge-due-tag">📅 ${this.escapeHtml(dueText)}</span>` : ''}
+                <span class="badge-prio-tag prio-${this.escapeHtml(activeTask.priority || 'normal')}">${this.escapeHtml(activeTask.priority || 'normal')}</span>
+              </div>
+            </div>
+          </div>
+          <div class="copilot-task-actions">
+            ${isDoing ? `
+              <button type="button" class="copilot-btn-action btn-copilot-complete-task" data-task-id="${this.escapeHtml(activeTask.id)}" data-task-title="${this.escapeHtml(activeTask.title)}">✅ Completa Task</button>
+              <button type="button" class="copilot-btn-action btn-copilot-quality-gate" data-proj-id="${activeProj ? this.escapeHtml(activeProj.id || '') : ''}" data-proj-name="${activeProj ? this.escapeHtml(activeProj.name || '') : ''}">🛡️ Quality Gate</button>
+            ` : `
+              <button type="button" class="copilot-btn-action btn-copilot-start-task" data-task-id="${this.escapeHtml(activeTask.id)}" data-task-title="${this.escapeHtml(activeTask.title)}">⚡ Avvia Task</button>
+              <button type="button" class="copilot-btn-action btn-copilot-complete-task" data-task-id="${this.escapeHtml(activeTask.id)}" data-task-title="${this.escapeHtml(activeTask.title)}">✅ Segna Fatto</button>
+            `}
+          </div>
+        `;
+      } else {
+        this.elCopilotTaskBody.innerHTML = `
+          <div class="copilot-task-empty">
+            <span>✨ Nessun task operativo in coda</span>
+            <p>Seleziona un progetto o chiedi a Neko di pianificare nuove attività.</p>
+          </div>
+        `;
+      }
+    }
+
+    // 3. Brain & Rules Card (#copilot-brain-body & #copilot-tok-val)
+    if (this.elCopilotBrainBody) {
+      const budget = system.contextBudget || { used_tokens: 3420, max_tokens: 8192, used_pct: 42 };
+      if (this.elCopilotTokVal) {
+        this.elCopilotTokVal.textContent = `${budget.used_tokens || 3420} tok (${budget.used_pct || 42}%)`;
+      }
+
+      const memories = Array.isArray(system.memories) ? system.memories : [];
+      const pinnedRule = memories.find((m) => m && m.pinned)
+        || memories.find((m) => m && m.category && m.category.toLowerCase().includes('regola'))
+        || (memories.length > 0 ? memories[0] : null);
+      const ruleText = pinnedRule
+        ? (pinnedRule.text || pinnedRule.content || '')
+        : (activeProj && activeProj.notes ? activeProj.notes : 'Nessuna regola vincolante registrata');
+
+      const instincts = Array.isArray(system.instinctsList) ? system.instinctsList : (Array.isArray(system.atomicInstincts) ? system.atomicInstincts : []);
+      const topInstinct = instincts.find((i) => i && typeof i.confidence === 'number' && i.confidence >= 0.85)
+        || (instincts.length > 0 ? instincts[0] : null);
+      const instinctAction = topInstinct
+        ? (topInstinct.action || topInstinct.action_text || topInstinct.trigger || '')
+        : 'Mantieni standard ACEScg e precisione geometrica';
+
+      this.elCopilotBrainBody.innerHTML = `
+        <div class="copilot-brain-section">
+          <div class="copilot-brain-label">📌 Regola Cliente Attiva:</div>
+          <div class="copilot-rule-callout" title="${this.escapeHtml(ruleText)}">
+            "${this.escapeHtml(ruleText)}"
+          </div>
+        </div>
+        <div class="copilot-brain-section">
+          <div class="copilot-brain-label">🧬 Top Istinto Autonomo:</div>
+          <div class="copilot-instinct-badge" title="${this.escapeHtml(instinctAction)}">
+            ⚡ ${this.escapeHtml(instinctAction)}
+          </div>
+        </div>
+        <div class="copilot-brain-actions">
+          <button type="button" class="copilot-btn-action btn-copilot-inspect-mem">🧠 Ispeziona Memoria</button>
+        </div>
+      `;
+    }
   }
 
   renderHomeNextTaskChip() {
@@ -4751,9 +5143,12 @@ class HudTerminal {
       : [];
     const allTasks = rawTodos.map((t, i) => this.normalizeTodo(t, i));
 
+    const activeFocusName = (this.state.system && this.state.system.activeProjectName) || '';
+
     let html = '';
     activeList.forEach((p) => {
       const pName = p.name || 'Progetto';
+      const isFocus = Boolean(activeFocusName && activeFocusName.toLowerCase() === pName.toLowerCase());
       const linked = allTasks.filter((t) => t.project && t.project.toLowerCase() === pName.toLowerCase());
       const total = linked.length;
       const done = linked.filter((t) => t.status === 'done').length;
@@ -4837,38 +5232,52 @@ class HudTerminal {
       }
 
       html += `
-        <div class="hub-project-card" data-proj-id="${this.escapeHtml(p.id || '')}">
-          <div class="hub-proj-header">
-            <h3 class="hub-proj-title">🚢 ${this.escapeHtml(pName)}</h3>
-            <span class="hub-proj-client-pill">Cliente: ${this.escapeHtml(p.client || 'Diretto')}</span>
-          </div>
-
-          <div class="hub-proj-progress">
-            <div class="hub-proj-progress-header">
-              <span>Avanzamento To-Do:</span>
-              <strong>${done}/${total} task (${pct}%)</strong>
+        <div class="hub-project-card ${isFocus ? 'card-in-focus' : ''}" data-proj-id="${this.escapeHtml(p.id || '')}">
+          <!-- Zone 1: Header + Progress with Focus Indicator -->
+          <div class="proj-card-zone proj-zone-header hub-proj-card-header">
+            <div class="hub-proj-header">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <h3 class="hub-proj-title">🚢 ${this.escapeHtml(pName)}</h3>
+                ${isFocus ? '<span class="badge-focus">🎯 IN FOCUS</span>' : ''}
+              </div>
+              <span class="hub-proj-client-pill">Cliente: ${this.escapeHtml(p.client || 'Diretto')}</span>
             </div>
-            <div class="hub-progress-track">
-              <div class="hub-progress-bar" style="width: ${pct}%;"></div>
+
+            <div class="hub-proj-progress">
+              <div class="hub-proj-progress-header">
+                <span>Avanzamento To-Do:</span>
+                <strong>${done}/${total} task (${pct}%)</strong>
+              </div>
+              <div class="hub-progress-track">
+                <div class="hub-progress-bar" style="width: ${pct}%;"></div>
+              </div>
             </div>
           </div>
 
-          ${folderHtml}
-
-          <div class="hub-proj-section-title">Attività collegate (${total}):</div>
-          <div class="hub-proj-tasks-list">
-            ${tasksHtml}
+          <!-- Zone 2: Workspace Folder + Radar Strip -->
+          <div class="proj-card-zone proj-zone-radar">
+            ${folderHtml}
           </div>
 
-          <div class="hub-proj-section-title">Regole e Note Cliente:</div>
-          <div class="hub-proj-rules">${this.escapeHtml(rule)}</div>
+          <!-- Zone 3: Pinned Rules & Stack -->
+          <div class="proj-card-zone proj-zone-rules">
+            <div class="hub-proj-section-title">Attività collegate (${total}):</div>
+            <div class="hub-proj-tasks-list">
+              ${tasksHtml}
+            </div>
 
-          <div class="hub-proj-section-title">Stack Tecnologico:</div>
-          <div class="hub-proj-stack">
-            ${stack.map((s) => `<span class="hub-tech-tag">${this.escapeHtml(String(s).trim())}</span>`).join('')}
+            <div class="hub-proj-section-title">Regole e Note Cliente:</div>
+            <div class="hub-proj-rules">${this.escapeHtml(rule)}</div>
+
+            <div class="hub-proj-section-title">Stack Tecnologico:</div>
+            <div class="hub-proj-stack">
+              ${stack.map((s) => `<span class="hub-tech-tag">${this.escapeHtml(String(s).trim())}</span>`).join('')}
+            </div>
           </div>
 
-          <div class="hub-proj-actions">
+          <!-- Zone 4: Action Bar -->
+          <div class="proj-card-zone proj-zone-actions hub-proj-actions">
+            <button type="button" class="term-btn term-btn-sm ${isFocus ? 'btn-accent' : 'btn-proj-focus'}" data-proj-id="${this.escapeHtml(p.id || '')}" data-proj-name="${this.escapeHtml(pName)}">${isFocus ? '🎯 In Focus' : '🎯 Imposta Focus'}</button>
             <button type="button" class="term-btn term-btn-sm btn-proj-open-folder" data-proj-id="${this.escapeHtml(p.id || '')}" data-path="${this.escapeHtml(wsPath)}" data-proj-name="${this.escapeHtml(pName)}">📂 Apri Cartella</button>
             <button type="button" class="term-btn term-btn-sm btn-accent btn-proj-ask-plan" data-proj-name="${this.escapeHtml(pName)}">🤖 Chiedi Piano a Neko</button>
             <button type="button" class="term-btn term-btn-sm btn-proj-evolve" data-proj-id="${this.escapeHtml(p.id || '')}">🧬 Evolvi in Playbook</button>
@@ -5245,7 +5654,52 @@ class HudTerminal {
     this.elSkillsSwitchboardList.innerHTML = html;
   }
 
+  switchMemorySubtab(subtabId) {
+    const validSubtabs = ['instincts-rules', 'ecc-arsenal', 'profile-skills'];
+    const targetSubtab = validSubtabs.includes(subtabId) ? subtabId : 'instincts-rules';
+    this.activeMemSubtab = targetSubtab;
+
+    if (!this.elMemorySubtabs) {
+      this.elMemorySubtabs = document.getElementById('memory-view-subtabs');
+    }
+    if (this.elMemorySubtabs) {
+      this.elMemorySubtabs.querySelectorAll('[data-mem-view]').forEach((btn) => {
+        btn.classList.toggle('active', btn.getAttribute('data-mem-view') === targetSubtab);
+      });
+    }
+
+    if (!this.elViewMemory) {
+      this.elViewMemory = document.getElementById('workspace-view-memory');
+    }
+    if (this.elViewMemory) {
+      this.elViewMemory.setAttribute('data-active-mem-view', targetSubtab);
+    }
+
+    const paneInstincts = document.getElementById('mem-subpane-instincts-rules');
+    const paneArsenal = document.getElementById('mem-subpane-ecc-arsenal');
+    const paneProfile = document.getElementById('mem-subpane-profile-skills');
+
+    if (paneInstincts) paneInstincts.style.display = (targetSubtab === 'instincts-rules' ? 'grid' : 'none');
+    if (paneArsenal) paneArsenal.style.display = (targetSubtab === 'ecc-arsenal' ? 'flex' : 'none');
+    if (paneProfile) paneProfile.style.display = (targetSubtab === 'profile-skills' ? 'grid' : 'none');
+
+    if (this.elContextBudgetContainer) {
+      this.elContextBudgetContainer.style.display = 'flex';
+    }
+
+    this.renderMemoryDashboard();
+  }
+
   renderMemoryDashboard() {
+    const activeSub = this.activeMemSubtab || 'instincts-rules';
+    const paneInstincts = document.getElementById('mem-subpane-instincts-rules');
+    const paneArsenal = document.getElementById('mem-subpane-ecc-arsenal');
+    const paneProfile = document.getElementById('mem-subpane-profile-skills');
+
+    if (paneInstincts) paneInstincts.style.display = (activeSub === 'instincts-rules' ? 'grid' : 'none');
+    if (paneArsenal) paneArsenal.style.display = (activeSub === 'ecc-arsenal' ? 'flex' : 'none');
+    if (paneProfile) paneProfile.style.display = (activeSub === 'profile-skills' ? 'grid' : 'none');
+
     this.renderContextBudget();
     this.renderMcpGrid();
     this.renderSkillsSwitchboard();
@@ -5765,10 +6219,19 @@ class HudTerminal {
     const skillsReg = (this.state.system && Array.isArray(this.state.system.skillsRegistry)) ? this.state.system.skillsRegistry : [];
     const memKey = `${skills.length}:${instincts.length}:${budgetTokens}:${this.state.system ? this.state.system.memoryCount : 0}:${mcpConns.map((c) => (c.id || '') + c.enabled).join(',')}:${skillsReg.map((s) => (s.id || '') + s.enabled).join(',')}`;
 
+    const activeWin = (this.state.system && this.state.system.activeWindow) ? (this.state.system.activeWindow.title || this.state.system.activeWindow.app || '') : '';
+    const copilotKey = `${todoKey}:${projKey}:${activeWin}:${budgetTokens}`;
+
     if (this.activeWorkspace === 'view-home') {
       if (this._lastKanbanKey !== todoKey) {
         this._lastKanbanKey = todoKey;
         this.renderHomeNextTaskChip();
+      }
+      if (this._lastCopilotKey !== copilotKey) {
+        this._lastCopilotKey = copilotKey;
+        if (typeof this.renderCopilotHud === 'function') {
+          this.renderCopilotHud();
+        }
       }
       return;
     }

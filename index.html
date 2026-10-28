@@ -15,95 +15,102 @@
 
   <!-- Interfaccia HUD & App Desktop Pulita -->
   <div class="hud-layer" id="hud-layer">
-    <!-- TOP BAR PULITA E INTUITIVA -->
+    <!-- TOP BAR PULITA E INTUITIVA - 3 BALANCED ZONES -->
     <div class="hud-top-bar" id="status-matrix-panel">
-      <!-- 4-Channel Hardware Telemetry (F12) -->
-      <div class="top-bar-section hud-collapsible" id="hardware-telemetry">
-        <span class="status-dot" id="ai-dot"></span>
-        <span class="sys-stat">CPU <strong id="cpu-val">--%</strong></span>
-        <span class="sys-sep">·</span>
-        <span class="sys-stat">RAM <strong id="ram-val">--%</strong></span>
-        <span class="sys-sep">·</span>
-        <span class="sys-stat">GPU <strong id="gpu-val">--%</strong></span>
-        <span class="sys-sep">·</span>
-        <span class="sys-stat" id="vram-stat">VRAM <strong id="vram-val">-- / -- GB</strong></span>
+      <!-- ZONE 1: LEFT — HARDWARE TELEMETRY & ACTIVE APP TRACKING -->
+      <div class="top-bar-zone top-bar-zone-left" id="top-bar-zone-left">
+        <!-- 4-Channel Hardware Telemetry (F12) -->
+        <div class="top-bar-section hud-collapsible" id="hardware-telemetry">
+          <span class="status-dot" id="ai-dot"></span>
+          <span class="sys-stat">CPU <strong id="cpu-val">--%</strong></span>
+          <span class="sys-sep">·</span>
+          <span class="sys-stat">RAM <strong id="ram-val">--%</strong></span>
+          <span class="sys-sep">·</span>
+          <span class="sys-stat">GPU <strong id="gpu-val">--%</strong></span>
+          <span class="sys-sep">·</span>
+          <span class="sys-stat" id="vram-stat">VRAM <strong id="vram-val">-- / -- GB</strong></span>
+        </div>
+
+        <!-- Active Window / Project Time Tracking & AFK (F13, F14) -->
+        <div class="top-bar-section hud-collapsible" id="active-tracking-section">
+          <span class="active-app-badge" id="active-app-badge" style="display: none;">[Desktop]</span>
+          <span class="active-proj-badge" id="active-proj-name-badge" style="display: none;"></span>
+          <span class="afk-status-badge" id="afk-badge" style="display: none;">[🌙 AFK]</span>
+        </div>
       </div>
 
-      <!-- Active Window / Project Time Tracking & AFK (F13, F14) -->
-      <div class="top-bar-section hud-collapsible" id="active-tracking-section">
-        <span class="active-app-badge" id="active-app-badge" style="display: none;">[Desktop]</span>
-        <span class="active-proj-badge" id="active-proj-name-badge" style="display: none;"></span>
-        <span class="afk-status-badge" id="afk-badge" style="display: none;">[🌙 AFK]</span>
+      <!-- ZONE 2: CENTER — SEGMENTED WORKSPACE PILL & HOME NEXT TASK -->
+      <div class="top-bar-zone top-bar-zone-center" id="top-bar-zone-center">
+        <!-- 5-Tab Workspace Switcher (R3) -->
+        <nav class="hud-workspace-nav" id="hud-workspace-nav">
+          <button type="button" class="workspace-tab-btn active" data-workspace-tab="view-home" id="tab-nav-home" title="🐾 Neko Home [Alt+1]">
+            🐾 Neko
+          </button>
+          <button type="button" class="workspace-tab-btn" data-workspace-tab="view-todo" id="tab-nav-todo" title="📋 To-Do Kanban Board [Alt+2]">
+            📋 To-Do <span class="tab-badge" id="tab-todo-badge">0</span>
+          </button>
+          <button type="button" class="workspace-tab-btn" data-workspace-tab="view-projects" id="tab-nav-projects" title="📌 Hub Progetti [Alt+3]">
+            📌 Progetti <span class="tab-badge" id="tab-proj-badge">0</span>
+          </button>
+          <button type="button" class="workspace-tab-btn" data-workspace-tab="view-calendar" id="tab-nav-calendar" title="📅 Calendario &amp; Scadenze [Alt+4]">
+            📅 Calendario <span class="tab-badge" id="tab-cal-badge">0</span>
+          </button>
+          <button type="button" class="workspace-tab-btn" data-workspace-tab="view-memory" id="tab-nav-memory" title="🧠 Memoria &amp; Competenze [Alt+5]">
+            🧠 Memoria <span class="tab-badge" id="tab-mem-badge">0</span>
+          </button>
+          <button type="button" class="workspace-tab-btn tab-btn-settings" id="btn-open-settings" title="⚙️ Centro di Controllo Neko">
+            ⚙️ <span id="mem-total-badge" style="display:none;">0</span>
+          </button>
+        </nav>
+
+        <!-- Subtle Next-Task Chip for 🐾 Neko Home View -->
+        <div class="home-next-task-chip" id="home-next-task-chip" style="display: none;" title="Prossima scadenza in arrivo. Clicca per aprire To-Do.">
+          <span class="chip-clock-icon">⏰</span>
+          <span class="chip-task-label">Prossima:</span>
+          <strong class="chip-task-title" id="home-next-task-title">...</strong>
+          <span class="chip-task-date" id="home-next-task-date">...</span>
+        </div>
       </div>
 
-      <!-- Dynamic Context Mode Pill (F22) -->
-      <div class="context-mode-pill mode-operativo hud-collapsible" id="context-mode-pill" title="Modalità Contesto Attiva. Clicca per cambiare manuale">
-        <span class="context-mode-icon" id="context-mode-icon">🛠️</span>
-        <span class="context-mode-label" id="context-mode-label">Operativo</span>
-      </div>
+      <!-- ZONE 3: RIGHT — CONTEXT MODE PILL, SESSION TIMER & UTILITIES -->
+      <div class="top-bar-zone top-bar-zone-right" id="top-bar-zone-right">
+        <!-- Dynamic Context Mode Pill (F22) -->
+        <div class="context-mode-pill mode-operativo hud-collapsible" id="context-mode-pill" title="Modalità Contesto Attiva. Clicca per cambiare manuale">
+          <span class="context-mode-icon" id="context-mode-icon">🛠️</span>
+          <span class="context-mode-label" id="context-mode-label">Operativo</span>
+        </div>
 
-      <div class="top-bar-divider hud-collapsible">│</div>
+        <!-- Timer Sessione (visibile quando attivo) -->
+        <div class="session-timer-badge" id="session-timer-badge">
+          <span id="session-timer-label">⏱</span>
+          <strong id="session-timer-val">00:00</strong>
+        </div>
 
-      <!-- 5-Tab Workspace Switcher (R3) -->
-      <nav class="hud-workspace-nav" id="hud-workspace-nav">
-        <button type="button" class="workspace-tab-btn active" data-workspace-tab="view-home" id="tab-nav-home" title="🐾 Neko Home [Alt+1]">
-          🐾 Neko
-        </button>
-        <button type="button" class="workspace-tab-btn" data-workspace-tab="view-todo" id="tab-nav-todo" title="📋 To-Do Kanban Board [Alt+2]">
-          📋 To-Do <span class="tab-badge" id="tab-todo-badge">0</span>
-        </button>
-        <button type="button" class="workspace-tab-btn" data-workspace-tab="view-projects" id="tab-nav-projects" title="📌 Hub Progetti [Alt+3]">
-          📌 Progetti <span class="tab-badge" id="tab-proj-badge">0</span>
-        </button>
-        <button type="button" class="workspace-tab-btn" data-workspace-tab="view-calendar" id="tab-nav-calendar" title="📅 Calendario &amp; Scadenze [Alt+4]">
-          📅 Calendario <span class="tab-badge" id="tab-cal-badge">0</span>
-        </button>
-        <button type="button" class="workspace-tab-btn" data-workspace-tab="view-memory" id="tab-nav-memory" title="🧠 Memoria &amp; Competenze [Alt+5]">
-          🧠 Memoria <span class="tab-badge" id="tab-mem-badge">0</span>
-        </button>
-        <button type="button" class="workspace-tab-btn tab-btn-settings" id="btn-open-settings" title="⚙️ Centro di Controllo Neko">
-          ⚙️ <span id="mem-total-badge" style="display:none;">0</span>
-        </button>
-      </nav>
+        <div class="top-bar-divider">│</div>
 
-      <!-- Subtle Next-Task Chip for 🐾 Neko Home View -->
-      <div class="home-next-task-chip" id="home-next-task-chip" style="display: none;" title="Prossima scadenza in arrivo. Clicca per aprire To-Do.">
-        <span class="chip-clock-icon">⏰</span>
-        <span class="chip-task-label">Prossima:</span>
-        <strong class="chip-task-title" id="home-next-task-title">...</strong>
-        <span class="chip-task-date" id="home-next-task-date">...</span>
-      </div>
+        <!-- Azioni rapide: Color-Safe (F11), Snack, Mini-Widget, Orologio e Visibilità -->
+        <div class="top-bar-section">
+          <button id="btn-color-safe" class="hud-btn term-btn term-btn-sm" title="Toggle Color-Safe Mode">
+            🎨 Color-Safe
+          </button>
+          <button class="term-btn term-btn-sm hud-collapsible" id="btn-fish-snack" title="Lancia un pescetto a Neko">
+            🐟 Snack
+          </button>
+          <button class="term-btn term-btn-sm hud-btn-mini" id="btn-window-mode" title="Passa alla finestra Compatta (480x420) o torna alla Finestra Grande">
+            🗕 Compatta
+          </button>
+          <span class="clock-inline" id="clock-display">00:00</span>
+          <button class="term-btn term-btn-sm" id="btn-toggle-hud" title="Cambia visibilità interfaccia">
+            👁
+          </button>
+        </div>
 
-      <!-- Compatibility fallback container (hidden) -->
-      <div style="display: none;" aria-hidden="true">
-        <button id="agenda-pill"></button>
-        <button id="todo-pill"></button>
-        <button id="projects-pill"></button>
-      </div>
-
-      <!-- Timer Sessione (visibile quando attivo) -->
-      <div class="session-timer-badge" id="session-timer-badge">
-        <span id="session-timer-label">⏱</span>
-        <strong id="session-timer-val">00:00</strong>
-      </div>
-
-      <div class="top-bar-divider">│</div>
-
-      <!-- Azioni rapide: Color-Safe (F11), Snack, Mini-Widget, Orologio e Visibilità -->
-      <div class="top-bar-section">
-        <button id="btn-color-safe" class="hud-btn term-btn term-btn-sm" title="Toggle Color-Safe Mode">
-          🎨 Color-Safe
-        </button>
-        <button class="term-btn term-btn-sm hud-collapsible" id="btn-fish-snack" title="Lancia un pescetto a Neko">
-          🐟 Snack
-        </button>
-        <button class="term-btn term-btn-sm hud-btn-mini" id="btn-window-mode" title="Passa alla finestra Compatta (480x420) o torna alla Finestra Grande">
-          🗕 Compatta
-        </button>
-        <span class="clock-inline" id="clock-display">00:00</span>
-        <button class="term-btn term-btn-sm" id="btn-toggle-hud" title="Cambia visibilità interfaccia">
-          👁
-        </button>
+        <!-- Compatibility fallback container (hidden) -->
+        <div style="display: none;" aria-hidden="true">
+          <button id="agenda-pill"></button>
+          <button id="todo-pill"></button>
+          <button id="projects-pill"></button>
+        </div>
       </div>
     </div>
 
@@ -582,6 +589,62 @@
           </div>
         </div>
       </div>
+    <!-- =========================================================================
+         LIVE CO-PILOT HUD (Active Collaborative Cards on 🐾 Neko Home View)
+         Flanking left/right floating glass docks leaving the center 60% viewport clear
+         ========================================================================= -->
+    <div class="neko-copilot-hud" id="neko-copilot-hud">
+      <!-- Left Flank: Active Context & Radar -->
+      <aside class="copilot-flank copilot-flank-left">
+        <div class="copilot-card" id="copilot-card-radar">
+          <div class="copilot-card-header">
+            <div class="copilot-card-title-group">
+              <span class="copilot-card-icon">📡</span>
+              <span class="copilot-card-title">RADAR CONTESTO ATTIVO</span>
+            </div>
+            <span class="copilot-live-dot" title="Sincronizzato in tempo reale"></span>
+          </div>
+          <div class="copilot-card-body" id="copilot-radar-body">
+            <!-- Populated dynamically by HudTerminal: Active App, Project, Workspace Folder & VRAM Guard -->
+          </div>
+        </div>
+      </aside>
+
+      <!-- Center Stage: Pure transparent clearance zone for 60 FPS ASCII Cat -->
+      <div class="copilot-center-clearance" id="hud-center-stage" aria-hidden="true"></div>
+
+      <!-- Right Flank: Active Focus Task & Injected Brain -->
+      <aside class="copilot-flank copilot-flank-right">
+        <!-- Card 2: Focus & Task in Corso -->
+        <div class="copilot-card" id="copilot-card-task">
+          <div class="copilot-card-header">
+            <div class="copilot-card-title-group">
+              <span class="copilot-card-icon">⚡</span>
+              <span class="copilot-card-title">FOCUS &amp; TASK IN CORSO</span>
+            </div>
+            <span class="copilot-status-badge" id="copilot-task-status">TODO</span>
+          </div>
+          <div class="copilot-card-body" id="copilot-task-body">
+            <!-- Populated dynamically: Top active/doing task + 1-click action buttons -->
+          </div>
+        </div>
+
+        <!-- Card 3: Cervello Attivo (Regole & Istinti) -->
+        <div class="copilot-card" id="copilot-card-brain">
+          <div class="copilot-card-header">
+            <div class="copilot-card-title-group">
+              <span class="copilot-card-icon">🧬</span>
+              <span class="copilot-card-title">CERVELLO ATTIVO</span>
+            </div>
+            <div class="copilot-budget-mini" id="copilot-mini-budget" title="Token utilizzati su 8192">
+              <span id="copilot-tok-val">0</span>/8192
+            </div>
+          </div>
+          <div class="copilot-card-body" id="copilot-brain-body">
+            <!-- Populated dynamically: Pinned client rules + top instincts injected -->
+          </div>
+        </div>
+      </aside>
     </div>
 
     <!-- MAIN FULL-VIEW WORKSPACE: 4 AI DASHBOARDS (Hidden in 🐾 Neko Home) -->
@@ -654,10 +717,14 @@
             <button type="button" class="term-btn active" id="hub-tab-proj-active">🔥 Attivi (<span id="hub-proj-active-count">0</span>)</button>
             <button type="button" class="term-btn" id="hub-tab-proj-archive">📦 Archivio (<span id="hub-proj-arch-count">0</span>)</button>
           </div>
+          <div class="proj-header-actions">
+            <button type="button" class="term-btn btn-accent" id="btn-toggle-new-proj-drawer" title="Apri/chiudi il modulo per creare un nuovo progetto">+ Nuovo Progetto</button>
+            <button type="button" class="term-btn" id="btn-toggle-playbook-drawer" title="Apri/chiudi la creazione rapida da Playbook">⚡ Crea da Playbook</button>
+          </div>
         </div>
 
-        <!-- Quick Playbook Project Creation Bar (F25) -->
-        <div class="playbook-quick-bar" id="playbook-quick-bar">
+        <!-- Quick Playbook Project Creation Bar (F25 - Collapsible Drawer) -->
+        <div class="playbook-quick-bar collapsible-drawer" id="playbook-quick-bar" style="display: none;">
           <span class="playbook-bar-label">⚡ NUOVO DA PLAYBOOK:</span>
           <select id="hub-playbook-select" class="conn-select" style="max-width: 220px;">
             <option value="">Seleziona Playbook...</option>
@@ -667,8 +734,8 @@
           <button type="button" class="term-btn btn-accent" id="btn-create-from-playbook">+ Crea da Playbook</button>
         </div>
 
-        <!-- Quick Project Creation Bar -->
-        <div class="proj-create-bar">
+        <!-- Quick Project Creation Bar (Collapsible Drawer) -->
+        <div class="proj-create-bar collapsible-drawer" id="proj-create-bar" style="display: none;">
           <input type="text" id="hub-proj-new-name" class="modal-input" placeholder="Nome Progetto (es. Nave Intermarine)" style="max-width:180px;" />
           <input type="text" id="hub-proj-new-client" class="modal-input" placeholder="Cliente (es. Intermarine)" style="max-width:150px;" />
           <input type="text" id="hub-proj-new-note" class="modal-input" placeholder="Regola cliente (es. Logo sempre Blu Marino)..." style="flex:1;" />
@@ -738,7 +805,9 @@
               <div class="view-subtitle">Conoscenze apprese da Neko, regole persistenti dei clienti e tratti del tuo profilo</div>
             </div>
           </div>
-        <!-- Context Budget Telemetry Meter (F26) -->
+        </div>
+
+        <!-- Context Budget Telemetry Meter (F26) - Persistent Header Bar -->
         <div class="context-budget-container" id="context-budget-container">
           <div class="budget-header-row">
             <div class="budget-title-group">
@@ -771,108 +840,141 @@
           </div>
         </div>
 
-        <!-- ECC Arsenal: Skill & MCP Control Plane (F20, F21, F22) -->
-        <div class="ecc-arsenal-section" id="ecc-arsenal-section">
-          <div class="ecc-arsenal-grid">
-            <!-- Left Panel: MCP Connectors -->
-            <div class="ecc-arsenal-panel mcp-panel">
-              <div class="arsenal-panel-header">
-                <div class="arsenal-panel-title">
-                  <span>🔌 Connettori MCP di Sistema (<span id="count-mcp-active">0</span>/<span id="count-mcp-total">4</span>)</span>
-                </div>
-                <button type="button" class="term-btn term-btn-sm btn-accent" id="btn-open-add-mcp">+ Aggiungi MCP</button>
+        <!-- 3-Subtab Navigation Bar (R3) -->
+        <nav class="memory-view-subtabs" id="memory-view-subtabs">
+          <button type="button" class="mem-subtab-nav-btn active" data-mem-view="instincts-rules" id="tab-mem-sub-instincts">
+            🧬 Istinti &amp; Regole Clienti
+          </button>
+          <button type="button" class="mem-subtab-nav-btn" data-mem-view="ecc-arsenal" id="tab-mem-sub-arsenal">
+            🔌 Arsenale Skill &amp; MCP
+          </button>
+          <button type="button" class="mem-subtab-nav-btn" data-mem-view="profile-skills" id="tab-mem-sub-profile">
+            👤 Profilo &amp; Competenze
+          </button>
+        </nav>
+
+        <!-- SUBTAB PANE 1: 🧬 ISTINTI & REGOLE CLIENTI (Default Active) -->
+        <div class="mem-subview-pane active" id="mem-subpane-instincts-rules" data-mem-pane="instincts-rules">
+          <div class="memory-two-col-grid">
+            <!-- Column 1: Skills & Atomic Instincts v2.1 (F27) -->
+            <div class="memory-column" id="mem-col-skills-wrapper">
+              <div class="memory-col-header">
+                <strong>🛠️ COSA SO FARE &amp; ISTINTI (<span id="mem-skills-count">0</span>)</strong>
+                <small>Apprendimento continuo v2.1</small>
               </div>
-              <div class="mcp-connectors-grid" id="mcp-connectors-grid">
-                <!-- Rendered dynamically by HudTerminal -->
+              <div class="mem-subnav" id="mem-col1-subnav">
+                <button type="button" class="mem-subtab-btn active" id="btn-subtab-instincts">🧬 Istinti Atomici (<span id="count-instincts">0</span>)</button>
+                <button type="button" class="mem-subtab-btn" id="btn-subtab-skills">🛠️ Competenze (<span id="count-skills">0</span>)</button>
               </div>
+              <!-- Quick Add for Instincts -->
+              <div class="mem-quick-add-row" id="mem-instinct-add-row">
+                <input type="text" id="mem-new-instinct-trigger" class="modal-input" placeholder="Quando (es. Esportazione 3D)..." />
+                <input type="text" id="mem-new-instinct-action" class="modal-input" placeholder="Azione (es. GLB Draco)..." />
+                <select id="mem-new-instinct-scope" class="conn-select" style="max-width: 100px;">
+                  <option value="global">Globale</option>
+                  <option value="project">Progetto</option>
+                </select>
+                <button type="button" class="term-btn btn-accent" id="btn-add-instinct" title="Aggiungi Istinto">+</button>
+              </div>
+              <!-- Quick Add for Skills (shown when skills subtab active) -->
+              <div class="mem-quick-add-row" id="mem-skill-add-row" style="display: none;">
+                <input type="text" id="mem-new-skill-name" class="modal-input" placeholder="Competenza (es. Rust, Draco)..." />
+                <select id="mem-new-skill-cat" class="conn-select" style="max-width: 140px;">
+                  <option value="3D &amp; Modellazione">3D</option>
+                  <option value="Sviluppo Web &amp; Realtime">Web/Realtime</option>
+                  <option value="Pipeline &amp; Scripting">Pipeline</option>
+                  <option value="Design &amp; Creatività">Design</option>
+                </select>
+                <button type="button" class="term-btn btn-accent" id="btn-add-skill">+</button>
+              </div>
+              <div class="memory-col-list" id="mem-instincts-list"></div>
+              <div class="memory-col-list" id="mem-skills-list" style="display: none;"></div>
             </div>
 
-            <!-- Right Panel: Skills Switchboard -->
-            <div class="ecc-arsenal-panel skills-panel">
-              <div class="arsenal-panel-header">
-                <div class="arsenal-panel-title">
-                  <span>⚡ Competenze &amp; Skill ECC (SKILL.md &amp; YAML) (<span id="count-skills-active">0</span>/<span id="count-skills-total">0</span>)</span>
-                </div>
-                <button type="button" class="term-btn term-btn-sm btn-accent" id="btn-open-import-skill-modal">+ Importa SKILL.md</button>
+            <!-- Column 2: Client Rules -->
+            <div class="memory-column" id="mem-col-rules-wrapper">
+              <div class="memory-col-header">
+                <strong>🏢 REGOLE CLIENTI (<span id="mem-rules-count">0</span>)</strong>
+                <small>FTS5 + Pin permanente</small>
               </div>
-              <div class="skills-switchboard-list" id="skills-switchboard-list">
-                <!-- Rendered dynamically by HudTerminal -->
+              <div class="mem-search-row">
+                <input type="text" id="mem-rules-search" class="modal-input" placeholder="Cerca regola o cliente..." />
+              </div>
+              <div class="mem-quick-add-row">
+                <input type="text" id="mem-new-rule-text" class="modal-input" placeholder="Nuova regola (es. Logo Blu Marino)..." />
+                <select id="mem-new-rule-proj" class="conn-select" style="max-width: 140px;">
+                  <option value="">Generale</option>
+                </select>
+                <button type="button" class="term-btn btn-accent" id="btn-add-rule">+</button>
+              </div>
+              <div class="memory-col-list" id="mem-rules-list"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SUBTAB PANE 2: 🔌 ARSENALE SKILL & MCP (Full-width) -->
+        <div class="mem-subview-pane" id="mem-subpane-ecc-arsenal" data-mem-pane="ecc-arsenal" style="display: none;">
+          <!-- ECC Arsenal: Skill & MCP Control Plane (F20, F21, F22) -->
+          <div class="ecc-arsenal-section" id="ecc-arsenal-section">
+            <div class="ecc-arsenal-grid">
+              <!-- Left Panel: MCP Connectors -->
+              <div class="ecc-arsenal-panel mcp-panel">
+                <div class="arsenal-panel-header">
+                  <div class="arsenal-panel-title">
+                    <span>🔌 Connettori MCP di Sistema (<span id="count-mcp-active">0</span>/<span id="count-mcp-total">4</span>)</span>
+                  </div>
+                  <button type="button" class="term-btn term-btn-sm btn-accent" id="btn-open-add-mcp">+ Aggiungi MCP</button>
+                </div>
+                <div class="mcp-connectors-grid" id="mcp-connectors-grid">
+                  <!-- Rendered dynamically by HudTerminal -->
+                </div>
+              </div>
+
+              <!-- Right Panel: Skills Switchboard -->
+              <div class="ecc-arsenal-panel skills-panel">
+                <div class="arsenal-panel-header">
+                  <div class="arsenal-panel-title">
+                    <span>⚡ Competenze &amp; Skill ECC (SKILL.md &amp; YAML) (<span id="count-skills-active">0</span>/<span id="count-skills-total">0</span>)</span>
+                  </div>
+                  <button type="button" class="term-btn term-btn-sm btn-accent" id="btn-open-import-skill-modal">+ Importa SKILL.md</button>
+                </div>
+                <div class="skills-switchboard-list" id="skills-switchboard-list">
+                  <!-- Rendered dynamically by HudTerminal -->
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        <div class="memory-dashboard-grid">
-          <!-- Column 1: Skills & Atomic Instincts v2.1 (F27) -->
-          <div class="memory-column" id="mem-col-skills-wrapper">
-            <div class="memory-col-header">
-              <strong>🛠️ COSA SO FARE &amp; ISTINTI (<span id="mem-skills-count">0</span>)</strong>
-              <small>Apprendimento continuo v2.1</small>
-            </div>
-            <div class="mem-subnav" id="mem-col1-subnav">
-              <button type="button" class="mem-subtab-btn active" id="btn-subtab-instincts">🧬 Istinti Atomici (<span id="count-instincts">0</span>)</button>
-              <button type="button" class="mem-subtab-btn" id="btn-subtab-skills">🛠️ Competenze (<span id="count-skills">0</span>)</button>
-            </div>
-            <!-- Quick Add for Instincts -->
-            <div class="mem-quick-add-row" id="mem-instinct-add-row">
-              <input type="text" id="mem-new-instinct-trigger" class="modal-input" placeholder="Quando (es. Esportazione 3D)..." />
-              <input type="text" id="mem-new-instinct-action" class="modal-input" placeholder="Azione (es. GLB Draco)..." />
-              <select id="mem-new-instinct-scope" class="conn-select" style="max-width: 100px;">
-                <option value="global">Globale</option>
-                <option value="project">Progetto</option>
-              </select>
-              <button type="button" class="term-btn btn-accent" id="btn-add-instinct" title="Aggiungi Istinto">+</button>
-            </div>
-            <!-- Quick Add for Skills (shown when skills subtab active) -->
-            <div class="mem-quick-add-row" id="mem-skill-add-row" style="display: none;">
-              <input type="text" id="mem-new-skill-name" class="modal-input" placeholder="Competenza (es. Rust, Draco)..." />
-              <select id="mem-new-skill-cat" class="conn-select" style="max-width: 140px;">
-                <option value="3D &amp; Modellazione">3D</option>
-                <option value="Sviluppo Web &amp; Realtime">Web/Realtime</option>
-                <option value="Pipeline &amp; Scripting">Pipeline</option>
-                <option value="Design &amp; Creatività">Design</option>
-              </select>
-              <button type="button" class="term-btn btn-accent" id="btn-add-skill">+</button>
-            </div>
-            <div class="memory-col-list" id="mem-instincts-list"></div>
-            <div class="memory-col-list" id="mem-skills-list" style="display: none;"></div>
-          </div>
-
-          <!-- Column 2: Client Rules -->
-          <div class="memory-column" id="mem-col-rules-wrapper">
-            <div class="memory-col-header">
-              <strong>🏢 REGOLE CLIENTI (<span id="mem-rules-count">0</span>)</strong>
-              <small>FTS5 + Pin permanente</small>
-            </div>
-            <div class="mem-search-row">
-              <input type="text" id="mem-rules-search" class="modal-input" placeholder="Cerca regola o cliente..." />
-            </div>
-            <div class="mem-quick-add-row">
-              <input type="text" id="mem-new-rule-text" class="modal-input" placeholder="Nuova regola (es. Logo Blu Marino)..." />
-              <select id="mem-new-rule-proj" class="conn-select" style="max-width: 140px;">
-                <option value="">Generale</option>
-              </select>
-              <button type="button" class="term-btn btn-accent" id="btn-add-rule">+</button>
-            </div>
-            <div class="memory-col-list" id="mem-rules-list"></div>
-          </div>
-
-          <!-- Column 3: Profile & Profiling -->
-          <div class="memory-column" id="mem-col-profile-wrapper">
-            <div class="memory-col-header">
-              <strong>👤 PROFILO UTENTE (<span id="mem-profile-count">0</span>)</strong>
-              <small>Tratti deduplicati</small>
-            </div>
-            <div class="mem-profiling-prompt-card" id="mem-profiling-prompt-card">
-              <div class="profiling-prompt-text" id="mem-profiling-q-text">Caricamento domanda...</div>
-              <div class="profiling-options-row" id="mem-profiling-options"></div>
-              <div class="profiling-input-row">
-                <input type="text" id="mem-profiling-input" class="modal-input" placeholder="Rispondi a Neko..." />
-                <button type="button" class="term-btn btn-accent" id="btn-mem-profiling-save">Salva</button>
-                <button type="button" class="term-btn" id="btn-mem-profiling-next" title="Nuova domanda">🎲</button>
+        <!-- SUBTAB PANE 3: 👤 PROFILO & COMPETENZE -->
+        <div class="mem-subview-pane" id="mem-subpane-profile-skills" data-mem-pane="profile-skills" style="display: none;">
+          <div class="memory-two-col-grid">
+            <!-- Column 3: Profile & Profiling -->
+            <div class="memory-column" id="mem-col-profile-wrapper">
+              <div class="memory-col-header">
+                <strong>👤 PROFILO UTENTE (<span id="mem-profile-count">0</span>)</strong>
+                <small>Tratti deduplicati</small>
               </div>
+              <div class="mem-profiling-prompt-card" id="mem-profiling-prompt-card">
+                <div class="profiling-prompt-text" id="mem-profiling-q-text">Caricamento domanda...</div>
+                <div class="profiling-options-row" id="mem-profiling-options"></div>
+                <div class="profiling-input-row">
+                  <input type="text" id="mem-profiling-input" class="modal-input" placeholder="Rispondi a Neko..." />
+                  <button type="button" class="term-btn btn-accent" id="btn-mem-profiling-save">Salva</button>
+                  <button type="button" class="term-btn" id="btn-mem-profiling-next" title="Nuova domanda">🎲</button>
+                </div>
+              </div>
+              <div class="memory-col-list" id="mem-profile-traits-list"></div>
             </div>
-            <div class="memory-col-list" id="mem-profile-traits-list"></div>
+
+            <!-- Profile Summary & Learned Stack Panel -->
+            <div class="memory-column" id="mem-col-profile-skills-summary">
+              <div class="memory-col-header">
+                <strong>🛠️ COMPETENZE &amp; STACK APPRESO</strong>
+                <small>Competenze tecniche estratte da Neko</small>
+              </div>
+              <div class="memory-col-list" id="mem-profile-skills-list-pane3"></div>
+            </div>
           </div>
         </div>
       </section>
@@ -891,6 +993,12 @@
         <div class="ai-quick-chips">
           <button class="ai-chip" data-ai-cmd="/briefing" title="Riepilogo di oggi: Impegni, Progetti Attivi, To-Do e Stato PC">
             ☀️ Briefing Oggi
+          </button>
+          <button class="ai-chip" data-ai-cmd="/quality-gate" title="Verifica pre-consegna del progetto attivo">
+            🛡️ Quality Gate
+          </button>
+          <button class="ai-chip" data-ai-cmd="/evolve" title="Evolvi il progetto attivo in un Playbook riutilizzabile">
+            🧬 Evolvi Playbook
           </button>
           <button class="ai-chip" data-ai-cmd="/cal" title="Mostra i prossimi appuntamenti del tuo Calendario">
             📅 Agenda

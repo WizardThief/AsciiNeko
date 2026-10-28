@@ -10,6 +10,47 @@
   --text-primary: #eceef5;
   --text-bright: #ffffff;
   --font-mono: 'Cascadia Code', 'Consolas', 'JetBrains Mono', monospace;
+
+  /* Cyber-Studio Tactile Elevation & Glass Tokens */
+  --bg-surface-0: #080b11;
+  --bg-surface-1: rgba(13, 17, 24, 0.85);
+  --bg-surface-2: rgba(22, 28, 40, 0.92);
+  --bg-glass: rgba(15, 20, 30, 0.75);
+  --border-hairline: rgba(255, 255, 255, 0.08);
+
+  /* Typography */
+  --font-sans: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+
+  /* Dynamic Context Mode Baseline (Default: Operativo) */
+  --mode-accent: #38bdf8;
+  --mode-accent-rgb: 56, 189, 248;
+  --mode-glow: rgba(56, 189, 248, 0.25);
+  --mode-secondary: #10b981;
+}
+
+/* Dynamic Context-Mode Theming */
+body[data-context-mode="operativo"],
+[data-context-mode="operativo"] {
+  --mode-accent: #38bdf8;
+  --mode-accent-rgb: 56, 189, 248;
+  --mode-glow: rgba(56, 189, 248, 0.25);
+  --mode-secondary: #10b981;
+}
+
+body[data-context-mode="project_manager"],
+[data-context-mode="project_manager"] {
+  --mode-accent: #f59e0b;
+  --mode-accent-rgb: 245, 158, 11;
+  --mode-glow: rgba(245, 158, 11, 0.25);
+  --mode-secondary: #6366f1;
+}
+
+body[data-context-mode="knowledge_curator"],
+[data-context-mode="knowledge_curator"] {
+  --mode-accent: #a855f7;
+  --mode-accent-rgb: 168, 85, 247;
+  --mode-glow: rgba(168, 85, 247, 0.25);
+  --mode-secondary: #ec4899;
 }
 
 * {
@@ -78,33 +119,68 @@ body.color-safe-active {
 }
 
 .hud-layer.hud-hidden #status-matrix-panel,
+.hud-layer.hud-hidden #neko-copilot-hud,
 .hud-layer.hud-hidden #ai-terminal-dock {
   opacity: 0;
   pointer-events: none;
   transform: translateY(-6px);
 }
 
+.hud-layer.hud-hidden #neko-copilot-hud,
+body.view-home .hud-layer.hud-hidden #neko-copilot-hud {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 .hud-layer.hud-hidden .hud-deadline-toast {
   display: none !important;
 }
 
-/* TOP BAR: Singola barra orizzontale minimale in alto a destra */
+/* TOP BAR: Cyber-Studio 3-Zone Balanced Navigation */
 .hud-top-bar {
   pointer-events: auto;
-  background: var(--bg-panel);
-  border: 1px solid var(--border-dim);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  padding: 5px 10px;
+  align-self: stretch;
+  width: 100%;
+  background: var(--bg-surface-1, rgba(12, 14, 20, 0.9));
+  border: 1px solid var(--border-hairline, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  padding: 6px 14px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 12px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
-  transition: all 0.25s ease;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
 }
 
 .hud-top-bar:hover {
-  border-color: var(--border-mid);
+  border-color: var(--mode-accent, #38bdf8);
+}
+
+.top-bar-zone {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.top-bar-zone-left {
+  flex: 1;
+  justify-content: flex-start;
+  min-width: 0;
+}
+
+.top-bar-zone-center {
+  flex: 0 0 auto;
+  justify-content: center;
+}
+
+.top-bar-zone-right {
+  flex: 1;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .top-bar-section {
@@ -114,7 +190,7 @@ body.color-safe-active {
 }
 
 .top-bar-divider {
-  color: var(--border-mid);
+  color: var(--border-hairline, rgba(255, 255, 255, 0.12));
   font-size: 11px;
 }
 
@@ -2097,12 +2173,220 @@ body.view-home #hud-workspace-container {
   display: none !important;
 }
 
+/* =========================================================================
+   LIVE CO-PILOT HUD (#neko-copilot-hud)
+   Flanking left/right floating glass docks leaving the center 60% viewport clear
+   ========================================================================= */
+.neko-copilot-hud {
+  align-self: stretch;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  pointer-events: none;
+  margin: 10px 0;
+  z-index: 12;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+body:not(.view-home) #neko-copilot-hud {
+  display: none !important;
+}
+
+.hud-layer.hud-hidden #neko-copilot-hud,
+body.view-home .hud-layer.hud-hidden #neko-copilot-hud {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+.copilot-flank {
+  width: clamp(240px, 20vw, 320px);
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  pointer-events: auto;
+}
+
+.copilot-flank-left {
+  justify-content: flex-start;
+}
+
+.copilot-flank-right {
+  justify-content: flex-start;
+}
+
+.copilot-center-clearance {
+  flex: 1;
+  min-width: 240px;
+  pointer-events: none;
+}
+
+.copilot-card {
+  background: var(--bg-surface-1, rgba(13, 17, 24, 0.85));
+  border: 1px solid var(--border-hairline, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.copilot-card:hover {
+  border-color: var(--mode-accent, #38bdf8);
+  box-shadow: 0 10px 36px var(--mode-glow, rgba(56, 189, 248, 0.15));
+}
+
+.copilot-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-hairline, rgba(255, 255, 255, 0.06));
+  padding-bottom: 6px;
+}
+
+.copilot-card-title-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 11.5px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--mode-accent, #38bdf8);
+}
+
+.copilot-card-icon {
+  font-size: 14px;
+}
+
+.copilot-card-title {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 11.5px;
+  letter-spacing: 0.5px;
+  color: var(--mode-accent, #38bdf8);
+}
+
+.copilot-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 6px #10b981;
+}
+
+.copilot-status-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.copilot-budget-mini {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.copilot-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.copilot-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.copilot-label {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.copilot-val {
+  color: var(--text-bright);
+  font-weight: 600;
+  font-size: 11.5px;
+}
+
+.copilot-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
 /* Color-safe override */
 .color-safe .hud-workspace-container {
   background: #0c0d12 !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   border: 1px solid rgba(255, 255, 255, 0.25) !important;
+}
+
+/* =========================================================================
+   RESPONSIVE CO-PILOT HUD MEDIA QUERIES (Ergonomics & Viewport Clearance)
+   ========================================================================= */
+@media (max-width: 1040px) {
+  .copilot-flank {
+    width: clamp(200px, 22vw, 250px);
+    max-width: 260px;
+    gap: 8px;
+  }
+
+  .copilot-center-clearance {
+    min-width: 160px;
+  }
+
+  .copilot-card {
+    padding: 8px 10px;
+    gap: 6px;
+  }
+
+  .copilot-card-header {
+    padding-bottom: 4px;
+  }
+
+  .copilot-card-title-group,
+  .copilot-card-title {
+    font-size: 10.5px;
+  }
+}
+
+@media (max-width: 768px) {
+  .neko-copilot-hud {
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 8px;
+    pointer-events: none;
+  }
+
+  .copilot-flank {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .copilot-center-clearance {
+    display: none;
+  }
 }
 
 /* --- 4. Generic Workspace View Structure --- */
@@ -2415,16 +2699,55 @@ body.view-home #hud-workspace-container {
   gap: 6px;
 }
 
+.proj-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.collapsible-drawer {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+.collapsible-drawer.drawer-open {
+  display: flex !important;
+  animation: slideDownFade 0.2s ease-out;
+}
+
+@keyframes slideDownFade {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .proj-create-bar {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 12px;
   flex-wrap: wrap;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--bg-surface-0, rgba(8, 11, 17, 0.6));
   padding: 8px 10px;
   border-radius: 6px;
-  border: 1px solid var(--border-dim);
+  border: 1px solid var(--border-hairline, rgba(255, 255, 255, 0.08));
+}
+
+.playbook-quick-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  background: var(--bg-surface-0, rgba(8, 11, 17, 0.6));
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-hairline, rgba(255, 255, 255, 0.08));
 }
 
 .hub-projects-scroll {
@@ -2436,6 +2759,32 @@ body.view-home #hud-workspace-container {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
   gap: 14px;
+}
+
+.hub-proj-meta-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-hairline, rgba(255, 255, 255, 0.06));
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.hub-proj-rules-callout {
+  font-size: 11.5px;
+  color: #fde68a;
+  line-height: 1.4;
+}
+
+.badge-focus {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.4);
 }
 
 .hub-project-card {
@@ -2768,7 +3117,60 @@ body.view-home #hud-workspace-container {
   border: 1px solid var(--border-dim);
 }
 
-/* --- 8. View 4: 🧠 Memory Dashboard --- */
+/* --- 8. View 4: 🧠 Memory Dashboard (3-Subtab Progressive Layout) --- */
+.memory-view-subtabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 14px 0;
+  background: var(--bg-surface-0, rgba(8, 11, 17, 0.6));
+  border: 1px solid var(--border-hairline, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  padding: 4px;
+}
+
+.mem-subtab-nav-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mem-subtab-nav-btn:hover {
+  color: var(--text-bright);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.mem-subtab-nav-btn.active {
+  background: var(--bg-surface-2, rgba(30, 41, 59, 0.8));
+  border-color: var(--mode-accent, #a855f7);
+  color: #fff;
+  box-shadow: 0 2px 8px var(--mode-glow, rgba(168, 85, 247, 0.25));
+}
+
+.mem-subview-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.memory-two-col-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .memory-dashboard-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
