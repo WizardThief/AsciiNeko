@@ -73,6 +73,7 @@ from bridge.skill_registry import (
     create_project_from_playbook,
     inspect_project_quality_gate,
     list_playbooks,
+    validate_code_safety,
 )
 try:
     from bridge.hooks_runner import (
@@ -84,6 +85,25 @@ except ImportError:
     HooksRunner = None
     get_hooks_runner = None
     cleanup_intermarine_logo_memory = None
+
+from bridge.workspace_scanner import (
+    WorkspaceScanner,
+    scan_workspace,
+)
+try:
+    from bridge.mcp_registry import (
+        MCPRegistry,
+        get_mcp_registry,
+    )
+except ImportError:
+    try:
+        from mcp_registry import (
+            MCPRegistry,
+            get_mcp_registry,
+        )
+    except ImportError:
+        MCPRegistry = None
+        get_mcp_registry = None
 
 logger = logging.getLogger("neko.ai_monitor")
 
@@ -229,12 +249,19 @@ def get_task_engine() -> TaskEngine:
     return _task_engine_instance
 
 
-def get_skill_registry() -> SkillRegistry:
+def get_skill_registry(data_dir: Optional[str] = None) -> SkillRegistry:
     global _skill_registry_instance
-    if _skill_registry_instance is None:
-        sm = get_storage_manager(data_dir=DATA_DIR)
-        skills_path = os.path.join(DATA_DIR, "skills")
-        _skill_registry_instance = SkillRegistry(skills_dir=skills_path, storage_manager=sm)
+    target_dir = data_dir or DATA_DIR
+    if data_dir is not None:
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"))
+        if os.path.abspath(data_dir) != base_dir:
+            sm = get_storage_manager(data_dir=data_dir)
+            skills_path = os.path.join(data_dir, "skills")
+            return SkillRegistry(skills_dir=skills_path, storage_manager=sm, data_dir=data_dir)
+    if _skill_registry_instance is None or (data_dir and os.path.abspath(target_dir) != os.path.abspath(_skill_registry_instance.data_dir)):
+        sm = get_storage_manager(data_dir=target_dir)
+        skills_path = os.path.join(target_dir, "skills")
+        _skill_registry_instance = SkillRegistry(skills_dir=skills_path, storage_manager=sm, data_dir=target_dir)
     return _skill_registry_instance
 
 
@@ -857,7 +884,9 @@ class CalendarManager:
     def _sync_loop(self):
         while True:
             try:
-                self.refresh_remote_events()
+                mcp_reg = get_mcp_registry(data_dir=DATA_DIR) if get_mcp_registry else None
+                if not mcp_reg or mcp_reg.is_connector_enabled("mcp_calendar_sync"):
+                    self.refresh_remote_events()
             except Exception:
                 pass
             time.sleep(60)  # Aggiorna ogni 60 secondi
@@ -2360,7 +2389,7 @@ class MemoryAndProjectsManager:
             }
 
     def create_or_update_project(
-        self, name: str, client: str = "", note: str = "", pin_path: str = "", pin_label: str = ""
+        self, name: str, client: str = "", note: str = "", pin_path: str = "", pin_label: str = "", workspace_path: str = ""
     ):
         clean_name = (name or "").strip()
         clean_client = (client or "").strip()
@@ -2376,9 +2405,14 @@ class MemoryAndProjectsManager:
                 proj = existing
                 if clean_client:
                     proj["client"] = clean_client
+                if workspace_path and workspace_path.strip():
+                    proj["workspace_path"] = workspace_path.strip().strip("\"'")
+                    proj["workspace_summary"] = scan_workspace(proj["workspace_path"])
                 proj["updated_at"] = now_str
                 proj["last_ts"] = now_ts
             else:
+                ws_p = workspace_path.strip().strip("\"'") if workspace_path else ""
+                ws_s = scan_workspace(ws_p) if ws_p else {}
                 proj = {
                     "id": f"proj_{int(now_ts * 1000)}",
                     "name": clean_name,
@@ -2386,6 +2420,8 @@ class MemoryAndProjectsManager:
                     "status": "active",
                     "notes": [],
                     "pins": [],
+                    "workspace_path": ws_p,
+                    "workspace_summary": ws_s,
                     "created_at": now_str,
                     "updated_at": now_str,
                     "last_ts": now_ts,
@@ -2413,6 +2449,13 @@ class MemoryAndProjectsManager:
             self.profile["active_project_id"] = proj["id"]
             self._save_projects()
             self._save_profile()
+
+            # Sync project to SQLite
+            try:
+                sm = getattr(self, "storage_manager", None) or get_storage_manager(data_dir=self.data_dir)
+                sm.save_project(proj)
+            except Exception as e:
+                logger.warning("Error syncing project to SQLite in create_or_update_project: %s", e)
 
             # Controlla se questo cliente (o progetto) esisteva già nell'Archivio Storico!
             search_q = f"{clean_name} {clean_client}".strip()
@@ -2498,6 +2541,111 @@ class MemoryAndProjectsManager:
                 target["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
                 self._save_projects()
             return self.get_projects_state()
+
+    def bind_project_folder(self, project_id: str, workspace_path: str) -> Dict[str, Any]:
+        """
+        Binds or updates workspace_path for project_id, runs an initial scan,
+        and saves across in-memory state, projects.json, and SQLite.
+        """
+        clean_path = (workspace_path or "").strip().strip("\"'")
+        with self._lock:
+            target = next(
+                (p for p in self.projects if p.get("id") == project_id or p.get("name", "").lower() == project_id.lower()),
+                None
+            )
+            if not target:
+                if self.projects and (not project_id or project_id == "active"):
+                    target = self.projects[0]
+                else:
+                    return {"ok": False, "status": "error", "error": f"Progetto non trovato: {project_id}"}
+
+            target["workspace_path"] = clean_path
+            target["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+            target["last_ts"] = time.time()
+
+            # Scan the bound workspace folder
+            summary = scan_workspace(clean_path)
+            target["workspace_summary"] = summary
+
+            self._save_projects()
+
+            # Sync to SQLite
+            try:
+                sm = getattr(self, "storage_manager", None) or get_storage_manager(data_dir=self.data_dir)
+                sm.update_project_workspace(target["id"], clean_path, summary)
+            except Exception as e:
+                logger.warning("Error updating SQLite project workspace: %s", e)
+
+            return {
+                "ok": True,
+                "status": "ok",
+                "project_id": target["id"],
+                "workspace_path": clean_path,
+                "workspace_summary": summary,
+                "project": target,
+            }
+
+    def scan_project_folder(self, project_id: Optional[str] = None, workspace_path: Optional[str] = None, force: bool = False) -> Dict[str, Any]:
+        """
+        Scans project workspace folder, updates cached workspace_summary, and returns summary.
+        """
+        target = None
+        target_path = (workspace_path or "").strip().strip("\"'")
+        with self._lock:
+            if project_id:
+                target = next(
+                    (p for p in self.projects if p.get("id") == project_id or p.get("name", "").lower() == project_id.lower()),
+                    None
+                )
+            if not target and not target_path and self.projects:
+                target = self.projects[0]
+
+            if target and not target_path:
+                target_path = target.get("workspace_path") or ""
+
+        if not target_path and target:
+            target_path = target.get("workspace_path") or ""
+
+        summary = scan_workspace(target_path)
+        if target:
+            with self._lock:
+                target["workspace_summary"] = summary
+                target["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                target["last_ts"] = time.time()
+                self._save_projects()
+                try:
+                    sm = getattr(self, "storage_manager", None) or get_storage_manager(data_dir=self.data_dir)
+                    sm.update_project_workspace(target["id"], target.get("workspace_path", target_path), summary)
+                except Exception as e:
+                    logger.warning("Error updating SQLite project workspace_summary: %s", e)
+
+        return {
+            "ok": True,
+            "status": "ok",
+            "workspace_summary": summary,
+        }
+
+    @staticmethod
+    def pick_workspace_folder_dialog() -> str:
+        """
+        Opens native Windows folder selection dialog.
+        Returns selected path string or empty string if cancelled or in non-interactive/test mode.
+        """
+        if "unittest" in sys.modules or os.environ.get("HEADLESS") or any("test" in str(a).lower() for a in sys.argv):
+            return ""
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            selected = filedialog.askdirectory(title="Seleziona la cartella di lavoro del progetto")
+            root.destroy()
+            return selected or ""
+        except Exception as e:
+            logger.warning("Folder picker dialog error: %s", e)
+            return ""
+
 
     # --- LIVELLO 3: ARCHIVIO STORICO (MEMORIA FREDDA) & RISVEGLIO CLIENTE ---
     def archive_project(self, project_id: str):
@@ -3280,6 +3428,7 @@ class OllamaLocalBridge:
                     upsert_res = self.hooks_runner.evaluate_memory_upsert(
                         new_fact=clean,
                         project_id=project_id,
+                        pinned=pinned,
                     )
                     if upsert_res:
                         self.memories = _load_json(MEMORY_FILE, [])
@@ -4549,6 +4698,27 @@ class OllamaLocalBridge:
                 sk_strs = [f"{s['name']} ({s.get('level', 'base')})" for s in skills_learned[:8]]
                 context_blocks.append("Competenze tecniche registrate: " + ", ".join(sk_strs))
 
+            # M2 / F12: Inject only ENABLED skills from SkillRegistry into prompt context
+            try:
+                sr = get_skill_registry()
+                active_skills = sr.get_relevant_skills(query=text, active_project_id=active_proj_id, enabled_only=True)
+                if active_skills:
+                    skill_lines = []
+                    for s in active_skills[:6]:
+                        s_name = s.get("name", s.get("id"))
+                        s_desc = s.get("description", "")
+                        s_inst = s.get("instructions") or s.get("body") or ""
+                        if s_inst:
+                            first_rule = next((line.strip() for line in s_inst.splitlines() if line.strip() and not line.strip().startswith("#")), "")
+                            line_desc = f"{s_desc} (Regola: {first_rule})" if first_rule and first_rule != s_desc else s_desc
+                        else:
+                            line_desc = s_desc
+                        skill_lines.append(f"- [{s.get('domain', 'pipeline')}] {s_name}: {line_desc}")
+                    if skill_lines:
+                        context_blocks.append("Skill ed ECC Playbook Attivi:\n" + "\n".join(skill_lines))
+            except Exception as se:
+                logger.debug("Could not inject active skills into prompt: %s", se)
+
             if todos:
                 context_blocks.append("To-Do attivi dell'utente: " + " | ".join(todos[:8]))
 
@@ -4568,6 +4738,19 @@ class OllamaLocalBridge:
                     for i in active_instincts[:8]
                 ]
                 context_blocks.append("Linee Guida & Istinti Operativi Attivi:\n" + "\n".join(inst_lines))
+
+            # M1 / F8 / M3 / F15: Workspace Radar Injection (<= 80 tokens) when active project has bound workspace and mcp_filesystem_scanner is ON
+            mcp_reg = getattr(self, "mcp_registry", None) or (get_mcp_registry(data_dir=DATA_DIR) if get_mcp_registry else None)
+            is_fs_enabled = mcp_reg.is_connector_enabled("mcp_filesystem_scanner") if mcp_reg else True
+            if is_fs_enabled and active_proj and active_proj.get("workspace_path"):
+                ws_path = active_proj.get("workspace_path")
+                ws_sum = active_proj.get("workspace_summary")
+                if not ws_sum and scan_workspace:
+                    ws_sum = scan_workspace(ws_path)
+                    active_proj["workspace_summary"] = ws_sum
+                radar_tag = budget_mgr.format_workspace_radar(ws_sum, workspace_path=ws_path)
+                if radar_tag:
+                    context_blocks.append(radar_tag)
 
             system_prompt = (
                 "Sei Neko AI, il gatto-assistente personale da scrivania dell'utente. "
@@ -4711,6 +4894,14 @@ class SystemStateMonitor:
         )
         if hasattr(self.telemetry, "set_hooks_runner") and self.hooks_runner:
             self.telemetry.set_hooks_runner(self.hooks_runner)
+        if hasattr(self, "telemetry") and hasattr(self.telemetry, "guard"):
+            orig_check_and_guard = self.telemetry.guard.check_and_guard
+            def guarded_check_and_guard(vram_percent, active_proc_name=""):
+                reg = get_mcp_registry(data_dir=DATA_DIR) if get_mcp_registry else None
+                if reg and not reg.is_connector_enabled("mcp_vram_guard"):
+                    return False, "bypassed_by_mcp_vram_guard"
+                return orig_check_and_guard(vram_percent, active_proc_name=active_proc_name)
+            self.telemetry.guard.check_and_guard = guarded_check_and_guard
         self.cpu_percent = 12.0
         self.ram_percent = 38.0
         self.ai_working = False
@@ -5007,14 +5198,21 @@ class SystemStateMonitor:
                 "calendar_sync_status": cal_sync_status,
                 "calendar_events": cal_events,
                 "todo_deadlines": todo_deadlines,
-                "window_task_suggestion": (getattr(self, "hooks_runner", None) or getattr(self.ollama, "hooks_runner", None) or (get_hooks_runner() if get_hooks_runner else None)).get_window_task_suggestion() if (getattr(self, "hooks_runner", None) or getattr(self.ollama, "hooks_runner", None) or get_hooks_runner) else None,
+                "window_task_suggestion": ((getattr(self, "hooks_runner", None) or getattr(self.ollama, "hooks_runner", None) or (get_hooks_runner() if get_hooks_runner else None)).get_window_task_suggestion() if (getattr(self, "hooks_runner", None) or getattr(self.ollama, "hooks_runner", None) or get_hooks_runner) and (not get_mcp_registry(data_dir=DATA_DIR) or get_mcp_registry(data_dir=DATA_DIR).is_connector_enabled("mcp_dcc_telemetry")) else None),
                 "session_checkpoint": (getattr(self, "hooks_runner", None) or getattr(self.ollama, "hooks_runner", None) or (get_hooks_runner() if get_hooks_runner else None)).get_session_checkpoint() if (getattr(self, "hooks_runner", None) or getattr(self.ollama, "hooks_runner", None) or get_hooks_runner) else None,
                 "instincts": (getattr(self, "instinct_engine", None) or getattr(self.ollama, "instinct_engine", None) or get_instinct_engine()).get_all_instincts(),
                 "instinct_count": len((getattr(self, "instinct_engine", None) or getattr(self.ollama, "instinct_engine", None) or get_instinct_engine()).get_all_instincts()),
+                "mcp_connectors": (get_mcp_registry(data_dir=DATA_DIR).get_all_connectors() if get_mcp_registry else []),
+                "skills_registry": {
+                    "total": len(getattr(get_skill_registry(), "load_skills", lambda: [])()),
+                    "enabled": sum(1 for s in getattr(get_skill_registry(), "load_skills", lambda: [])() if s.get("enabled", True)),
+                    "disabled": sum(1 for s in getattr(get_skill_registry(), "load_skills", lambda: [])() if not s.get("enabled", True)),
+                    "skills": getattr(get_skill_registry(), "load_skills", lambda: [])(),
+                },
                 "context_budget": (getattr(self.ollama, "budget_manager", None) or TokenBudgetManager()).compute_context_breakdown(
                     system_prompt="Sei Neko AI, assistente desktop personale.",
                     profile=self.mem_proj.profile,
-                    skills=self.mem_proj.get_skills_learned(),
+                    skills=(self.mem_proj.get_skills_learned() or []) + [s for s in getattr(get_skill_registry(), "load_skills", lambda: [])() if s.get("enabled", True)],
                     instincts=(getattr(self.ollama, "budget_manager", None) or TokenBudgetManager()).fit_instincts(
                         (getattr(self, "instinct_engine", None) or getattr(self.ollama, "instinct_engine", None) or get_instinct_engine()).get_all_instincts(),
                         active_project_id=(active_proj.get("id") if active_proj else None),
@@ -5023,11 +5221,16 @@ class SystemStateMonitor:
                     projects=p_state.get("projects", []),
                     todos=todos,
                     chat_history=self.ollama.chat_history[-15:] if hasattr(self.ollama, "chat_history") else [],
+                    mcp_tokens=(get_mcp_registry(data_dir=DATA_DIR).get_total_mcp_tokens() if get_mcp_registry else 0),
                 ),
                 "timestamp": time.time(),
             }
         snap.update(self.audio.get_audio_state())
         return snap
+
+    def get_status_snapshot(self, client_id=None):
+        """Returns the full system state snapshot (conforming to GET /status interface contract)."""
+        return self.get_snapshot(client_id=client_id)
 
 
 audio_capture = WindowsAudioCapture()
@@ -5807,6 +6010,8 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
 
         if self.path.startswith("/api/projects/quality_gate") or self.path.startswith("/api/projects/quality-gate"):
             try:
+                if not isinstance(body, dict):
+                    return self._send_json({"ok": False, "status": "error", "error": "Il payload deve essere un oggetto JSON"}, status=400)
                 pid = body.get("project_id") or body.get("id")
                 if not pid:
                     return self._send_json({"ok": False, "status": "error", "error": "project_id is required"}, status=400)
@@ -5817,8 +6022,324 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
                 logger.error(f"Error in /api/projects/quality_gate: {e}", exc_info=True)
                 return self._send_json({"ok": False, "status": "error", "error": str(e)}, status=400)
 
+        # --- Workspace Folder Binding & Scanning Endpoints (M1: F1, F5) ---
+        if self.path.startswith("/api/projects/bind_folder"):
+            try:
+                if not isinstance(body, dict):
+                    return self._send_json({"ok": False, "status": "error", "error": "Il payload deve essere un oggetto JSON"}, status=400)
+                pid = body.get("project_id") or body.get("id") or ""
+                ws_path = body.get("workspace_path") or body.get("path") or ""
+                pick_native = bool(body.get("pick_native", False))
+                d_dir = body.get("data_dir")
+                mgr = MemoryAndProjectsManager(data_dir=d_dir) if d_dir else mem_proj_manager
+
+                if pick_native and not ws_path:
+                    ws_path = mgr.pick_workspace_folder_dialog()
+
+                if not ws_path:
+                    return self._send_json({"ok": False, "status": "error", "error": "workspace_path is required"}, status=400)
+
+                # Validate directory existence
+                if not os.path.exists(ws_path):
+                    return self._send_json({"ok": False, "status": "error", "error": f"Cartella non trovata: {ws_path}"}, status=400)
+                if not os.path.isdir(ws_path):
+                    return self._send_json({"ok": False, "status": "error", "error": f"Il percorso non è una cartella: {ws_path}"}, status=400)
+
+                if not pid:
+                    active_id = mgr.profile.get("active_project_id")
+                    if active_id:
+                        pid = active_id
+                    elif mgr.projects:
+                        pid = mgr.projects[0].get("id", "proj_nave_intermarine")
+                    else:
+                        pid = "proj_nave_intermarine"
+
+                res = mgr.bind_project_folder(pid, ws_path)
+                return self._send_json(res, status=200 if res.get("ok") else 400)
+            except Exception as e:
+                logger.error(f"Error in /api/projects/bind_folder: {e}", exc_info=True)
+                return self._send_json({"ok": False, "status": "error", "error": str(e)}, status=400)
+
+        if self.path.startswith("/api/projects/open_folder"):
+            try:
+                if not isinstance(body, dict):
+                    return self._send_json({"ok": False, "status": "error", "error": "Il payload deve essere un oggetto JSON"}, status=400)
+                pid = body.get("project_id") or body.get("id") or ""
+                ws_path = body.get("workspace_path") or body.get("path") or ""
+                dry_run = bool(body.get("dry_run", False))
+                d_dir = body.get("data_dir")
+                mgr = MemoryAndProjectsManager(data_dir=d_dir) if d_dir else mem_proj_manager
+
+                if not ws_path and pid:
+                    target = next((p for p in mgr.projects if p.get("id") == pid or p.get("name", "").lower() == pid.lower()), None)
+                    if target:
+                        ws_path = target.get("workspace_path") or ""
+                if not ws_path and mgr.projects:
+                    active_id = mgr.profile.get("active_project_id")
+                    target = next((p for p in mgr.projects if p.get("id") == active_id), mgr.projects[0])
+                    ws_path = target.get("workspace_path") or ""
+
+                if not ws_path:
+                    return self._send_json({"ok": False, "status": "error", "error": "Nessuna cartella associata al progetto"}, status=400)
+
+                if not os.path.exists(ws_path):
+                    return self._send_json({"ok": False, "status": "error", "error": f"Cartella non trovata: {ws_path}"}, status=400)
+
+                # Check if dry_run or test environment
+                is_test_env = "unittest" in sys.modules or os.environ.get("HEADLESS") or any("test" in str(a).lower() for a in sys.argv)
+                if dry_run or is_test_env:
+                    return self._send_json({
+                        "ok": True,
+                        "status": "ok",
+                        "opened": False,
+                        "dry_run": True,
+                        "path": ws_path,
+                    })
+
+                opened = False
+                try:
+                    os.startfile(ws_path)
+                    opened = True
+                except Exception:
+                    try:
+                        subprocess.Popen(["explorer", ws_path])
+                        opened = True
+                    except Exception as e:
+                        logger.warning("Could not launch explorer: %s", e)
+                        opened = False
+
+                return self._send_json({
+                    "ok": True,
+                    "status": "ok",
+                    "opened": opened,
+                    "dry_run": False,
+                    "path": ws_path,
+                })
+            except Exception as e:
+                logger.error(f"Error in /api/projects/open_folder: {e}", exc_info=True)
+                return self._send_json({"ok": False, "status": "error", "error": str(e)}, status=400)
+
+        if self.path.startswith("/api/projects/scan_folder"):
+            try:
+                if not isinstance(body, dict):
+                    return self._send_json({"ok": False, "status": "error", "error": "Il payload deve essere un oggetto JSON"}, status=400)
+                pid = body.get("project_id") or body.get("id") or ""
+                ws_path = body.get("workspace_path") or body.get("path") or ""
+                force = bool(body.get("force", False))
+                d_dir = body.get("data_dir")
+                mgr = MemoryAndProjectsManager(data_dir=d_dir) if d_dir else mem_proj_manager
+
+                res = mgr.scan_project_folder(project_id=pid, workspace_path=ws_path, force=force)
+                return self._send_json(res)
+            except Exception as e:
+                logger.error(f"Error in /api/projects/scan_folder: {e}", exc_info=True)
+                return self._send_json({"ok": False, "status": "error", "error": str(e)}, status=400)
+
+        # --- Milestone 2 Skill Control Plane Endpoints (Requirement R2 / F13) ---
+        if self.path.startswith("/api/skills/toggle"):
+            try:
+                if not isinstance(body, dict):
+                    return self._send_json({"ok": False, "status": "error", "error": "Il payload deve essere un oggetto JSON"}, status=400)
+                d_dir = body.get("data_dir")
+                sr = SkillRegistry(data_dir=d_dir) if d_dir else get_skill_registry()
+
+                # Batch toggling if passed list
+                if "skills" in body and isinstance(body["skills"], list):
+                    results = []
+                    for item in body["skills"]:
+                        if isinstance(item, dict):
+                            sid = item.get("skill_id") or item.get("id")
+                            en = bool(item.get("enabled", True))
+                            if sid:
+                                ok = sr.toggle_skill(sid, en)
+                                results.append({"skill_id": sid, "enabled": en, "ok": ok})
+                    all_skills = sr.load_skills()
+                    cb = self._compute_context_budget_for_skills(d_dir, sr)
+                    return self._send_json({"ok": True, "status": "ok", "results": results, "skills": all_skills, "context_budget": cb})
+
+                skill_id = body.get("skill_id") or body.get("id")
+                if not skill_id:
+                    return self._send_json({"ok": False, "status": "error", "error": "skill_id is required"}, status=400)
+                enabled = bool(body.get("enabled", True))
+
+                success = sr.toggle_skill(str(skill_id), enabled)
+                if not success:
+                    return self._send_json({"ok": False, "status": "error", "error": f"Skill non trovata: {skill_id}"}, status=400)
+
+                all_skills = sr.load_skills()
+                cb = self._compute_context_budget_for_skills(d_dir, sr)
+                return self._send_json({
+                    "ok": True,
+                    "status": "ok",
+                    "skill_id": skill_id,
+                    "enabled": enabled,
+                    "skills": all_skills,
+                    "context_budget": cb,
+                })
+            except Exception as e:
+                logger.error(f"Error in /api/skills/toggle: {e}", exc_info=True)
+                return self._send_json({"ok": False, "status": "error", "error": str(e)}, status=400)
+
+        if self.path.startswith("/api/skills/import"):
+            try:
+                if not isinstance(body, dict):
+                    return self._send_json({"ok": False, "status": "error", "error": "Il payload deve essere un oggetto JSON"}, status=400)
+                d_dir = body.get("data_dir")
+                sr = SkillRegistry(data_dir=d_dir) if d_dir else get_skill_registry()
+
+                content = body.get("content", "")
+                if not content or not str(content).strip():
+                    return self._send_json({"ok": False, "status": "error", "error": "content is required"}, status=400)
+
+                # Validate safety of content
+                c_ok, c_msg = validate_code_safety(content)
+                if not c_ok:
+                    return self._send_json({"ok": False, "status": "error", "error": f"Violazione di sicurezza: {c_msg}"}, status=400)
+
+                fmt = str(body.get("format", "markdown")).lower().strip()
+                sid = body.get("id")
+                if sid:
+                    sid = os.path.basename(str(sid).strip())
+                    sid = re.sub(r"[^a-z0-9_]+", "_", sid.lower()).strip("_")
+                if not sid:
+                    name = body.get("name") or "imported_skill"
+                    sid = re.sub(r"[^a-z0-9_]+", "_", name.lower()).strip("_") or f"skill_{int(time.time())}"
+
+                ext = ".md" if fmt == "markdown" or "md" in fmt else ".yaml"
+                out_path = os.path.join(sr.skills_dir, f"{sid}{ext}")
+                out_path_abs = os.path.abspath(out_path)
+                skills_dir_abs = os.path.abspath(sr.skills_dir)
+                try:
+                    if os.path.commonpath([out_path_abs, skills_dir_abs]) != skills_dir_abs:
+                        return self._send_json({"ok": False, "status": "error", "error": "Violazione di sicurezza: path traversal non consentito"}, status=400)
+                except Exception:
+                    return self._send_json({"ok": False, "status": "error", "error": "Violazione di sicurezza: path traversal non consentito"}, status=400)
+
+                os.makedirs(sr.skills_dir, exist_ok=True)
+                with open(out_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+
+                sr.load_skills()
+                imported = sr.get_skill(sid)
+                return self._send_json({"ok": True, "status": "ok", "skill": imported, "skills": sr.load_skills()})
+            except Exception as e:
+                logger.error(f"Error in /api/skills/import: {e}", exc_info=True)
+                return self._send_json({"ok": False, "status": "error", "error": str(e)}, status=400)
+
+        # --- Milestone 3 Modular MCP Registry Endpoints (Requirement R3 / Features F14–F17) ---
+        if self.path.startswith("/api/mcp/toggle"):
+            try:
+                if not isinstance(body, dict):
+                    return self._send_json({"ok": False, "status": "error", "error": "Il payload deve essere un oggetto JSON"}, status=400)
+                d_dir = body.get("data_dir")
+                reg = MCPRegistry(data_dir=d_dir) if d_dir else (get_mcp_registry(data_dir=DATA_DIR) if get_mcp_registry else None)
+                if not reg:
+                    return self._send_json({"ok": False, "status": "error", "error": "MCP registry non disponibile"}, status=500)
+
+                target_id = body.get("id") or body.get("connector_id")
+                if not target_id:
+                    return self._send_json({"ok": False, "status": "error", "error": "id is required"}, status=400)
+                enabled = bool(body.get("enabled", True))
+
+                success = reg.toggle_connector(str(target_id), enabled)
+                if not success:
+                    return self._send_json({"ok": False, "status": "error", "error": f"MCP connector non trovato: {target_id}"}, status=404)
+
+                all_connectors = reg.get_all_connectors()
+                cb = self._compute_context_budget_for_skills(d_dir)
+                return self._send_json({
+                    "ok": True,
+                    "status": "ok",
+                    "id": str(target_id),
+                    "enabled": enabled,
+                    "connectors": all_connectors,
+                    "context_budget": cb,
+                })
+            except Exception as e:
+                logger.error(f"Error in /api/mcp/toggle: {e}", exc_info=True)
+                return self._send_json({"ok": False, "status": "error", "error": str(e)}, status=400)
+
+        if self.path.startswith("/api/mcp/add"):
+            try:
+                if not isinstance(body, dict):
+                    return self._send_json({"ok": False, "status": "error", "error": "Il payload deve essere un oggetto JSON"}, status=400)
+                d_dir = body.get("data_dir")
+                reg = MCPRegistry(data_dir=d_dir) if d_dir else (get_mcp_registry(data_dir=DATA_DIR) if get_mcp_registry else None)
+                if not reg:
+                    return self._send_json({"ok": False, "status": "error", "error": "MCP registry non disponibile"}, status=500)
+
+                target_id = body.get("id")
+                if not target_id:
+                    return self._send_json({"ok": False, "status": "error", "error": "id is required"}, status=400)
+
+                ok = reg.add_external_server(str(target_id), body)
+                if not ok:
+                    return self._send_json({"ok": False, "status": "error", "error": "Impossibile aggiungere il server MCP"}, status=400)
+
+                all_connectors = reg.get_all_connectors()
+                cb = self._compute_context_budget_for_skills(d_dir)
+                return self._send_json({
+                    "ok": True,
+                    "status": "ok",
+                    "id": str(target_id),
+                    "server": reg.get_connector(str(target_id)),
+                    "connectors": all_connectors,
+                    "context_budget": cb,
+                })
+            except Exception as e:
+                logger.error(f"Error in /api/mcp/add: {e}", exc_info=True)
+                return self._send_json({"ok": False, "status": "error", "error": str(e)}, status=400)
+
         self.send_response(404)
         self.end_headers()
+
+    def _compute_context_budget_for_skills(self, d_dir: Optional[str] = None, sr: Optional[Any] = None) -> Dict[str, Any]:
+        """Recalculates context_budget using active enabled skills and MCP connectors."""
+        try:
+            is_default = (d_dir is None) or (DATA_DIR and os.path.abspath(str(d_dir)) == os.path.abspath(DATA_DIR))
+            if is_default and "monitor" in globals() and hasattr(monitor, "get_status_snapshot"):
+                return monitor.get_status_snapshot().get("context_budget", {})
+
+            if sr is None:
+                sr = SkillRegistry(data_dir=d_dir) if d_dir else get_skill_registry()
+            all_s = sr.load_skills()
+            enabled_skills = [s for s in all_s if s.get("enabled", True)]
+            mgr = MemoryAndProjectsManager(data_dir=d_dir) if d_dir else mem_proj_manager
+
+            prof = mgr.profile if mgr else {}
+            sm = get_storage_manager(data_dir=d_dir)
+            mems = sm.get_memories() if hasattr(sm, "get_memories") else []
+            projs = sm.get_all_projects() if hasattr(sm, "get_all_projects") else (getattr(mgr, "projects", []))
+            todos = ollama_bridge.load_todos(as_strings=False) if hasattr(ollama_bridge, "load_todos") else []
+
+            insts = sm.load_instincts() if hasattr(sm, "load_instincts") else (sm.get_all_instincts() if hasattr(sm, "get_all_instincts") else [])
+            chats = sm.load_chat_history() if hasattr(sm, "load_chat_history") else (sm.get_chat_history(limit=15) if hasattr(sm, "get_chat_history") else (ollama_bridge.chat_history[-15:] if hasattr(ollama_bridge, "chat_history") else []))
+
+            mcp_reg = MCPRegistry(data_dir=d_dir or DATA_DIR) if MCPRegistry else (get_mcp_registry(data_dir=d_dir or DATA_DIR) if get_mcp_registry else None)
+            mcp_toks = mcp_reg.get_total_mcp_tokens() if mcp_reg else 0
+
+            learned_skills = mgr.get_skills_learned() if (mgr and hasattr(mgr, "get_skills_learned")) else []
+            skills_payload = (learned_skills or []) + enabled_skills
+
+            tbm = getattr(ollama_bridge, "budget_manager", None) or TokenBudgetManager()
+            if hasattr(tbm, "fit_instincts"):
+                insts = tbm.fit_instincts(insts)
+
+            return tbm.compute_context_breakdown(
+                system_prompt="Sei Neko AI, assistente desktop personale.",
+                profile=prof,
+                skills=skills_payload,
+                instincts=insts,
+                memories=mems,
+                projects=projs,
+                todos=todos,
+                chat_history=chats[-15:] if isinstance(chats, list) else [],
+                mcp_tokens=mcp_toks,
+            )
+        except Exception as e:
+            logger.warning("Error recalculating context budget for skills: %s", e)
+            tbm = TokenBudgetManager()
+            return tbm.compute_context_breakdown(skills=[])
 
     def _extract_client_id(self):
         if "client_id=" in self.path:
@@ -5841,6 +6362,20 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
                 return self._send_json({"ok": True, "status": "ok", "quality_gate": report})
             except Exception as e:
                 logger.error(f"Error in GET /api/projects/quality_gate: {e}", exc_info=True)
+                return self._send_json({"ok": False, "status": "error", "error": str(e)}, status=400)
+
+        if self.path.startswith("/api/projects/scan_folder"):
+            try:
+                pid = ""
+                ws_path = ""
+                if "?" in self.path:
+                    query_params = urllib.parse.parse_qs(self.path.split("?", 1)[1])
+                    pid = query_params.get("project_id", [""])[0]
+                    ws_path = query_params.get("workspace_path", [""])[0]
+                res = mem_proj_manager.scan_project_folder(project_id=pid, workspace_path=ws_path)
+                return self._send_json(res)
+            except Exception as e:
+                logger.error(f"Error in GET /api/projects/scan_folder: {e}", exc_info=True)
                 return self._send_json({"ok": False, "status": "error", "error": str(e)}, status=400)
 
         if self.path.startswith("/api/context_mode"):
@@ -5893,22 +6428,47 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
             })
 
         if self.path.startswith("/api/skills"):
-            sr = get_skill_registry()
+            d_dir = None
+            if "?" in self.path:
+                try:
+                    query_params = urllib.parse.parse_qs(self.path.split("?", 1)[1])
+                    d_dir = query_params.get("data_dir", [None])[0]
+                except Exception:
+                    pass
+            sr = get_skill_registry(data_dir=d_dir) if d_dir else get_skill_registry()
             all_skills = sr.load_skills()
             formatted = []
             for s in all_skills:
-                triggers = s.get("trigger_patterns", [])
+                triggers = s.get("triggers") or s.get("trigger_patterns") or []
                 cmd = triggers[0] if triggers and triggers[0].startswith("/") else f"/{s['id']}"
                 formatted.append({
                     "id": s["id"],
                     "cmd": cmd,
                     "name": s.get("name", s["id"]),
                     "desc": s.get("description", ""),
-                    "tier": s.get("safety_tier", "CONFIRM_ONCE"),
-                    "safety_tier": s.get("safety_tier", "CONFIRM_ONCE"),
+                    "description": s.get("description", ""),
+                    "format": s.get("format", "yaml"),
+                    "domain": s.get("domain", "pipeline"),
+                    "enabled": bool(s.get("enabled", True)),
+                    "estimated_tokens": int(s.get("estimated_tokens", 35)),
+                    "tier": s.get("safety_tier", "READ_ONLY"),
+                    "safety_tier": s.get("safety_tier", "READ_ONLY"),
                     "triggers": triggers,
                 })
             return self._send_json({"ok": True, "skills": formatted})
+
+        if self.path.startswith("/api/mcp"):
+            d_dir = None
+            if "?" in self.path:
+                try:
+                    query_params = urllib.parse.parse_qs(self.path.split("?", 1)[1])
+                    d_dir = query_params.get("data_dir", [None])[0]
+                except Exception:
+                    pass
+            d_dir = d_dir or DATA_DIR
+            reg = MCPRegistry(data_dir=d_dir) if MCPRegistry else (get_mcp_registry(data_dir=d_dir) if get_mcp_registry else None)
+            conns = reg.get_all_connectors() if reg else []
+            return self._send_json({"ok": True, "status": "ok", "connectors": conns, "count": len(conns)})
 
         if self.path.startswith("/api/profile"):
             sm = get_storage_manager()

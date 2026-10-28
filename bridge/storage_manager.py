@@ -123,6 +123,8 @@ class StorageManager:
         client TEXT DEFAULT '',
         color TEXT DEFAULT '#4facfe',
         is_active INTEGER DEFAULT 0,
+        workspace_path TEXT DEFAULT '',
+        workspace_summary TEXT DEFAULT '{}',
         created_at REAL NOT NULL,
         updated_at REAL NOT NULL,
         archived_at REAL
@@ -242,6 +244,13 @@ class StorageManager:
     CREATE INDEX IF NOT EXISTS idx_instincts_scope ON instincts(scope);
     CREATE INDEX IF NOT EXISTS idx_instincts_project ON instincts(project_id);
     CREATE INDEX IF NOT EXISTS idx_instincts_conf ON instincts(confidence);
+
+    -- 12. Skills State (Milestone M2: Dual-Format & Toggling F11)
+    CREATE TABLE IF NOT EXISTS skills_state (
+        skill_id TEXT PRIMARY KEY,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        updated_at REAL NOT NULL
+    );
     """
 
     def __init__(self, db_path: Optional[str] = None, data_dir: Optional[str] = None):
@@ -311,9 +320,19 @@ class StorageManager:
     close = close_connection
 
     def init_db(self):
-        """Executes full DDL schema in a safe transaction."""
+        """Executes full DDL schema in a safe transaction and migrates missing columns."""
         with self.transaction() as conn:
             conn.executescript(self.DDL_SCHEMA)
+            # Safe migration: ensure workspace_path and workspace_summary columns exist in projects table
+            try:
+                cur = conn.execute("PRAGMA table_info(projects)")
+                existing_cols = {row["name"] for row in cur.fetchall()}
+                if "workspace_path" not in existing_cols:
+                    conn.execute("ALTER TABLE projects ADD COLUMN workspace_path TEXT DEFAULT ''")
+                if "workspace_summary" not in existing_cols:
+                    conn.execute("ALTER TABLE projects ADD COLUMN workspace_summary TEXT DEFAULT '{}'")
+            except Exception as e:
+                logger.warning("Error running safe projects migration: %s", e)
 
     @contextmanager
     def transaction(self):
@@ -641,16 +660,27 @@ class StorageManager:
                             p_created = float(ts)
                             p_updated = float(ts)
 
+                            p_ws_path = str(p.get("workspace_path") or "")
+                            p_ws_sum = json.dumps(p.get("workspace_summary") or {}, ensure_ascii=False)
+
                             cur = conn.execute("SELECT 1 FROM projects WHERE id = ?", (p_id,))
                             if cur.fetchone() is None:
                                 conn.execute(
                                     """
-                                    INSERT INTO projects (id, name, client, color, is_active, created_at, updated_at)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                                    INSERT INTO projects (id, name, client, color, is_active, workspace_path, workspace_summary, created_at, updated_at)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                                     """,
-                                    (p_id, p_name, p_client, p_color, p_is_active, p_created, p_updated),
+                                    (p_id, p_name, p_client, p_color, p_is_active, p_ws_path, p_ws_sum, p_created, p_updated),
                                 )
                                 counts["projects"] += 1
+                            else:
+                                conn.execute(
+                                    """
+                                    UPDATE projects SET workspace_path = ?, workspace_summary = ?
+                                    WHERE id = ? AND (workspace_path IS NULL OR workspace_path = '')
+                                    """,
+                                    (p_ws_path, p_ws_sum, p_id),
+                                )
 
                             # Migrate notes
                             for idx, note in enumerate(p.get("notes", [])):
@@ -1061,6 +1091,274 @@ class StorageManager:
                 tuple(to_delete)
             )
             return cur.rowcount
+
+    # =========================================================================
+    # PROJECTS STORAGE & WORKSPACE METHODS (M1: F1)
+    # =========================================================================
+
+    def get_all_projects(self) -> List[Dict[str, Any]]:
+        """
+        Retrieves all projects from SQLite, deserializing workspace_summary into a dict.
+        """
+        conn = self.get_connection()
+        rows = conn.execute(
+            """
+            SELECT id, name, client, color, is_active, workspace_path, workspace_summary, created_at, updated_at, archived_at
+            FROM projects ORDER BY updated_at DESC
+            """
+        ).fetchall()
+        projects = []
+        for r in rows:
+            d = dict(r)
+            raw_sum = d.get("workspace_summary")
+            if isinstance(raw_sum, str):
+                try:
+                    d["workspace_summary"] = json.loads(raw_sum) if raw_sum else {}
+                except Exception:
+                    d["workspace_summary"] = {}
+            elif not isinstance(raw_sum, dict):
+                d["workspace_summary"] = {}
+            d["workspace_path"] = d.get("workspace_path") or ""
+            d["status"] = "active" if d.get("is_active") else "archived"
+            projects.append(d)
+        return projects
+
+    def save_project(self, project: Dict[str, Any]) -> None:
+        """
+        Inserts or updates a project record in SQLite, serializing workspace_path and workspace_summary.
+        Also syncs to projects.json via AtomicJsonStore.
+        """
+        p_id = str(project.get("id") or f"proj_{int(time.time() * 1000)}")
+        p_name = str(project.get("name") or "").strip()
+        p_client = str(project.get("client") or "").strip()
+        p_color = str(project.get("color") or "#4facfe")
+        p_is_active = 1 if project.get("status", "active") == "active" or project.get("is_active") else 0
+        p_ws_path = str(project.get("workspace_path") or "").strip()
+        ws_sum = project.get("workspace_summary") or {}
+        p_ws_sum = json.dumps(ws_sum, ensure_ascii=False) if isinstance(ws_sum, dict) else "{}"
+
+        now = time.time()
+        p_created = float(project.get("created_at") if isinstance(project.get("created_at"), (int, float)) else now)
+        p_updated = float(project.get("updated_at") if isinstance(project.get("updated_at"), (int, float)) else now)
+
+        with self.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO projects (id, name, client, color, is_active, workspace_path, workspace_summary, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name,
+                    client = excluded.client,
+                    color = excluded.color,
+                    is_active = excluded.is_active,
+                    workspace_path = excluded.workspace_path,
+                    workspace_summary = excluded.workspace_summary,
+                    updated_at = excluded.updated_at
+                """,
+                (p_id, p_name, p_client, p_color, p_is_active, p_ws_path, p_ws_sum, p_created, p_updated),
+            )
+
+        # Sync to projects.json atomically
+        proj_path = os.path.join(self.data_dir, "projects.json")
+        try:
+            current_projs = self.atomic_load_json(proj_path, default=[])
+            if isinstance(current_projs, list):
+                updated_list = []
+                found = False
+                for p in current_projs:
+                    if isinstance(p, dict) and p.get("id") == p_id:
+                        merged = dict(p)
+                        merged.update(project)
+                        merged["workspace_path"] = p_ws_path
+                        merged["workspace_summary"] = ws_sum if isinstance(ws_sum, dict) else {}
+                        updated_list.append(merged)
+                        found = True
+                    else:
+                        updated_list.append(p)
+                if not found:
+                    new_proj_json = dict(project)
+                    new_proj_json["id"] = p_id
+                    new_proj_json["workspace_path"] = p_ws_path
+                    new_proj_json["workspace_summary"] = ws_sum if isinstance(ws_sum, dict) else {}
+                    updated_list.insert(0, new_proj_json)
+                self.atomic_save_json(proj_path, updated_list)
+        except Exception as e:
+            logger.warning("Error syncing saved project to projects.json: %s", e)
+
+    def update_project_workspace(
+        self,
+        project_id: str,
+        workspace_path: str,
+        workspace_summary: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """
+        Updates workspace_path and optional workspace_summary for a project in SQLite and projects.json.
+        Provides upsert parity if the project was created dynamically and does not yet exist in SQLite.
+        """
+        now = time.time()
+        ws_sum_json = json.dumps(workspace_summary or {}, ensure_ascii=False)
+        proj_path = os.path.join(self.data_dir, "projects.json")
+
+        with self.transaction() as conn:
+            cur = conn.execute(
+                """
+                UPDATE projects
+                SET workspace_path = ?, workspace_summary = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (workspace_path, ws_sum_json, now, project_id),
+            )
+            updated = cur.rowcount > 0
+
+            if not updated:
+                # Upsert parity: Project was created dynamically and does not yet exist in SQLite.
+                # Load project details from projects.json if available.
+                proj_data = None
+                try:
+                    current_projs = self.atomic_load_json(proj_path, default=[])
+                    if isinstance(current_projs, list):
+                        proj_data = next(
+                            (p for p in current_projs if isinstance(p, dict) and (p.get("id") == project_id or p.get("name", "").lower() == project_id.lower())),
+                            None
+                        )
+                except Exception:
+                    pass
+
+                p_name = (proj_data.get("name") if proj_data else "") or project_id
+                p_client = (proj_data.get("client") if proj_data else "") or ""
+                p_color = (proj_data.get("color") if proj_data else "") or "#4facfe"
+                p_is_active = 1 if (proj_data and proj_data.get("status", "active") == "active") else 1
+                p_created = now
+                if proj_data:
+                    ts = proj_data.get("last_ts")
+                    if ts is not None:
+                        try:
+                            p_created = float(ts)
+                        except (ValueError, TypeError):
+                            pass
+
+                conn.execute(
+                    """
+                    INSERT INTO projects (id, name, client, color, is_active, workspace_path, workspace_summary, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        workspace_path = excluded.workspace_path,
+                        workspace_summary = excluded.workspace_summary,
+                        updated_at = excluded.updated_at
+                    """,
+                    (project_id, p_name, p_client, p_color, p_is_active, workspace_path, ws_sum_json, p_created, now),
+                )
+                updated = True
+
+        # Sync to projects.json
+        try:
+            current_projs = self.atomic_load_json(proj_path, default=[])
+            if isinstance(current_projs, list):
+                changed = False
+                for p in current_projs:
+                    if isinstance(p, dict) and p.get("id") == project_id:
+                        p["workspace_path"] = workspace_path
+                        if workspace_summary is not None:
+                            p["workspace_summary"] = workspace_summary
+                        p["last_ts"] = now
+                        p["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                        changed = True
+                        break
+                if not changed:
+                    new_proj_json = {
+                        "id": project_id,
+                        "name": p_name if 'p_name' in locals() else project_id,
+                        "client": p_client if 'p_client' in locals() else "",
+                        "status": "active",
+                        "workspace_path": workspace_path,
+                        "workspace_summary": workspace_summary or {},
+                        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "last_ts": now,
+                    }
+                    current_projs.insert(0, new_proj_json)
+                    changed = True
+                if changed:
+                    self.atomic_save_json(proj_path, current_projs)
+        except Exception as e:
+            logger.warning("Error updating project workspace in projects.json: %s", e)
+
+        return updated
+
+    # =========================================================================
+    # SKILLS STATE PERSISTENCE METHODS (M2: F11)
+    # =========================================================================
+
+    def get_skills_state(self) -> Dict[str, bool]:
+        """
+        Retrieves enabled states for all skills from SQLite skills_state table,
+        with fallback/mirroring to skills_state.json.
+        Default for any unlisted skill is True (enabled).
+        """
+        state: Dict[str, bool] = {}
+        # 1. Query SQLite skills_state table
+        try:
+            conn = self.get_connection()
+            rows = conn.execute("SELECT skill_id, enabled FROM skills_state").fetchall()
+            for r in rows:
+                state[str(r["skill_id"])] = bool(r["enabled"])
+        except Exception as e:
+            logger.debug("Could not query skills_state from SQLite: %s", e)
+
+        # 2. Check skills_state.json for any keys or sync
+        state_file = os.path.join(self.data_dir, "skills_state.json")
+        try:
+            if os.path.exists(state_file):
+                json_state = self.atomic_load_json(state_file, default={})
+                if isinstance(json_state, dict):
+                    for k, v in json_state.items():
+                        if k not in state:
+                            state[str(k)] = bool(v)
+        except Exception as e:
+            logger.debug("Could not read skills_state.json: %s", e)
+
+        return state
+
+    def set_skill_state(self, skill_id: str, enabled: bool) -> bool:
+        """
+        Sets the enabled status of a skill in SQLite skills_state table and mirrors
+        to skills_state.json via atomic persistence.
+        """
+        sid = str(skill_id).strip()
+        if not sid:
+            return False
+
+        now = time.time()
+        val = 1 if enabled else 0
+
+        # 1. Persist to SQLite
+        try:
+            with self.transaction() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO skills_state (skill_id, enabled, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(skill_id) DO UPDATE SET
+                        enabled = excluded.enabled,
+                        updated_at = excluded.updated_at
+                    """,
+                    (sid, val, now),
+                )
+        except Exception as e:
+            logger.warning("Error saving skill state to SQLite: %s", e)
+
+        # 2. Mirror to skills_state.json atomically
+        state_file = os.path.join(self.data_dir, "skills_state.json")
+        try:
+            current_state = self.atomic_load_json(state_file, default={})
+            if not isinstance(current_state, dict):
+                current_state = {}
+            current_state[sid] = bool(enabled)
+            self.atomic_save_json(state_file, current_state)
+        except Exception as e:
+            logger.warning("Error mirroring skill state to skills_state.json: %s", e)
+
+        return True
 
 
 class AtomicJsonStore:

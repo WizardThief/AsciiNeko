@@ -3616,3 +3616,290 @@ body.view-home #hud-workspace-container {
   border-color: #454a5e !important;
 }
 
+/* --- Milestone 4: ECC Switch & Control Plane Styles (F18-F25) --- */
+
+/* 1. Monospace Toggle Switch */
+.ecc-switch {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.ecc-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.ecc-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background-color: rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--border-mid);
+  border-radius: 20px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ecc-slider:before {
+  position: absolute;
+  content: "";
+  height: 14px;
+  width: 14px;
+  left: 2px;
+  bottom: 2px;
+  background-color: #cbd5e1;
+  border-radius: 50%;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ecc-switch input:checked + .ecc-slider {
+  background-color: rgba(34, 197, 94, 0.25);
+  border-color: #22c55e;
+}
+
+.ecc-switch input:checked + .ecc-slider:before {
+  transform: translateX(16px);
+  background-color: #22c55e;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+}
+
+/* 2. Live Workspace Radar Badges in Project Hub */
+.hub-proj-folder-section {
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid var(--border-dim);
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+.hub-proj-folder-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.folder-label {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: #38bdf8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+
+.folder-label-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.folder-btns {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hub-proj-radar-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 2px;
+}
+
+.radar-badge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  color: #38bdf8;
+}
+
+.radar-badge.radar-badge-active {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.45);
+  color: #fbbf24;
+}
+
+.radar-badge.radar-badge-asset {
+  background: rgba(168, 85, 247, 0.12);
+  border-color: rgba(168, 85, 247, 0.35);
+  color: #c084fc;
+}
+
+.radar-badge.radar-badge-git {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.35);
+  color: #4ade80;
+}
+
+/* 3. ECC Arsenal Layout & Cards */
+.ecc-arsenal-section {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid var(--border-dim);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+
+.ecc-arsenal-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 1024px) {
+  .ecc-arsenal-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ecc-arsenal-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.arsenal-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-dim);
+  padding-bottom: 6px;
+}
+
+.mcp-connectors-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.mcp-card, .skill-switch-card {
+  background: rgba(20, 26, 40, 0.7);
+  border: 1px solid var(--border-dim);
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.15s ease;
+}
+
+.mcp-card:hover, .skill-switch-card:hover {
+  border-color: var(--border-mid);
+}
+
+.mcp-card-top, .skill-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mcp-title, .skill-title {
+  font-weight: 600;
+  font-size: 12.5px;
+  color: var(--text-bright);
+}
+
+.mcp-card-meta, .skill-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.status-pill {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 700;
+}
+
+.status-pill.status-active {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  color: #4ade80;
+}
+
+.status-pill.status-off {
+  background: rgba(148, 163, 184, 0.12);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  color: #94a3b8;
+}
+
+.badge-format-md {
+  background: rgba(192, 132, 252, 0.15);
+  border: 1px solid rgba(192, 132, 252, 0.35);
+  color: #c084fc;
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+
+.badge-format-yaml {
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: #38bdf8;
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+
+.badge-tokens {
+  color: #94a3b8;
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+.skills-switchboard-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+/* 4. Color-Safe Overrides for Milestone 4 Arsenal & Radar */
+.color-safe .ecc-arsenal-section,
+.color-safe .mcp-card,
+.color-safe .skill-switch-card,
+.color-safe .hub-proj-folder-section {
+  background: #0c0d14 !important;
+  border-color: #454a5e !important;
+  box-shadow: none !important;
+}
+
+.color-safe .radar-badge,
+.color-safe .badge-format-md,
+.color-safe .badge-format-yaml {
+  border-color: #454a5e !important;
+  background: #1e2230 !important;
+  color: #e2e8f0 !important;
+}
+
+.color-safe .ecc-slider {
+  background-color: #1e2230 !important;
+  border-color: #454a5e !important;
+}
+
+.color-safe .ecc-switch input:checked + .ecc-slider {
+  background-color: #2e4334 !important;
+  border-color: #4ade80 !important;
+}
+
+

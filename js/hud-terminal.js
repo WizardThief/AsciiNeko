@@ -3435,6 +3435,31 @@ class HudTerminal {
     this.memCol1Subtab = 'instincts';
     this.currentContextMode = 'operativo';
 
+    // Milestone 4 (F18-F25) Arsenal & Modal Elements
+    this.elEccArsenalSection = document.getElementById('ecc-arsenal-section');
+    this.elMcpGrid = document.getElementById('mcp-connectors-grid');
+    this.elSkillsSwitchboardList = document.getElementById('skills-switchboard-list');
+    this.elCountMcpActive = document.getElementById('count-mcp-active');
+    this.elCountMcpTotal = document.getElementById('count-mcp-total');
+    this.elCountSkillsActive = document.getElementById('count-skills-active');
+    this.elCountSkillsTotal = document.getElementById('count-skills-total');
+    this.elBtnOpenAddMcp = document.getElementById('btn-open-add-mcp');
+    this.elBtnOpenImportSkillModal = document.getElementById('btn-open-import-skill-modal');
+    this.elModalImportSkill = document.getElementById('modal-import-skill');
+    this.elBtnCloseImportSkillModal = document.getElementById('btn-close-import-skill-modal');
+    this.elBtnCancelImportSkill = document.getElementById('btn-cancel-import-skill');
+    this.elFormImportSkill = document.getElementById('form-import-skill');
+    this.elImportSkillId = document.getElementById('import-skill-id');
+    this.elImportSkillName = document.getElementById('import-skill-name');
+    this.elImportSkillDomain = document.getElementById('import-skill-domain');
+    this.elImportSkillContent = document.getElementById('import-skill-content');
+    this.elBtnSaveImportSkill = document.getElementById('btn-save-import-skill');
+
+    if (window.systemBridge) {
+      if (typeof window.systemBridge.fetchMcpConnectors === 'function') window.systemBridge.fetchMcpConnectors();
+      if (typeof window.systemBridge.fetchSkills === 'function') window.systemBridge.fetchSkills();
+    }
+
     this.activeWorkspace = 'view-home';
     this.kanbanProjectFilter = 'all';
     this.calendarViewMode = 'weekly';
@@ -3716,8 +3741,44 @@ class HudTerminal {
 
         const openFolderBtn = e.target.closest('.btn-proj-open-folder');
         if (openFolderBtn) {
-          const projName = openFolderBtn.getAttribute('data-proj-name');
-          this.say(`📂 Apertura cartella di lavoro per il progetto "${projName}"...`);
+          const projId = openFolderBtn.getAttribute('data-proj-id');
+          const wsPath = openFolderBtn.getAttribute('data-path') || '';
+          this.say(`📂 Apertura cartella di lavoro in Esplora Risorse...`);
+          if (window.systemBridge && window.systemBridge.openProjectFolder) {
+            const res = await window.systemBridge.openProjectFolder(projId, wsPath, false);
+            if (res && !res.ok) {
+              this.say(`⚠️ Impossibile aprire cartella: ${res.error || 'percorso non valido'}`);
+            }
+          }
+          return;
+        }
+
+        const scanFolderBtn = e.target.closest('.btn-proj-scan-folder');
+        if (scanFolderBtn) {
+          const projId = scanFolderBtn.getAttribute('data-proj-id');
+          if (projId && window.systemBridge && window.systemBridge.scanProjectFolder) {
+            scanFolderBtn.textContent = '⏳ ...';
+            scanFolderBtn.disabled = true;
+            const res = await window.systemBridge.scanProjectFolder(projId, true);
+            scanFolderBtn.textContent = '🔄 Scansiona';
+            scanFolderBtn.disabled = false;
+            if (res && res.ok) {
+              const count = (res.workspace_summary && res.workspace_summary.total_files !== undefined) ? res.workspace_summary.total_files : 0;
+              this.say(`✅ Scansione completata: ${count} file rilevati.`);
+              this.renderProjectHub();
+            } else {
+              this.say(`⚠️ Scansione fallita: ${res ? res.error : 'errore di rete'}`);
+            }
+          }
+          return;
+        }
+
+        const bindFolderBtn = e.target.closest('.btn-proj-bind-folder');
+        if (bindFolderBtn) {
+          const projId = bindFolderBtn.getAttribute('data-proj-id');
+          if (projId) {
+            this.openBindFolderPrompt(projId);
+          }
           return;
         }
 
@@ -4209,6 +4270,160 @@ class HudTerminal {
         }
       });
     }
+
+    // Milestone 4: MCP Switchboard Real-time Toggling (F21, F24)
+    if (this.elMcpGrid) {
+      this.elMcpGrid.addEventListener('change', async (e) => {
+        const switchInput = e.target.closest('.mcp-switch-input');
+        if (!switchInput || !window.systemBridge) return;
+        const mcpId = switchInput.getAttribute('data-mcp-id');
+        const enabled = switchInput.checked;
+
+        // Immediate optimistic visual update
+        const card = switchInput.closest('.mcp-card');
+        if (card) {
+          const pill = card.querySelector('.status-pill');
+          if (pill) {
+            pill.textContent = enabled ? 'ACTIVE' : 'OFF';
+            pill.className = `status-pill ${enabled ? 'status-active' : 'status-off'}`;
+          }
+        }
+
+        const res = await window.systemBridge.toggleMcp(mcpId, enabled);
+        if (res && res.ok) {
+          if (res.context_budget) {
+            if (this.state.system) this.state.system.contextBudget = res.context_budget;
+            this.renderContextBudget();
+          }
+          this.renderMcpGrid();
+        }
+      });
+    }
+
+    // Milestone 4: Skills Switchboard Real-time Toggling (F22, F24)
+    if (this.elSkillsSwitchboardList) {
+      this.elSkillsSwitchboardList.addEventListener('change', async (e) => {
+        const switchInput = e.target.closest('.skill-switch-input');
+        if (!switchInput || !window.systemBridge) return;
+        const skillId = switchInput.getAttribute('data-skill-id');
+        const enabled = switchInput.checked;
+
+        const res = await window.systemBridge.toggleSkill(skillId, enabled);
+        if (res && res.ok) {
+          if (res.context_budget) {
+            if (this.state.system) this.state.system.contextBudget = res.context_budget;
+            this.renderContextBudget();
+          }
+          this.renderSkillsSwitchboard();
+        }
+      });
+    }
+
+    // Milestone 4: Import / Create SKILL.md Modal Handlers (F23)
+    if (this.elBtnOpenImportSkillModal) {
+      this.elBtnOpenImportSkillModal.addEventListener('click', () => {
+        if (this.elModalImportSkill) this.elModalImportSkill.style.display = 'flex';
+      });
+    }
+    if (this.elBtnCloseImportSkillModal) {
+      this.elBtnCloseImportSkillModal.addEventListener('click', () => {
+        if (this.elModalImportSkill) this.elModalImportSkill.style.display = 'none';
+      });
+    }
+    if (this.elBtnCancelImportSkill) {
+      this.elBtnCancelImportSkill.addEventListener('click', () => {
+        if (this.elModalImportSkill) this.elModalImportSkill.style.display = 'none';
+      });
+    }
+    if (this.elModalImportSkill) {
+      this.elModalImportSkill.addEventListener('click', (e) => {
+        if (e.target === this.elModalImportSkill) this.elModalImportSkill.style.display = 'none';
+      });
+    }
+    if (this.elFormImportSkill) {
+      this.elFormImportSkill.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const id = this.elImportSkillId ? this.elImportSkillId.value.trim() : '';
+        const name = this.elImportSkillName ? this.elImportSkillName.value.trim() : '';
+        const domain = this.elImportSkillDomain ? this.elImportSkillDomain.value : 'pipeline';
+        const content = this.elImportSkillContent ? this.elImportSkillContent.value.trim() : '';
+        if (!content) return;
+
+        if (window.systemBridge && window.systemBridge.importSkill) {
+          const res = await window.systemBridge.importSkill({
+            id: id || undefined,
+            name: name || undefined,
+            domain: domain,
+            content: content,
+            format: 'markdown'
+          });
+          if (res && res.ok) {
+            this.say(`⚡ Nuova skill "${name || id || 'ECC'}" importata con successo!`);
+            if (this.elModalImportSkill) this.elModalImportSkill.style.display = 'none';
+            if (this.elImportSkillId) this.elImportSkillId.value = '';
+            if (this.elImportSkillName) this.elImportSkillName.value = '';
+            if (this.elImportSkillContent) this.elImportSkillContent.value = '';
+            await window.systemBridge.fetchSkills();
+            this.renderSkillsSwitchboard();
+          } else {
+            this.say(`⚠️ Errore importazione skill: ${res ? res.error : 'errore di rete'}`);
+          }
+        }
+      });
+    }
+
+    // Milestone 4: Add MCP Connector Button (F21)
+    if (this.elBtnOpenAddMcp) {
+      this.elBtnOpenAddMcp.addEventListener('click', async () => {
+        const name = window.prompt("Nome del nuovo connettore MCP esterno (es. Unreal Engine Bridge):");
+        if (!name || !name.trim()) return;
+        const cmd = window.prompt("Comando o eseguibile di avvio (es. python o npx):", "python");
+        const id = name.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_');
+        if (window.systemBridge && window.systemBridge.addMcp) {
+          const res = await window.systemBridge.addMcp({
+            id: id,
+            name: name.trim(),
+            command: cmd ? cmd.trim() : 'python',
+            description: `External MCP server: ${name.trim()}`,
+            estimated_tokens: 35,
+            enabled: true
+          });
+          if (res && res.ok) {
+            this.say(`🔌 Connettore MCP "${name.trim()}" registrato con successo!`);
+            if (res.context_budget) {
+              if (this.state.system) this.state.system.contextBudget = res.context_budget;
+              this.renderContextBudget();
+            }
+            await window.systemBridge.fetchMcpConnectors();
+            this.renderMcpGrid();
+          } else {
+            this.say(`⚠️ Errore aggiunta MCP: ${res ? res.error : 'errore di rete'}`);
+          }
+        }
+      });
+    }
+  }
+
+  async openBindFolderPrompt(projId) {
+    const projects = (this.state && this.state.system && Array.isArray(this.state.system.projectsList)) ? this.state.system.projectsList : [];
+    const target = projects.find((p) => p.id === projId) || { id: projId, name: 'Progetto' };
+    const currentPath = target.workspace_path || '';
+    const newPath = window.prompt(`Inserisci il percorso assoluto della cartella di lavoro per il progetto "${target.name}":`, currentPath);
+    if (newPath !== null && newPath.trim()) {
+      const cleanPath = newPath.trim();
+      this.say(`📁 Associazione cartella in corso: "${cleanPath}"...`);
+      if (window.systemBridge && window.systemBridge.bindProjectFolder) {
+        const res = await window.systemBridge.bindProjectFolder(projId, cleanPath, false);
+        if (res && res.ok) {
+          target.workspace_path = cleanPath;
+          if (res.workspace_summary) target.workspace_summary = res.workspace_summary;
+          this.say(`✅ Cartella associata a "${target.name}": ${cleanPath}`);
+          this.renderProjectHub();
+        } else {
+          this.say(`⚠️ Errore associazione cartella: ${res ? res.error : 'percorso non valido'}`);
+        }
+      }
+    }
   }
 
   setContextMode(mode, syncBackend = true) {
@@ -4559,6 +4774,68 @@ class HudTerminal {
         tasksHtml = '<div style="color:var(--text-muted); font-size:11.5px;">Nessuna attività collegata. Creane una in To-Do assegnando questo progetto!</div>';
       }
 
+      // Workspace Folder & Live Radar Bar (F18, F19)
+      const wsPath = p.workspace_path || '';
+      const wsSummary = p.workspace_summary || null;
+
+      let folderHtml = '';
+      if (wsPath) {
+        let radarBadgesHtml = '';
+        if (wsSummary && wsSummary.exists) {
+          const modCount = wsSummary.modified_today_count || 0;
+          const modBadge = `<span class="radar-badge ${modCount > 0 ? 'radar-badge-active' : ''}">⚡ ${modCount} file modif. oggi</span>`;
+
+          let extBadges = '';
+          if (Array.isArray(wsSummary.key_exports) && wsSummary.key_exports.length > 0) {
+            wsSummary.key_exports.slice(0, 3).forEach((ke) => {
+              const fileName = (ke.path || '').split(/[\\/]/).pop();
+              extBadges += `<span class="radar-badge radar-badge-asset">📦 ${this.escapeHtml(fileName)} (${ke.size_mb || 0}MB)</span>`;
+            });
+          } else if (Array.isArray(wsSummary.detected_stack) && wsSummary.detected_stack.length > 0) {
+            wsSummary.detected_stack.slice(0, 3).forEach((st) => {
+              extBadges += `<span class="radar-badge">🛠️ ${this.escapeHtml(String(st))}</span>`;
+            });
+          }
+
+          let gitBadge = '';
+          if (wsSummary.git_info && wsSummary.git_info.is_git_repo) {
+            const dirty = wsSummary.git_info.dirty_count > 0 ? ` • ${wsSummary.git_info.dirty_count} mod` : '';
+            gitBadge = `<span class="radar-badge radar-badge-git">🌿 ${this.escapeHtml(wsSummary.git_info.branch || 'main')}${dirty}</span>`;
+          }
+
+          radarBadgesHtml = `
+            <div class="hub-proj-radar-row">
+              ${modBadge}
+              ${extBadges}
+              ${gitBadge}
+            </div>
+          `;
+        }
+
+        folderHtml = `
+          <div class="hub-proj-folder-section">
+            <div class="hub-proj-folder-bar">
+              <span class="folder-label" title="${this.escapeHtml(wsPath)}">📁 ${this.escapeHtml(wsPath)}</span>
+              <div class="folder-btns">
+                <button type="button" class="term-btn term-btn-sm btn-proj-open-folder" data-proj-id="${this.escapeHtml(p.id || '')}" data-path="${this.escapeHtml(wsPath)}" data-proj-name="${this.escapeHtml(pName)}" title="Apri in Esplora Risorse">📂 Apri</button>
+                <button type="button" class="term-btn term-btn-sm btn-proj-scan-folder" data-proj-id="${this.escapeHtml(p.id || '')}" data-path="${this.escapeHtml(wsPath)}" title="Scansiona disco e aggiorna radar">🔄 Scansiona</button>
+                <button type="button" class="term-btn term-btn-sm btn-proj-bind-folder" data-proj-id="${this.escapeHtml(p.id || '')}" title="Cambia cartella associata">📁 Cambia</button>
+              </div>
+            </div>
+            ${radarBadgesHtml}
+          </div>
+        `;
+      } else {
+        folderHtml = `
+          <div class="hub-proj-folder-section folder-unbound">
+            <div class="hub-proj-folder-bar">
+              <span class="folder-label-empty">📁 <em>Nessuna cartella associata</em></span>
+              <button type="button" class="term-btn term-btn-sm btn-accent btn-proj-bind-folder" data-proj-id="${this.escapeHtml(p.id || '')}">📁 Associa Cartella</button>
+            </div>
+          </div>
+        `;
+      }
+
       html += `
         <div class="hub-project-card" data-proj-id="${this.escapeHtml(p.id || '')}">
           <div class="hub-proj-header">
@@ -4576,6 +4853,8 @@ class HudTerminal {
             </div>
           </div>
 
+          ${folderHtml}
+
           <div class="hub-proj-section-title">Attività collegate (${total}):</div>
           <div class="hub-proj-tasks-list">
             ${tasksHtml}
@@ -4590,7 +4869,7 @@ class HudTerminal {
           </div>
 
           <div class="hub-proj-actions">
-            <button type="button" class="term-btn term-btn-sm btn-proj-open-folder" data-proj-name="${this.escapeHtml(pName)}">📂 Apri Cartella</button>
+            <button type="button" class="term-btn term-btn-sm btn-proj-open-folder" data-proj-id="${this.escapeHtml(p.id || '')}" data-path="${this.escapeHtml(wsPath)}" data-proj-name="${this.escapeHtml(pName)}">📂 Apri Cartella</button>
             <button type="button" class="term-btn term-btn-sm btn-accent btn-proj-ask-plan" data-proj-name="${this.escapeHtml(pName)}">🤖 Chiedi Piano a Neko</button>
             <button type="button" class="term-btn term-btn-sm btn-proj-evolve" data-proj-id="${this.escapeHtml(p.id || '')}">🧬 Evolvi in Playbook</button>
             <button type="button" class="term-btn term-btn-sm btn-proj-quality-gate" data-proj-id="${this.escapeHtml(p.id || '')}" data-proj-name="${this.escapeHtml(pName)}">🛡️ Quality Gate</button>
@@ -4814,7 +5093,7 @@ class HudTerminal {
     this.currentOnboardCategory = rand.category;
   }
 
-  renderMemoryDashboard() {
+  renderContextBudget() {
     // F26: Context Budget Telemetry Meter
     const budget = (this.state.system && this.state.system.contextBudget) || {
       total_budget: 8192,
@@ -4868,6 +5147,108 @@ class HudTerminal {
     if (this.elSegMemories) this.elSegMemories.style.width = `${Math.max(1, Math.round((memTok / totalBudget) * 100))}%`;
     if (this.elSegProjects) this.elSegProjects.style.width = `${Math.max(1, Math.round((projTok / totalBudget) * 100))}%`;
     if (this.elSegChat) this.elSegChat.style.width = `${Math.max(1, Math.round((chatTok / totalBudget) * 100))}%`;
+  }
+
+  renderMcpGrid() {
+    if (!this.elMcpGrid) return;
+    const connectors = (this.state && this.state.system && Array.isArray(this.state.system.mcpConnectors) && this.state.system.mcpConnectors.length > 0)
+      ? this.state.system.mcpConnectors
+      : [
+          { id: 'mcp_filesystem_scanner', name: 'Workspace Scanner', description: 'Scansione file di progetto e radar', enabled: true, estimated_tokens: 35 },
+          { id: 'mcp_calendar_sync', name: 'Calendar Sync', description: 'Google Calendar sync bidirezionale', enabled: true, estimated_tokens: 35 },
+          { id: 'mcp_dcc_telemetry', name: 'DCC Telemetry', description: 'Rilevamento finestre Blender/Max/Unreal', enabled: true, estimated_tokens: 40 },
+          { id: 'mcp_vram_guard', name: 'VRAM Guard', description: 'Protezione memoria GPU RTX 4090', enabled: true, estimated_tokens: 25 }
+        ];
+
+    const activeCount = connectors.filter((c) => c.enabled !== false).length;
+    const totalCount = connectors.length;
+    if (this.elCountMcpActive) this.elCountMcpActive.textContent = String(activeCount);
+    if (this.elCountMcpTotal) this.elCountMcpTotal.textContent = String(totalCount);
+
+    const getIcon = (id) => {
+      if (id.includes('filesystem') || id.includes('workspace')) return '📁';
+      if (id.includes('calendar')) return '📅';
+      if (id.includes('telemetry') || id.includes('dcc')) return '🖥️';
+      if (id.includes('vram') || id.includes('gpu')) return '🎮';
+      return '🔌';
+    };
+
+    let html = '';
+    connectors.forEach((c) => {
+      const isEnabled = (c.enabled !== false);
+      const icon = getIcon(c.id || '');
+      const tokens = c.estimated_tokens || 35;
+      html += `
+        <div class="mcp-card" data-mcp-id="${this.escapeHtml(c.id)}">
+          <div class="mcp-card-top">
+            <span class="mcp-title">${icon} ${this.escapeHtml(c.name || c.id)}</span>
+            <label class="ecc-switch" title="Attiva/Disattiva Connettore MCP">
+              <input type="checkbox" class="mcp-switch-input" data-mcp-id="${this.escapeHtml(c.id)}" ${isEnabled ? 'checked' : ''} />
+              <span class="ecc-slider"></span>
+            </label>
+          </div>
+          <div class="mcp-card-meta">
+            <span class="status-pill ${isEnabled ? 'status-active' : 'status-off'}">${isEnabled ? 'ACTIVE' : 'OFF'}</span>
+            <span class="badge-tokens">~${tokens} tok</span>
+            <small style="color:var(--text-muted); font-size:10.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:120px;" title="${this.escapeHtml(c.description || '')}">${this.escapeHtml(c.description || '')}</small>
+          </div>
+        </div>
+      `;
+    });
+    this.elMcpGrid.innerHTML = html;
+  }
+
+  renderSkillsSwitchboard() {
+    if (!this.elSkillsSwitchboardList) return;
+    const skills = (this.state && this.state.system && Array.isArray(this.state.system.skillsRegistry))
+      ? this.state.system.skillsRegistry
+      : [];
+
+    const activeCount = skills.filter((s) => s.enabled !== false).length;
+    const totalCount = skills.length;
+    if (this.elCountSkillsActive) this.elCountSkillsActive.textContent = String(activeCount);
+    if (this.elCountSkillsTotal) this.elCountSkillsTotal.textContent = String(totalCount);
+
+    if (skills.length === 0) {
+      this.elSkillsSwitchboardList.innerHTML = '<div style="color:var(--text-muted); font-size:12px; padding:10px; text-align:center;">Nessuna skill caricata. Usa "+ Importa SKILL.md" per aggiungerne una!</div>';
+      return;
+    }
+
+    let html = '';
+    skills.forEach((s) => {
+      const isEnabled = (s.enabled !== false);
+      const fmt = (s.format || (s.file && s.file.endsWith('.md') ? 'markdown' : 'yaml')).toLowerCase();
+      const isMd = fmt === 'markdown' || fmt === 'md';
+      const tokens = s.estimated_tokens || 35;
+      const domain = s.domain || 'pipeline';
+
+      html += `
+        <div class="skill-switch-card" data-skill-id="${this.escapeHtml(s.id || '')}">
+          <div class="skill-card-top">
+            <div style="display:flex; align-items:center; gap:6px; overflow:hidden;">
+              <span class="${isMd ? 'badge-format-md' : 'badge-format-yaml'}">${isMd ? 'SKILL.md' : 'YAML'}</span>
+              <span class="skill-title" title="${this.escapeHtml(s.description || s.name || s.id)}">${this.escapeHtml(s.name || s.id)}</span>
+            </div>
+            <label class="ecc-switch" title="Attiva/Disattiva Skill">
+              <input type="checkbox" class="skill-switch-input" data-skill-id="${this.escapeHtml(s.id)}" ${isEnabled ? 'checked' : ''} />
+              <span class="ecc-slider"></span>
+            </label>
+          </div>
+          <div class="skill-card-meta">
+            <span style="color:var(--text-secondary); font-size:11px;">🏷️ ${this.escapeHtml(domain)}</span>
+            <span class="badge-tokens">~${tokens} tok</span>
+            <span style="font-size:10.5px; color:#64748b;">${this.escapeHtml(s.safety_tier || s.tier || 'READ_ONLY')}</span>
+          </div>
+        </div>
+      `;
+    });
+    this.elSkillsSwitchboardList.innerHTML = html;
+  }
+
+  renderMemoryDashboard() {
+    this.renderContextBudget();
+    this.renderMcpGrid();
+    this.renderSkillsSwitchboard();
 
     // F27: Column 1 Subtab Switcher (Instincts vs Skills)
     const isInstinctsTab = (this.memCol1Subtab !== 'skills');
@@ -5372,7 +5753,7 @@ class HudTerminal {
 
     const projectsList = (this.state.system && Array.isArray(this.state.system.projectsList)) ? this.state.system.projectsList : [];
     const playbooks = (this.state.system && Array.isArray(this.state.system.playbooks)) ? this.state.system.playbooks : [];
-    const projKey = `${projectsList.length}:${playbooks.length}:${this.state.system ? this.state.system.activeProjectName : ''}`;
+    const projKey = `${projectsList.length}:${playbooks.length}:${this.state.system ? this.state.system.activeProjectName : ''}:${projectsList.map((p) => (p.workspace_path || '') + (p.workspace_summary ? p.workspace_summary.total_files : 0)).join(';')}`;
 
     const calEvs = (this.state.system && Array.isArray(this.state.system.calendarEvents)) ? this.state.system.calendarEvents : [];
     const calKey = `${calEvs.length}:${this.state.system && this.state.system.calendarSyncStatus ? this.state.system.calendarSyncStatus.synced : false}`;
@@ -5380,7 +5761,9 @@ class HudTerminal {
     const skills = (this.state.system && Array.isArray(this.state.system.skillsLearned)) ? this.state.system.skillsLearned : [];
     const instincts = (this.state.system && Array.isArray(this.state.system.instinctsList)) ? this.state.system.instinctsList : [];
     const budgetTokens = (this.state.system && this.state.system.contextBudget) ? this.state.system.contextBudget.used_tokens : 0;
-    const memKey = `${skills.length}:${instincts.length}:${budgetTokens}:${this.state.system ? this.state.system.memoryCount : 0}`;
+    const mcpConns = (this.state.system && Array.isArray(this.state.system.mcpConnectors)) ? this.state.system.mcpConnectors : [];
+    const skillsReg = (this.state.system && Array.isArray(this.state.system.skillsRegistry)) ? this.state.system.skillsRegistry : [];
+    const memKey = `${skills.length}:${instincts.length}:${budgetTokens}:${this.state.system ? this.state.system.memoryCount : 0}:${mcpConns.map((c) => (c.id || '') + c.enabled).join(',')}:${skillsReg.map((s) => (s.id || '') + s.enabled).join(',')}`;
 
     if (this.activeWorkspace === 'view-home') {
       if (this._lastKanbanKey !== todoKey) {

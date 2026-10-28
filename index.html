@@ -771,6 +771,37 @@
           </div>
         </div>
 
+        <!-- ECC Arsenal: Skill & MCP Control Plane (F20, F21, F22) -->
+        <div class="ecc-arsenal-section" id="ecc-arsenal-section">
+          <div class="ecc-arsenal-grid">
+            <!-- Left Panel: MCP Connectors -->
+            <div class="ecc-arsenal-panel mcp-panel">
+              <div class="arsenal-panel-header">
+                <div class="arsenal-panel-title">
+                  <span>🔌 Connettori MCP di Sistema (<span id="count-mcp-active">0</span>/<span id="count-mcp-total">4</span>)</span>
+                </div>
+                <button type="button" class="term-btn term-btn-sm btn-accent" id="btn-open-add-mcp">+ Aggiungi MCP</button>
+              </div>
+              <div class="mcp-connectors-grid" id="mcp-connectors-grid">
+                <!-- Rendered dynamically by HudTerminal -->
+              </div>
+            </div>
+
+            <!-- Right Panel: Skills Switchboard -->
+            <div class="ecc-arsenal-panel skills-panel">
+              <div class="arsenal-panel-header">
+                <div class="arsenal-panel-title">
+                  <span>⚡ Competenze &amp; Skill ECC (SKILL.md &amp; YAML) (<span id="count-skills-active">0</span>/<span id="count-skills-total">0</span>)</span>
+                </div>
+                <button type="button" class="term-btn term-btn-sm btn-accent" id="btn-open-import-skill-modal">+ Importa SKILL.md</button>
+              </div>
+              <div class="skills-switchboard-list" id="skills-switchboard-list">
+                <!-- Rendered dynamically by HudTerminal -->
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="memory-dashboard-grid">
           <!-- Column 1: Skills & Atomic Instincts v2.1 (F27) -->
           <div class="memory-column" id="mem-col-skills-wrapper">
@@ -1060,6 +1091,48 @@
         <button type="button" class="term-btn" id="btn-qg-retest">🔄 Riesegui Verifica</button>
         <button type="button" class="term-btn btn-accent" id="btn-qg-close">Ho Capito, Chiudi</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Modal Import/Create ECC SKILL.md (F23) -->
+  <div class="neko-modal-overlay" id="modal-import-skill" style="display: none;">
+    <div class="neko-modal-window" style="max-width: 720px; width: 92%; height: auto; max-height: 85vh;">
+      <div class="neko-modal-header">
+        <div class="neko-modal-brand">
+          <span class="brand-cat-icon">⚡</span>
+          <div>
+            <div class="neko-modal-title">IMPORTA O CREA SKILL ECC (SKILL.md &amp; YAML)</div>
+            <div class="neko-modal-subtitle">Definisci una skill dichiarativa con frontmatter YAML e istruzioni operative</div>
+          </div>
+        </div>
+        <button type="button" class="neko-modal-close" id="btn-close-import-skill-modal" title="Chiudi (Esc)">✕ Chiudi</button>
+      </div>
+      <form class="neko-modal-body" id="form-import-skill" style="padding: 16px; display: flex; flex-direction: column; gap: 10px;">
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="import-skill-id" class="modal-input" placeholder="ID Skill (es. glb_draco_optimizer)" style="flex: 1;" />
+          <input type="text" id="import-skill-name" class="modal-input" placeholder="Nome Skill (es. GLB Draco Optimizer)" style="flex: 1;" />
+          <select id="import-skill-domain" class="conn-select" style="max-width: 140px;">
+            <option value="pipeline">Pipeline</option>
+            <option value="client-rule">Client Rule</option>
+            <option value="tool">Tool</option>
+            <option value="workflow">Workflow</option>
+          </select>
+        </div>
+        <div style="font-size: 12px; color: var(--text-secondary);">
+          Incolla o modifica qui sotto il contenuto Markdown standard <code>SKILL.md</code> con frontmatter YAML (oppure YAML puro):
+        </div>
+        <textarea
+          id="import-skill-content"
+          class="modal-input"
+          style="width: 100%; height: 240px; font-family: var(--font-mono); font-size: 12px; line-height: 1.4; resize: vertical;"
+          placeholder="---&#10;name: GLB Draco Optimizer&#10;description: Ottimizzazione modelli 3D WebGL con compressione Draco&#10;domain: pipeline&#10;triggers:&#10;  - quando esporto GLB&#10;  - webgl realtime&#10;---&#10;# Istruzioni Operative&#10;1. Verifica che Draco sia abilitato&#10;2. Esporta mesh e textures ottimizzate"
+          required
+        ></textarea>
+        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px;">
+          <button type="button" class="term-btn" id="btn-cancel-import-skill">Chiudi</button>
+          <button type="submit" class="term-btn btn-accent" id="btn-save-import-skill">💾 Salva Skill</button>
+        </div>
+      </form>
     </div>
   </div>
 

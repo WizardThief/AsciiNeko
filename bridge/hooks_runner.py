@@ -439,6 +439,7 @@ class HooksRunner:
         new_fact: str,
         project_id: Optional[str] = None,
         new_memory_id: Optional[str] = None,
+        pinned: Optional[bool] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Valuta se new_fact confuta o conferma una memoria provvisoria esistente
@@ -538,7 +539,7 @@ class HooksRunner:
                 target["merged_count"] = max(2, target.get("merged_count", 1) + 1)
             if project_id and not target.get("project_id"):
                 target["project_id"] = project_id
-            if is_new_confirmed:
+            if is_new_confirmed or pinned:
                 target["pinned"] = True
 
             # Deduplicazione e potatura:
@@ -592,7 +593,7 @@ class HooksRunner:
             "text": clean_fact,
             "category": "Regola",
             "project_id": project_id,
-            "pinned": is_new_confirmed or any(k in clean_lower for k in ("sempre", "regola", "ufficiale", "logo", "mai")),
+            "pinned": bool(pinned) or is_new_confirmed or any(k in clean_lower for k in ("sempre", "regola", "ufficiale", "logo", "mai")),
             "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
             "updated_at": now_ts,
             "merged_count": 1,
@@ -643,6 +644,50 @@ class HooksRunner:
         app_lower = app_name.lower()
         title_lower = win_title.lower()
         proj_win_lower = proj_in_win.lower()
+        file_in_win = (window_info.get("file_name") or "").strip().lower()
+
+        # Workspace Auto-Linking (M1: F6): check if active window title or file path matches a project's workspace_path
+        proj_file = os.path.join(self.data_dir, "projects.json")
+        projs_raw = _safe_load_json(proj_file, default=[])
+        if (not projs_raw or not isinstance(projs_raw, list)) and self.mem_proj_manager and hasattr(self.mem_proj_manager, "projects"):
+            projs_raw = self.mem_proj_manager.projects or []
+
+        combined_text = f"{win_title} {file_in_win} {proj_in_win}".lower()
+
+        if isinstance(projs_raw, list):
+            for p in projs_raw:
+                if not isinstance(p, dict):
+                    continue
+                ws_path = (p.get("workspace_path") or "").strip()
+                if not ws_path:
+                    continue
+                norm_ws = os.path.normpath(ws_path).lower()
+                ws_base = os.path.basename(norm_ws)
+
+                matched_ws = False
+                if norm_ws in combined_text or (ws_base and len(ws_base) >= 3 and ws_base in combined_text):
+                    matched_ws = True
+                elif os.path.isdir(ws_path):
+                    try:
+                        with os.scandir(ws_path) as entries:
+                            for entry in entries:
+                                if entry.is_file():
+                                    fname_lower = entry.name.lower()
+                                    if len(fname_lower) >= 4 and fname_lower in combined_text:
+                                        matched_ws = True
+                                        break
+                    except OSError:
+                        pass
+
+                if matched_ws:
+                    if self.mem_proj_manager and hasattr(self.mem_proj_manager, "set_active_project"):
+                        try:
+                            self.mem_proj_manager.set_active_project(p["id"])
+                        except Exception:
+                            pass
+                    if not proj_win_lower:
+                        proj_win_lower = (p.get("name") or "").lower()
+                    break
 
         # Verifica che l'applicazione sia uno strumento DCC/creativo/dev riconosciuto
         is_dcc = bool(window_info.get("is_dcc"))
@@ -907,6 +952,17 @@ class HooksRunner:
             if self._session_checkpoint is not None:
                 return copy.deepcopy(self._session_checkpoint)
             return self.load_session_checkpoint()
+
+    def stop(self) -> None:
+        """Gracefully signals worker threads to stop."""
+        self._stopped = True
+        for _ in self._workers:
+            try:
+                self._queue.put(None)
+            except Exception:
+                pass
+
+    shutdown = stop
 
 
 # --- Singleton Globale ---

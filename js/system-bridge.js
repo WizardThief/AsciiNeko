@@ -38,6 +38,8 @@ class SystemBridge {
     this.state.system.windowTaskSuggestion = null;
     this.state.system.sessionCheckpoint = null;
     this.state.system.playbooks = [];
+    this.state.system.mcpConnectors = [];
+    this.state.system.skillsRegistry = [];
     if (!this.state.memory) this.state.memory = {};
     this.state.memory.instincts = [];
     this.state.system.calendar = {
@@ -530,8 +532,197 @@ class SystemBridge {
     return { ok: false };
   }
 
+  // --- Milestone 4: Project Workspace Folder APIs (F18, F19, F25) ---
+  async bindProjectFolder(projectId, path = '', pickNative = false) {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/projects/bind_folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project_id: projectId,
+          workspace_path: path,
+          pick_native: pickNative
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok && Array.isArray(this.state.system.projectsList)) {
+          const target = this.state.system.projectsList.find((p) => p.id === projectId);
+          if (target) {
+            target.workspace_path = data.workspace_path || path;
+            if (data.workspace_summary) target.workspace_summary = data.workspace_summary;
+          }
+        }
+        return data;
+      }
+    } catch (e) {}
+    return { ok: false, error: 'Network error' };
+  }
+
+  async openProjectFolder(projectId, path = '', dryRun = false) {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/projects/open_folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project_id: projectId,
+          workspace_path: path,
+          dry_run: dryRun
+        })
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return { ok: false, error: 'Network error' };
+  }
+
+  async scanProjectFolder(projectId, force = false) {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/projects/scan_folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project_id: projectId,
+          force: force
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok && data.workspace_summary && Array.isArray(this.state.system.projectsList)) {
+          const target = this.state.system.projectsList.find((p) => p.id === projectId);
+          if (target) {
+            target.workspace_summary = data.workspace_summary;
+            if (data.workspace_path) target.workspace_path = data.workspace_path;
+          }
+        }
+        return data;
+      }
+    } catch (e) {}
+    return { ok: false, error: 'Network error' };
+  }
+
+  // --- Milestone 4: Skills & MCP Control Plane APIs (F20, F21, F22, F23, F24, F25) ---
+  async toggleSkill(skillId, enabled) {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/skills/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          skill_id: skillId,
+          id: skillId,
+          enabled: enabled
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok) {
+          if (data.context_budget) this.state.system.contextBudget = data.context_budget;
+          if (Array.isArray(data.skills)) this.state.system.skillsRegistry = data.skills;
+        }
+        return data;
+      }
+    } catch (e) {}
+    return { ok: false };
+  }
+
+  async importSkill(skillData) {
+    try {
+      const payload = typeof skillData === 'object' ? skillData : { content: String(skillData), format: 'markdown' };
+      const res = await fetch('http://127.0.0.1:8765/api/skills/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok && Array.isArray(data.skills)) {
+          this.state.system.skillsRegistry = data.skills;
+        }
+        return data;
+      }
+    } catch (e) {}
+    return { ok: false };
+  }
+
+  async toggleMcp(connectorId, enabled) {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/mcp/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: connectorId,
+          connector_id: connectorId,
+          enabled: enabled
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok) {
+          if (data.context_budget) this.state.system.contextBudget = data.context_budget;
+          if (Array.isArray(data.connectors)) this.state.system.mcpConnectors = data.connectors;
+        }
+        return data;
+      }
+    } catch (e) {}
+    return { ok: false };
+  }
+
+  async addMcp(mcpData) {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/mcp/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(mcpData || {})
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok) {
+          if (data.context_budget) this.state.system.contextBudget = data.context_budget;
+          if (Array.isArray(data.connectors)) this.state.system.mcpConnectors = data.connectors;
+        }
+        return data;
+      }
+    } catch (e) {}
+    return { ok: false };
+  }
+
+  async fetchMcpConnectors() {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/mcp', { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok && Array.isArray(data.connectors)) {
+          this.state.system.mcpConnectors = data.connectors;
+        }
+        return data;
+      }
+    } catch (e) {}
+    return { ok: false, connectors: [] };
+  }
+
+  async fetchMcp() {
+    return this.fetchMcpConnectors();
+  }
+
+  async fetchSkills() {
+    try {
+      const res = await fetch('http://127.0.0.1:8765/api/skills', { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok && Array.isArray(data.skills)) {
+          this.state.system.skillsRegistry = data.skills;
+        }
+        return data;
+      }
+    } catch (e) {}
+    return { ok: false, skills: [] };
+  }
+
   applyBridgeData(data) {
+    if (!data || typeof data !== 'object') return;
+
     this.bridgeConnected = true;
+    if (!this.state) this.state = {};
+    if (!this.state.system) this.state.system = {};
     this.state.system.bridgeOnline = true;
 
     if (typeof data.cpu === 'number') this.state.system.cpu = Math.round(data.cpu);
@@ -638,6 +829,36 @@ class SystemBridge {
     }
     if (Array.isArray(data.playbooks)) {
       this.state.system.playbooks = data.playbooks;
+    }
+    // Hydrate connectors from object with mcp_connectors, object with connectors, or raw array
+    if (Array.isArray(data)) {
+      if (data.length > 0) {
+        const first = data[0];
+        const idStr = first && typeof first === 'object' ? String(first.id || '').toLowerCase() : '';
+        if (first && (first.estimated_tokens !== undefined || first.type === 'builtin' || first.type === 'server' || idStr.startsWith('c') || idStr.startsWith('mcp'))) {
+          this.state.system.mcpConnectors = data;
+        } else if (first && (first.format !== undefined || first.domain !== undefined || first.instructions !== undefined || idStr.startsWith('s') || idStr.startsWith('skill'))) {
+          this.state.system.skillsRegistry = data;
+        }
+      }
+    } else {
+      if (Array.isArray(data.mcp_connectors)) {
+        this.state.system.mcpConnectors = data.mcp_connectors;
+      } else if (Array.isArray(data.connectors)) {
+        this.state.system.mcpConnectors = data.connectors;
+      } else if (data.mcp_connectors && Array.isArray(data.mcp_connectors.connectors)) {
+        this.state.system.mcpConnectors = data.mcp_connectors.connectors;
+      }
+
+      if (Array.isArray(data.skills)) {
+        this.state.system.skillsRegistry = data.skills;
+      } else if (data.skills_registry) {
+        if (Array.isArray(data.skills_registry.skills)) {
+          this.state.system.skillsRegistry = data.skills_registry.skills;
+        } else if (Array.isArray(data.skills_registry)) {
+          this.state.system.skillsRegistry = data.skills_registry;
+        }
+      }
     }
 
     if (typeof data.code_version === 'number' && data.code_version > 0) {

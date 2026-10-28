@@ -52,6 +52,23 @@ except ImportError:
         get_storage_manager = None
         StorageCorruptError = Exception
 
+try:
+    from bridge.workspace_scanner import scan_workspace
+except ImportError:
+    try:
+        from workspace_scanner import scan_workspace
+    except ImportError:
+        scan_workspace = None
+
+try:
+    from bridge.retrieval import estimate_tokens
+except ImportError:
+    try:
+        from retrieval import estimate_tokens
+    except ImportError:
+        def estimate_tokens(text: str) -> int:
+            return max(1, len(text) // 4)
+
 _PLAYBOOK_IO_LOCK = threading.RLock()
 
 
@@ -234,6 +251,12 @@ class SkillRegistry:
 
         os.makedirs(self.skills_dir, exist_ok=True)
 
+        if self.storage_manager is None and get_storage_manager is not None:
+            try:
+                self.storage_manager = get_storage_manager(data_dir=self.data_dir)
+            except Exception:
+                pass
+
         self._skills: Dict[str, Dict[str, Any]] = {}
         self._action_logs: List[Dict[str, Any]] = []
 
@@ -331,10 +354,43 @@ class SkillRegistry:
 
     def load_skills(self) -> List[Dict[str, Any]]:
         """
-        Loads all declarative YAML/JSON files from skills_dir and updates registry.
-        Skips invalid schemas or unsafe commands with warning logs.
+        Loads all declarative YAML/JSON and standard ECC Markdown (*.md, SKILL.md) skills
+        from skills_dir and updates registry.
+        Applies persistent enabled/disabled states and token budgeting metadata.
+        Skips invalid schemas or unsafe commands with warning logs without crashing.
         """
         with self._lock:
+            # 1. Fetch persistent skill state
+            skills_state: Dict[str, bool] = {}
+            if self.storage_manager and hasattr(self.storage_manager, "get_skills_state"):
+                try:
+                    skills_state = self.storage_manager.get_skills_state()
+                except Exception as e:
+                    logger.debug("StorageManager get_skills_state failed: %s", e)
+            if not skills_state:
+                state_file = os.path.join(self.data_dir, "skills_state.json")
+                if os.path.exists(state_file):
+                    try:
+                        with open(state_file, "r", encoding="utf-8") as sf:
+                            loaded_st = json.load(sf)
+                            if isinstance(loaded_st, dict):
+                                skills_state = {str(k): bool(v) for k, v in loaded_st.items()}
+                    except Exception:
+                        pass
+
+            # Update built-in skills with persistent state & metadata
+            for bid, bskill in self._skills.items():
+                if bskill.get("is_builtin"):
+                    bskill["enabled"] = bool(skills_state.get(bid, True))
+                    bskill.setdefault("domain", "system")
+                    bskill.setdefault("format", "builtin")
+                    triggers = bskill.get("trigger_patterns") or bskill.get("triggers") or [f"/{bid}"]
+                    bskill["triggers"] = triggers
+                    bskill["trigger_patterns"] = triggers
+                    if "estimated_tokens" not in bskill:
+                        bskill["estimated_tokens"] = estimate_tokens(json.dumps(bskill))
+
+            # 2. Iterate directory files
             if os.path.exists(self.skills_dir):
                 for fname in sorted(os.listdir(self.skills_dir)):
                     fpath = os.path.join(self.skills_dir, fname)
@@ -350,35 +406,237 @@ class SkillRegistry:
                             except Exception as e:
                                 logger.warning("Failed to parse YAML skill %s: %s", fname, e)
                         else:
-                            # Fallback basic YAML parser for simple key-value/lists
-                            pass
-                    elif fname.endswith(".json"):
+                            try:
+                                with open(fpath, "r", encoding="utf-8") as f:
+                                    skill_data = self._parse_frontmatter_regex(f.read())
+                            except Exception as e:
+                                logger.warning("Failed to parse YAML skill %s: %s", fname, e)
+
+                        if isinstance(skill_data, dict):
+                            sid = skill_data.get("id") or os.path.splitext(fname)[0]
+                            skill_data["id"] = sid
+                            skill_data["format"] = "yaml"
+                            skill_data.setdefault("domain", "pipeline")
+                            triggers = skill_data.get("trigger_patterns") or skill_data.get("triggers") or [f"/{sid}"]
+                            skill_data["triggers"] = triggers
+                            skill_data["trigger_patterns"] = triggers
+                            skill_data["enabled"] = bool(skills_state.get(sid, True))
+                            if "estimated_tokens" not in skill_data:
+                                try:
+                                    with open(fpath, "r", encoding="utf-8") as f:
+                                        skill_data["estimated_tokens"] = estimate_tokens(f.read())
+                                except Exception:
+                                    skill_data["estimated_tokens"] = 35
+
+                            ok, msg = self.validate_skill(skill_data)
+                            if ok:
+                                self._skills[sid] = skill_data
+                                logger.debug("Loaded YAML skill [%s] from %s", sid, fname)
+                            else:
+                                logger.warning("YAML skill %s validation failed: %s", fname, msg)
+
+                    elif fname.endswith(".json") and not fname.startswith("playbook_"):
                         try:
                             with open(fpath, "r", encoding="utf-8") as f:
                                 skill_data = json.load(f)
                         except Exception as e:
                             logger.warning("Failed to parse JSON skill %s: %s", fname, e)
 
-                    if isinstance(skill_data, dict):
-                        ok, msg = self.validate_skill(skill_data)
-                        if ok:
-                            sid = skill_data["id"]
-                            self._skills[sid] = skill_data
-                            logger.debug("Loaded skill [%s] from %s", sid, fname)
-                        else:
-                            logger.warning("Skill %s validation failed: %s", fname, msg)
+                        if isinstance(skill_data, dict):
+                            sid = skill_data.get("id") or os.path.splitext(fname)[0]
+                            skill_data["id"] = sid
+                            skill_data["format"] = "json"
+                            skill_data.setdefault("domain", "pipeline")
+                            triggers = skill_data.get("trigger_patterns") or skill_data.get("triggers") or [f"/{sid}"]
+                            skill_data["triggers"] = triggers
+                            skill_data["trigger_patterns"] = triggers
+                            skill_data["enabled"] = bool(skills_state.get(sid, True))
+                            if "estimated_tokens" not in skill_data:
+                                skill_data["estimated_tokens"] = estimate_tokens(json.dumps(skill_data))
+
+                            ok, msg = self.validate_skill(skill_data)
+                            if ok:
+                                self._skills[sid] = skill_data
+                                logger.debug("Loaded JSON skill [%s] from %s", sid, fname)
+                            else:
+                                logger.warning("JSON skill %s validation failed: %s", fname, msg)
+
+                    elif fname.endswith(".md"):
+                        # Standard ECC Markdown skill (SKILL.md or *.md with frontmatter)
+                        try:
+                            skill_data = self.load_markdown_skill(fpath, skills_state=skills_state)
+                            if isinstance(skill_data, dict):
+                                sid = skill_data["id"]
+                                ok, msg = self.validate_skill(skill_data)
+                                if ok:
+                                    self._skills[sid] = skill_data
+                                    logger.debug("Loaded Markdown skill [%s] from %s", sid, fname)
+                                else:
+                                    logger.warning("Markdown skill %s validation failed: %s", fname, msg)
+                        except Exception as e:
+                            logger.warning("Error processing Markdown skill %s: %s", fname, e)
 
             return list(self._skills.values())
+
+    def load_markdown_skill(
+        self,
+        fpath: str,
+        skills_state: Optional[Dict[str, bool]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Loads and parses a standard ECC SKILL.md or *.md markdown skill with YAML frontmatter.
+        Delimited by '---'.
+        Safe fallback parsing prevents crashing on corrupt or malformed frontmatter.
+        """
+        if not os.path.isfile(fpath):
+            return None
+
+        fname = os.path.basename(fpath)
+        stem = os.path.splitext(fname)[0]
+
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                content = f.read()
+        except Exception as e:
+            logger.warning("Error reading markdown skill %s: %s", fname, e)
+            return None
+
+        frontmatter_raw = ""
+        body = ""
+
+        if content.startswith("---"):
+            parts = content.split("---", 2)
+            if len(parts) >= 3:
+                frontmatter_raw = parts[1]
+                body = parts[2].strip()
+            else:
+                body = content.strip()
+        else:
+            match = re.search(r"^---\s*\n(.*?)\n---\s*\n(.*)$", content, re.DOTALL)
+            if match:
+                frontmatter_raw = match.group(1)
+                body = match.group(2).strip()
+            else:
+                body = content.strip()
+
+        fm_data: Dict[str, Any] = {}
+        if frontmatter_raw.strip():
+            if HAS_YAML:
+                try:
+                    parsed = yaml.safe_load(frontmatter_raw)
+                    if isinstance(parsed, dict):
+                        fm_data = parsed
+                except Exception as ye:
+                    logger.warning("YAML parse error on frontmatter for %s: %s. Attempting regex fallback.", fname, ye)
+            if not fm_data:
+                fm_data = self._parse_frontmatter_regex(frontmatter_raw)
+
+        skill_id = str(fm_data.get("id") or stem).strip()
+        if not skill_id or skill_id == "SKILL":
+            parent_dir_name = os.path.basename(os.path.dirname(fpath))
+            skill_id = parent_dir_name if parent_dir_name and parent_dir_name != "skills" else stem
+
+        raw_name = fm_data.get("name")
+        if not raw_name or not str(raw_name).strip():
+            header_match = re.search(r"^#\s+(.+)$", body, re.MULTILINE)
+            if header_match:
+                name = header_match.group(1).strip()
+            else:
+                name = stem.replace("_", " ").replace("-", " ").title()
+        else:
+            name = str(raw_name).strip()
+
+        raw_desc = fm_data.get("description")
+        if not raw_desc or not str(raw_desc).strip():
+            first_line = next((line.strip() for line in body.splitlines() if line.strip() and not line.strip().startswith("#")), "")
+            desc = first_line or f"Skill {name}"
+        else:
+            desc = str(raw_desc).strip()
+
+        domain = str(fm_data.get("domain") or "pipeline").strip()
+        safety_tier = str(fm_data.get("safety_tier") or "READ_ONLY").strip()
+        if safety_tier not in SAFETY_TIERS:
+            safety_tier = "READ_ONLY"
+
+        triggers = fm_data.get("triggers") or fm_data.get("trigger_patterns") or []
+        if isinstance(triggers, str):
+            triggers = [triggers]
+        elif not isinstance(triggers, list):
+            triggers = []
+        if not triggers:
+            triggers = [f"/{skill_id}", name.lower()]
+
+        token_cost = estimate_tokens(frontmatter_raw + "\n" + body) if body or frontmatter_raw else 30
+
+        enabled = True
+        if skills_state is not None:
+            enabled = bool(skills_state.get(skill_id, True))
+        elif self.storage_manager and hasattr(self.storage_manager, "get_skills_state"):
+            try:
+                enabled = bool(self.storage_manager.get_skills_state().get(skill_id, True))
+            except Exception:
+                enabled = True
+
+        skill_doc = {
+            "schema_version": "1.0",
+            "id": skill_id,
+            "name": name,
+            "description": desc,
+            "domain": domain,
+            "safety_tier": safety_tier,
+            "trigger_patterns": triggers,
+            "triggers": triggers,
+            "parameters": fm_data.get("parameters", []),
+            "execution_contract": {
+                "type": "MARKDOWN_INSTRUCTIONS",
+                "instructions": body,
+            },
+            "instructions": body,
+            "body": body,
+            "content": content,
+            "format": "markdown",
+            "estimated_tokens": token_cost,
+            "enabled": enabled,
+            "is_builtin": False,
+        }
+
+        return skill_doc
+
+    def _parse_frontmatter_regex(self, text: str) -> Dict[str, Any]:
+        """Simple regex key-value extractor fallback when YAML parser fails."""
+        data: Dict[str, Any] = {}
+        for line in text.splitlines():
+            line_str = line.strip()
+            if not line_str or line_str.startswith("#"):
+                continue
+            if ":" in line_str:
+                k, v = line_str.split(":", 1)
+                k = k.strip()
+                v = v.strip().strip("'\"")
+                if k in ("name", "description", "domain", "id", "safety_tier"):
+                    data[k] = v
+                elif k in ("triggers", "trigger_patterns"):
+                    if v and not v.startswith("["):
+                        data[k] = [v]
+                    elif v.startswith("[") and v.endswith("]"):
+                        items = [item.strip().strip("'\"") for item in v[1:-1].split(",") if item.strip()]
+                        data[k] = items
+        return data
 
     def validate_skill(self, skill_data: Dict[str, Any]) -> Tuple[bool, str]:
         """
         Validates schema, safety tiers, and code safety of command templates.
         """
+        if skill_data.get("format") == "markdown":
+            tier = skill_data.get("safety_tier", "READ_ONLY")
+            if tier not in SAFETY_TIERS:
+                return False, f"Safety tier non valido: {tier}"
+            return True, "Valido"
+
         ok, msg = validate_skill_schema(skill_data)
         if not ok:
             return False, msg
 
-        # Inspect execution contract commands
         contract = skill_data.get("execution_contract", {})
         cmd_template = contract.get("command_template") or contract.get("script") or ""
         if cmd_template:
@@ -389,9 +647,93 @@ class SkillRegistry:
         return True, "Valido"
 
     def get_skill(self, skill_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieves registered skill by ID."""
+        """Retrieves registered skill by ID or name."""
         with self._lock:
-            return self._skills.get(skill_id)
+            if skill_id in self._skills:
+                return self._skills[skill_id]
+            for s in self._skills.values():
+                if s.get("id") == skill_id or s.get("name") == skill_id:
+                    return s
+            return None
+
+    def toggle_skill(self, skill_id: str, enabled: bool) -> bool:
+        """
+        Toggles enabled state of a skill by ID or name.
+        Persists state to SQLite skills_state and skills_state.json.
+        Returns True if skill exists and toggled, False if not found.
+        """
+        with self._lock:
+            skill = self._skills.get(skill_id)
+            if not skill:
+                match = next((s for s in self._skills.values() if s.get("id") == skill_id or s.get("name") == skill_id), None)
+                if match:
+                    skill = match
+                    skill_id = match.get("id", skill_id)
+                else:
+                    return False
+
+            skill["enabled"] = bool(enabled)
+
+            # 1. Persist to StorageManager
+            if self.storage_manager and hasattr(self.storage_manager, "set_skill_state"):
+                try:
+                    self.storage_manager.set_skill_state(skill_id, enabled)
+                except Exception as e:
+                    logger.warning("Error persisting skill state to storage_manager: %s", e)
+
+            # 2. Mirror to skills_state.json in data_dir
+            state_file = os.path.join(self.data_dir, "skills_state.json")
+            try:
+                state = {}
+                if os.path.exists(state_file):
+                    with open(state_file, "r", encoding="utf-8") as sf:
+                        state = json.load(sf)
+                if not isinstance(state, dict):
+                    state = {}
+                state[skill_id] = bool(enabled)
+                tmp_path = f"{state_file}.{os.getpid()}.tmp"
+                with open(tmp_path, "w", encoding="utf-8") as sf:
+                    json.dump(state, sf, indent=2, ensure_ascii=False)
+                os.replace(tmp_path, state_file)
+            except Exception as e:
+                logger.warning("Error writing skills_state.json: %s", e)
+
+            return True
+
+    def set_skill_enabled(self, skill_id: str, enabled: bool) -> bool:
+        """Alias for toggle_skill."""
+        return self.toggle_skill(skill_id, enabled)
+
+    def get_relevant_skills(
+        self,
+        query: Optional[str] = None,
+        active_project_id: Optional[str] = None,
+        enabled_only: bool = True,
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieves skills relevant to the active context or query.
+        When enabled_only=True, filters out any skill where enabled == False.
+        """
+        with self._lock:
+            all_skills = list(self._skills.values())
+
+        if enabled_only:
+            skills = [s for s in all_skills if s.get("enabled", True) is not False]
+        else:
+            skills = all_skills
+
+        if query:
+            q = query.strip().lower()
+            matched = []
+            for s in skills:
+                triggers = [t.lower() for t in (s.get("triggers", []) or s.get("trigger_patterns", []))]
+                if any(q == t or q.startswith(t) or t in q for t in triggers):
+                    matched.append(s)
+                elif q in s.get("id", "").lower() or q in s.get("name", "").lower() or q in s.get("description", "").lower():
+                    matched.append(s)
+            skills = matched
+
+        return skills
 
     def find_matching_skills(self, query_or_cmd: str) -> List[Dict[str, Any]]:
         """Finds skills matching a slash command or natural language trigger."""
@@ -1136,17 +1478,26 @@ def inspect_project_quality_gate(project_id: str, data_dir: Optional[str] = None
                 conn.row_factory = sqlite3.Row
                 cur = conn.cursor()
                 cur.execute(
-                    "SELECT id, name, client, color, is_active FROM projects WHERE id = ? OR LOWER(name) = ? OR id = ?",
+                    "SELECT * FROM projects WHERE id = ? OR LOWER(name) = ? OR id = ?",
                     (project_id, project_id.lower(), f"proj_{project_id}"),
                 )
                 row = cur.fetchone()
                 if row:
+                    r_keys = row.keys()
+                    ws_path_db = row["workspace_path"] if "workspace_path" in r_keys else ""
+                    ws_sum_raw = row["workspace_summary"] if "workspace_summary" in r_keys else "{}"
+                    try:
+                        ws_sum_db = json.loads(ws_sum_raw) if isinstance(ws_sum_raw, str) else (ws_sum_raw or {})
+                    except Exception:
+                        ws_sum_db = {}
                     project = {
                         "id": row["id"],
                         "name": row["name"],
                         "client": row["client"] or "",
                         "color": row["color"] or "#0055ff",
                         "status": "active" if row["is_active"] else "archived",
+                        "workspace_path": ws_path_db or "",
+                        "workspace_summary": ws_sum_db,
                         "notes": [],
                         "tech_stack": [],
                     }
@@ -1306,6 +1657,61 @@ def inspect_project_quality_gate(project_id: str, data_dir: Optional[str] = None
     else:
         instincts_score = 100.0
 
+    # 4b. Workspace & Deliverables Check (M1: F7)
+    ws_path = project.get("workspace_path") or ""
+    workspace_checklist = None
+    ws_summary = {}
+    if ws_path:
+        is_accessible = os.path.exists(ws_path) and os.path.isdir(ws_path)
+        if is_accessible and scan_workspace:
+            ws_summary = scan_workspace(ws_path)
+        else:
+            ws_summary = {
+                "exists": is_accessible,
+                "workspace_path": ws_path,
+                "total_files": 0,
+                "total_size_mb": 0.0,
+                "recent_files": [],
+                "modified_today_count": 0,
+                "detected_stack": [],
+                "key_exports": [],
+                "git_info": {"is_git_repo": False, "branch": "", "dirty_count": 0},
+                "scan_time_ms": 0.0,
+            }
+        key_exports = ws_summary.get("key_exports", [])
+        recent_files = ws_summary.get("recent_files", [])
+        exports_desc = f"{len(key_exports)} export (.glb/.blend/.rs) rilevati" if key_exports else "nessun file export rilevato"
+        mod_today = ws_summary.get("modified_today_count", 0)
+        mod_desc = f"{mod_today} modifiche oggi" if mod_today > 0 else f"{len(recent_files)} file recenti"
+
+        ws_status = "VERIFIED" if is_accessible else "FAILED"
+        workspace_checklist = {
+            "workspace_path": ws_path,
+            "accessible": is_accessible,
+            "status": ws_status,
+            "total_files": ws_summary.get("total_files", 0),
+            "key_exports": key_exports,
+            "recent_files": recent_files,
+            "detected_stack": ws_summary.get("detected_stack", []),
+            "modified_today_count": mod_today,
+            "git_info": ws_summary.get("git_info", {}),
+            "scan_time_ms": ws_summary.get("scan_time_ms", 0.0),
+        }
+        client_rules_checklist.append({
+            "rule": f"Workspace & Deliverables Check: cartella '{os.path.basename(ws_path)}' accessibile ({exports_desc}, {mod_desc})",
+            "status": ws_status,
+            "pinned": True,
+            "check_type": "workspace_deliverables",
+            "workspace_checklist": workspace_checklist,
+        })
+
+        # Recompute rules_score after appending workspace deliverables check
+        if client_rules_checklist:
+            verified_count = sum(1 for c in client_rules_checklist if c["status"] == "VERIFIED")
+            rules_score = round((verified_count / len(client_rules_checklist)) * 100, 1)
+        else:
+            rules_score = 100.0
+
     # 5. Composite readiness score
     readiness_score = int(round(0.50 * task_score + 0.30 * rules_score + 0.20 * instincts_score))
     readiness_score = max(0, min(100, readiness_score))
@@ -1344,7 +1750,10 @@ def inspect_project_quality_gate(project_id: str, data_dir: Optional[str] = None
             if any(t.get("status") != "done" for t in tasks if "export" in t.get("title", "").lower() or "draco" in t.get("title", "").lower()):
                 recommendations.append("Completare 'Export GLB ottimizzato con Draco' prima dell'integrazione Rust + Three.js")
 
-    return {
+    if ws_path and not (os.path.exists(ws_path) and os.path.isdir(ws_path)):
+        recommendations.append(f"Verificare la cartella workspace del progetto: '{ws_path}' non risulta accessibile.")
+
+    result = {
         "ok": True,
         "status": "ok",
         "project_id": project["id"],
@@ -1356,6 +1765,10 @@ def inspect_project_quality_gate(project_id: str, data_dir: Optional[str] = None
         "technical_instincts_checklist": technical_instincts_checklist,
         "recommendations": recommendations,
     }
+    if workspace_checklist is not None:
+        result["workspace_checklist"] = workspace_checklist
+        result["workspace_summary"] = ws_summary
+    return result
 
 
 def evolve_project_to_playbook(project_id: str, slug: Optional[str] = None, data_dir: Optional[str] = None) -> Dict[str, Any]:

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import re
 import sqlite3
 import time
@@ -362,6 +363,100 @@ class TokenBudgetManager:
         self.budget_clipboard = budget_clipboard
         self.budget_instincts = budget_instincts
 
+    def format_workspace_radar(
+        self,
+        workspace_summary: Optional[Dict[str, Any]] = None,
+        workspace_path: str = "",
+        max_tokens: int = 80,
+    ) -> str:
+        """
+        Formats a compact <workspace_radar> context tag (<= 80 tokens) summarizing
+        bound workspace path, file counts, key exports, and Git status.
+        Enforces progressive compression and hard truncation strictly under max_tokens budget.
+        """
+        if not workspace_summary and not workspace_path:
+            return ""
+
+        summary = workspace_summary or {}
+        path_str = summary.get("workspace_path") or workspace_path or ""
+        if not path_str:
+            return ""
+
+        if max_tokens < 12:
+            return ""
+
+        base_name = os.path.basename(path_str.rstrip("/\\")) or path_str
+        total_files = summary.get("total_files", 0)
+        size_mb = summary.get("total_size_mb", 0.0)
+
+        # Truncate base_name if excessively long
+        if len(base_name) > 30:
+            base_name = base_name[:27] + "..."
+
+        # Key exports representation
+        exports = summary.get("key_exports", [])
+        if exports:
+            exp_names = []
+            for e in exports[:3]:
+                ename = os.path.basename(e.get("path", ""))
+                if len(ename) > 20:
+                    ename = ename[:17] + "..."
+                exp_names.append(ename)
+            exp_str = ", ".join(exp_names)
+            if len(exports) > 3:
+                exp_str += f" (+{len(exports)-3})"
+        else:
+            exp_str = "none"
+
+        # Git branch representation
+        git_info = summary.get("git_info", {})
+        branch = git_info.get("branch", "") if git_info.get("is_git_repo") else ""
+        if len(branch) > 24:
+            branch = branch[:21] + "..."
+        git_str = f" | Git: {branch}" if branch else ""
+
+        # Stack representation
+        stack = summary.get("detected_stack", [])
+        stk_str = f" | Stack: {', '.join(stack[:3])}" if stack else ""
+
+        radar_content = f"Path: {base_name} | Files: {total_files} ({size_mb} MB) | Exports: {exp_str}{git_str}{stk_str}"
+        radar_tag = f"<workspace_radar> {radar_content} </workspace_radar>"
+
+        # Progressive truncation steps if exceeding max_tokens
+        if estimate_tokens(radar_tag) > max_tokens:
+            # Step 1: drop stack and size_mb
+            radar_content = f"Path: {base_name} | Files: {total_files} | Exports: {exp_str}{git_str}"
+            radar_tag = f"<workspace_radar> {radar_content} </workspace_radar>"
+
+        if estimate_tokens(radar_tag) > max_tokens:
+            # Step 2: condense exports to count only
+            exp_compact = f"{len(exports)} assets" if exports else "none"
+            radar_content = f"Path: {base_name} | Files: {total_files} | Exports: {exp_compact}{git_str}"
+            radar_tag = f"<workspace_radar> {radar_content} </workspace_radar>"
+
+        if estimate_tokens(radar_tag) > max_tokens:
+            # Step 3: drop git
+            exp_compact = f"{len(exports)} assets" if exports else "none"
+            radar_content = f"Path: {base_name} | Files: {total_files} | Exports: {exp_compact}"
+            radar_tag = f"<workspace_radar> {radar_content} </workspace_radar>"
+
+        # Step 4: Hard progressive truncation guarantee
+        if estimate_tokens(radar_tag) > max_tokens:
+            prefix = "<workspace_radar> "
+            suffix = " </workspace_radar>"
+            max_chars = int(max_tokens * 3.2)
+            avail_chars = max(0, max_chars - len(prefix) - len(suffix))
+            if len(radar_content) > avail_chars:
+                radar_content = (radar_content[: max(0, avail_chars - 3)] + "...") if avail_chars > 3 else radar_content[:avail_chars]
+            radar_tag = f"{prefix}{radar_content}{suffix}"
+
+        # Final loop safety invariant: guarantee estimate_tokens(radar_tag) <= max_tokens
+        while estimate_tokens(radar_tag) > max_tokens and len(radar_content) > 3:
+            radar_content = radar_content[:-4] + "..."
+            radar_tag = f"<workspace_radar> {radar_content} </workspace_radar>"
+
+        return radar_tag
+
     def fit_clipboard(self, clipboard_text: str, available_tokens: int) -> str:
         """Truncates clipboard text to fit allocated token quota."""
         if not clipboard_text:
@@ -496,10 +591,15 @@ class TokenBudgetManager:
         projects: Any = None,
         todos: Any = None,
         chat_history: Any = None,
+        mcp_connectors: Any = None,
+        mcp_tokens: Optional[int] = None,
+        data_dir: Optional[str] = None,
+        **kwargs: Any,
     ) -> Dict[str, Any]:
         """
         Computes exact token counts and percentages for categories:
         system, profile_and_skills, instincts, memories, projects_and_todos, chat_history.
+        Accounts for enabled MCP connectors (Requirements R3 / Features F16).
         """
         def _to_text(obj: Any) -> str:
             if obj is None:
@@ -532,7 +632,31 @@ class TokenBudgetManager:
                 return " ".join(parts)
             return str(obj)
 
+        # Calculate enabled MCP connector tokens
+        if mcp_tokens is not None:
+            mcp_tokens_count = int(mcp_tokens)
+        elif mcp_connectors is not None:
+            if isinstance(mcp_connectors, list):
+                mcp_tokens_count = sum(
+                    int(c.get("estimated_tokens", 0))
+                    for c in mcp_connectors
+                    if isinstance(c, dict) and c.get("enabled", True)
+                )
+            elif isinstance(mcp_connectors, (int, float)):
+                mcp_tokens_count = int(mcp_connectors)
+            else:
+                mcp_tokens_count = 0
+        elif data_dir is not None:
+            try:
+                from bridge.mcp_registry import get_mcp_registry
+                mcp_tokens_count = get_mcp_registry(data_dir=data_dir).get_total_mcp_tokens()
+            except Exception:
+                mcp_tokens_count = 0
+        else:
+            mcp_tokens_count = 0
+
         sys_tokens = estimate_tokens(_to_text(system_prompt))
+        total_system_tokens = sys_tokens + mcp_tokens_count
         prof_tokens = estimate_tokens(_to_text(profile))
         skill_tokens = estimate_tokens(_to_text(skills))
         profile_and_skills_tokens = prof_tokens + skill_tokens
@@ -547,7 +671,7 @@ class TokenBudgetManager:
         chat_tokens = estimate_tokens(_to_text(chat_history))
 
         breakdown = {
-            "system": sys_tokens,
+            "system": total_system_tokens,
             "profile_and_skills": profile_and_skills_tokens,
             "instincts": inst_tokens,
             "memories": mem_tokens,
@@ -571,7 +695,9 @@ class TokenBudgetManager:
             "usage_pct": usage_pct,
             "breakdown": breakdown,
             "percentages": percentages,
-            "system": sys_tokens,
+            "system": total_system_tokens,
+            "mcp_tokens": mcp_tokens_count,
+            "mcp_connectors": mcp_tokens_count,
             "profile_and_skills": profile_and_skills_tokens,
             "instincts": inst_tokens,
             "memories": mem_tokens,
