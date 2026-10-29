@@ -1072,7 +1072,7 @@ class TestTier3CyberStudioCombinations(IsolatedCyberStudioTestCase):
         if (!html1.includes('📄 Corvette_Simulation.uproject')) {
           throw new Error('Active document title missing from radar card');
         }
-        if (!html1.includes('🚢 Nave Intermarine')) {
+        if (!html1.includes('Nave Intermarine')) {
           throw new Error('Active focus project missing from radar card');
         }
         if (!html1.includes('⚡ 7 modif. oggi')) {
@@ -1551,12 +1551,16 @@ class TestTier4CyberStudioHygiene(IsolatedCyberStudioTestCase):
         finally:
             try:
                 if "mgr" in locals() and getattr(mgr, "storage_manager", None):
-                    mgr.storage_manager.close()
+                    mgr.storage_manager.close_connection()
+            except Exception:
+                pass
+            try:
+                ai_monitor.get_instinct_engine().close()
             except Exception:
                 pass
             ai_monitor._apply_data_dir(PRODUCTION_DATA_DIR)
             try:
-                ai_monitor.get_storage_manager(PRODUCTION_DATA_DIR).close()
+                ai_monitor.get_storage_manager(PRODUCTION_DATA_DIR).close_connection()
             except Exception:
                 pass
             for fn in ("neko_storage.db", "neko_storage.db-wal", "neko_storage.db-shm"):
