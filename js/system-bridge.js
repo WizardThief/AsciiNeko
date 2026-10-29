@@ -239,7 +239,45 @@ class SystemBridge {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload || {})
       });
-      if (res.ok) return await res.json();
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.onboarding) {
+          this.state.system.onboarding = data.onboarding;
+          if (typeof data.onboarding.answered_count === 'number') {
+            this.state.system.profileAnsweredCount = data.onboarding.answered_count;
+          }
+          if (data.onboarding.profile && Array.isArray(data.onboarding.profile.traits)) {
+            this.state.system.profileTraits = data.onboarding.profile.traits;
+          }
+        }
+        if (data && data.system_updates) {
+          const su = data.system_updates;
+          if (Array.isArray(su.skills_learned)) this.state.system.skillsLearned = su.skills_learned;
+          if (Array.isArray(su.profile_traits)) this.state.system.profileTraits = su.profile_traits;
+          if (Array.isArray(su.projects)) {
+            this.state.system.projectsList = su.projects;
+            this.state.system.projectsCount = su.projects.length;
+          }
+          if (typeof su.active_project_name === 'string') {
+            this.state.system.activeProjectName = su.active_project_name;
+          }
+          if (Array.isArray(su.memories)) {
+            this.state.system.memories = su.memories;
+            this.state.system.memoriesList = su.memories;
+            this.state.system.memoryCount = su.memories.length + (this.state.system.profileTraits ? this.state.system.profileTraits.length : 0);
+          }
+          if (Array.isArray(su.todos_list)) {
+            this.state.system.todosList = su.todos_list;
+            this.state.system.todoCount = su.todos_list.length;
+          }
+          if (Array.isArray(su.instincts)) {
+            this.state.system.instinctsList = su.instincts;
+            if (!this.state.memory) this.state.memory = {};
+            this.state.memory.instincts = su.instincts;
+          }
+        }
+        return data;
+      }
     } catch (e) {}
     return { ok: false };
   }

@@ -1700,62 +1700,62 @@ class MemoryAndProjectsManager:
         {
             "id": "q_identity",
             "category": "Identità & Attività",
-            "question": "Ciao! Facciamo conoscenza: come ti chiami e di cosa ti occupi principalmente (lavoro, studio o attività)?",
+            "question": "Ciao! Sono Neko, il tuo Co-Pilota desktop. Qual è il tuo ruolo principale o su quale ambito lavori ogni giorno?",
             "options": [
-                "Sviluppo Software, Programmazione o IT",
-                "Design, Grafica, Architettura / 3D o Creatività",
-                "Business, Management, Marketing o Consulenza",
-                "Studio, Ricerca o Libera Professione",
+                "3D Artist / ArchViz & Modellazione (3ds Max, Blender, V-Ray, Corona)",
+                "Sviluppatore Software / Web & Realtime 3D (Python, JS/TS, Rust, Three.js)",
+                "Game Dev & Technical Artist (Unreal Engine, Unity, Shader & Pipeline)",
+                "Design, Progettazione CAD/BIM & Direzione Creativa",
             ],
-            "trait_prefix": "Identità e attività principale",
+            "trait_prefix": "Ruolo e ambito principale",
         },
         {
             "id": "q_tools",
             "category": "Lavoro & Strumenti",
-            "question": "Quali sono i programmi, gli strumenti o le piattaforme che usi di più ogni giorno sul PC?",
+            "question": "Quali software, linguaggi o motori usi ogni giorno? (Li registrerò nelle tue Skill e nel Radar Finestra Attiva)",
             "options": [
-                "Editor di codice, Terminale, Git e strumenti di sviluppo",
-                "Software grafici, 3D, CAD o montaggio video",
-                "Browser, Suite Office / Google Workspace, Notion e Mail",
-                "Un mix di software tecnici, gestionali e creativi",
+                "3ds Max, V-Ray / Corona, Photoshop & After Effects",
+                "Blender, Export GLB / Draco, Three.js & WebGL",
+                "VS Code / Cursor, Python, Git, Docker & Terminale",
+                "Unreal Engine 5, Substance Painter, ZBrush & AutoCAD",
             ],
-            "trait_prefix": "Strumenti usati quotidianamente",
+            "trait_prefix": "Stack e strumenti quotidiani",
         },
         {
             "id": "q_projects",
             "category": "Clienti & Progetti",
-            "question": "Su che tipo di progetti, clienti o obiettivi ti stai concentrando in questo periodo?",
+            "question": "Su quale progetto o cliente stai lavorando ora? (Scrivi il nome sotto es. 'Villa Moderna - Cliente Rossi' o scegli un'opzione per crearlo nell'Hub)",
             "options": [
-                "Progetti per clienti con scadenze e revisioni da tracciare",
-                "Sviluppo di prodotti, app o progetti personali",
-                "Gestione operativa di task, scadenze e riunioni",
-                "Studio, formazione o ricerca su nuovi argomenti",
+                "Progetto ArchViz & Rendering per Cliente",
+                "Sviluppo App / Piattaforma Software & Web",
+                "Produzione Asset 3D & Scena Realtime Interattiva",
+                "Gestione Multi-Progetto & Task Operativi Giornalieri",
             ],
-            "trait_prefix": "Focus progetti e attività",
+            "trait_prefix": "Progetto attivo in focus",
         },
         {
             "id": "q_routine",
             "category": "Routine & Orari",
-            "question": "Qual è la cosa in cui un assistente sulla scrivania ti farebbe più comodo durante la giornata?",
+            "question": "Qual è la regola tecnica, lo standard di pipeline o il vincolo cliente che devo SEMPRE verificare nei Quality Gate?",
             "options": [
-                "Ricordarmi impegni, call e To-Do senza farmi perdere il filo",
-                "Tenere traccia delle note e regole di ogni progetto o cliente",
-                "Aiutarmi al volo con riassunti, bozze, calcoli o problemi tecnici",
-                "Organizzare la giornata al mattino e fare il punto a fine lavoro",
+                "Workflow colore ACEScg rigoroso, scala metrica corretta e gerarchie pulite",
+                "Ottimizzazione mesh, compressione Draco/WebP e budget poligoni sotto controllo",
+                "Codice modulare, testato, zero file temporanei e architettura pulita",
+                "Rispetto tassativo di palette colori, logo e linee guida del cliente",
             ],
-            "trait_prefix": "Supporto prioritario richiesto a Neko",
+            "trait_prefix": "Regola d'oro e standard Quality Gate",
         },
         {
             "id": "q_style",
             "category": "Stile & Preferenze",
-            "question": "Come preferisci che Neko comunichi e interagisca con te?",
+            "question": "Ultima domanda: come vuoi che collabori con te e quale prima attività mettiamo in coda oggi nella Kanban?",
             "options": [
-                "Diretto, sintetico e super pratico (2-3 righe)",
-                "Organizzato per punti elenco chiari e azionabili",
-                "Amichevole e propositivo, suggerendo subito l'azione giusta",
-                "Tecnico, preciso e focalizzato sulla soluzione",
+                "Sintetico, tecnico e dritto al punto — prepara la checklist operativa di oggi",
+                "Co-Pilota proattivo: avvisami subito su scadenze, regole cliente e anomalie",
+                "Guidato passo-passo con comandi rapidi e verifica pre-consegna",
+                "Analitico e approfondito per ricerca tecnica, problem solving e debug",
             ],
-            "trait_prefix": "Stile di comunicazione preferito",
+            "trait_prefix": "Stile operativo Co-Pilota",
         },
     ]
 
@@ -1789,7 +1789,10 @@ class MemoryAndProjectsManager:
             self.profile["quick_links"] = list(self.DEFAULT_QUICK_LINKS)
         if "hotkey" not in self.profile or not self.profile["hotkey"]:
             self.profile["hotkey"] = "Alt+N"
-        if "skills_learned" not in self.profile or not isinstance(self.profile["skills_learned"], list) or len(self.profile["skills_learned"]) == 0:
+        is_clean_slate = os.path.isfile(os.path.join(data_dir or DATA_DIR, ".clean_slate"))
+        if "skills_learned" not in self.profile or not isinstance(self.profile["skills_learned"], list):
+            self.profile["skills_learned"] = []
+        if len(self.profile["skills_learned"]) == 0 and not is_clean_slate:
             self.profile["skills_learned"] = [
                 {"id": "skill_blender", "name": "Blender", "category": "Grafica 3D & Modellazione", "level": "avanzato", "evidence": "Cleanup modello Nave Intermarine", "updated_at": "2026-10-27 10:00"},
                 {"id": "skill_3dsmax", "name": "3ds Max", "category": "Grafica 3D & Modellazione", "level": "avanzato", "evidence": "Modellazione e visualizzazione complessa", "updated_at": "2026-10-27 10:00"},
@@ -2151,12 +2154,265 @@ class MemoryAndProjectsManager:
             idx = int(time.time() * 1000) % len(pool)
             return pool[idx]
 
+    KNOWN_ONBOARDING_SKILLS = [
+        ("3ds Max", "3ds max", "Grafica 3D & ArchViz"),
+        ("Blender", "blender", "Grafica 3D & Modellazione"),
+        ("V-Ray", "v-ray", "Rendering & Shading"),
+        ("Corona", "corona", "Rendering & Shading"),
+        ("Unreal Engine", "unreal", "Game Engine & Realtime"),
+        ("Unity", "unity", "Game Engine & Realtime"),
+        ("Export GLB / Draco", "draco", "Pipeline 3D Realtime"),
+        ("Export GLB / Draco", "glb", "Pipeline 3D Realtime"),
+        ("Three.js", "three.js", "Web & Realtime 3D"),
+        ("WebGL", "webgl", "Web & Realtime 3D"),
+        ("Python", "python", "Sviluppo Software & Scripting"),
+        ("Rust", "rust", "Sviluppo Realtime & Performance"),
+        ("JavaScript / TypeScript", "js/ts", "Sviluppo Web"),
+        ("JavaScript", "javascript", "Sviluppo Web"),
+        ("TypeScript", "typescript", "Sviluppo Web"),
+        ("Photoshop", "photoshop", "Design & Post-Produzione"),
+        ("After Effects", "after effects", "Motion & Compositing"),
+        ("Substance Painter", "substance", "Texturing & Materiali"),
+        ("ZBrush", "zbrush", "Sculpting 3D"),
+        ("AutoCAD", "autocad", "CAD & Progettazione"),
+        ("Revit", "revit", "BIM & Progettazione"),
+        ("Rhino", "rhino", "CAD & Modellazione NURBS"),
+        ("Maya", "maya", "Grafica 3D & Animazione"),
+        ("Cinema 4D", "cinema 4d", "Grafica 3D & Motion"),
+        ("Houdini", "houdini", "VFX & Procedural 3D"),
+        ("VS Code / Cursor", "vs code", "Ambiente di Sviluppo"),
+        ("Git", "git", "Version Control & Dev"),
+        ("Docker", "docker", "DevOps & Infrastruttura"),
+        ("Figma", "figma", "UI/UX Design"),
+    ]
+
+    def _integrate_onboarding_answer_into_system(
+        self,
+        question_id: str,
+        category: str,
+        question_text: str,
+        clean_ans: str,
+        ai_res: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Integra profondamente ogni risposta di 'Conosciamoci' nei 5 sottosistemi ECC di Neko:
+        1. Competenze Tecniche (`skills_learned` in `profile.json`)
+        2. Progetto Attivo & Focus (`projects.json` + SQLite `projects`)
+        3. Regole Fissate & Memoria (`memory.json` + SQLite `memories`)
+        4. Atomic Instincts v2.1 (`instincts.json` + SQLite `instincts`)
+        5. Task Operativi Kanban (`todo.json` + SQLite `todos`) & Context Mode
+        """
+        summary: Dict[str, Any] = {
+            "skills_added": [],
+            "project_created": None,
+            "rule_pinned": None,
+            "instinct_added": None,
+            "todo_added": None,
+        }
+        ans_low = clean_ans.lower()
+        cat_low = (category or "").lower()
+        q_low = (question_text or "").lower()
+
+        # 1. Estrazione automatica Skill Tecniche (da q_identity, q_tools o qualsiasi risposta tecnica)
+        matched_skills = []
+        for canonical_name, token, skill_cat in self.KNOWN_ONBOARDING_SKILLS:
+            if token in ans_low:
+                matched_skills.append((canonical_name, skill_cat))
+
+        # Se è la domanda sugli strumenti e l'utente ha scritto strumenti personalizzati separati da virgola
+        if question_id == "q_tools" or "strument" in cat_low or "software" in q_low:
+            if not matched_skills:
+                parts = [p.strip() for p in re.split(r"[,;/+&]|\be\b", clean_ans) if 2 <= len(p.strip()) <= 36]
+                for part in parts[:6]:
+                    matched_skills.append((part, "Strumenti & Pipeline"))
+
+        for s_name, s_cat in matched_skills:
+            added = self.add_skill_learned(
+                name=s_name,
+                category=s_cat,
+                level="avanzato",
+                evidence="Configurazione Iniziale Conosciamoci",
+            )
+            if added and added.get("name") not in summary["skills_added"]:
+                summary["skills_added"].append(added.get("name"))
+
+        # Aggiorna il tech_stack del progetto attivo se presente
+        active_id = self.profile.get("active_project_id", "")
+        active_proj = next((p for p in self.projects if p.get("id") == active_id), None)
+        if active_proj and summary["skills_added"]:
+            stack = active_proj.setdefault("tech_stack", [])
+            for sk in summary["skills_added"]:
+                if sk not in stack:
+                    stack.append(sk)
+            self._save_projects()
+            try:
+                self.storage_manager.save_project(active_proj)
+            except Exception:
+                pass
+
+        # 2. Creazione / Impostazione Progetto in Focus (da q_projects o categoria Clienti & Progetti)
+        if question_id == "q_projects" or "progett" in cat_low:
+            if "multi-progetto" not in ans_low and "più task generali" not in ans_low:
+                proj_name = clean_ans
+                client_name = ""
+                if " - " in clean_ans or " — " in clean_ans:
+                    sep = " — " if " — " in clean_ans else " - "
+                    parts = [p.strip() for p in clean_ans.split(sep, 1)]
+                    proj_name = parts[0]
+                    client_name = re.sub(r"^(cliente|committente)\s*:?\s*", "", parts[1], flags=re.IGNORECASE).strip()
+                elif "cliente" in ans_low and ":" in clean_ans:
+                    parts = [p.strip() for p in clean_ans.split(":", 1)]
+                    proj_name = parts[0]
+                    client_name = parts[1]
+                res_proj = self.create_or_update_project(
+                    name=proj_name[:60],
+                    client=client_name[:40],
+                    note=f"Focus iniziale: {clean_ans}",
+                )
+                if res_proj and res_proj.get("ok") and res_proj.get("project"):
+                    created_p = res_proj["project"]
+                    learned_names = [s.get("name") for s in self.get_skills_learned() if s.get("name")]
+                    if learned_names:
+                        created_p["tech_stack"] = learned_names[:8]
+                        self._save_projects()
+                        try:
+                            self.storage_manager.save_project(created_p)
+                        except Exception:
+                            pass
+                    summary["project_created"] = created_p.get("name")
+                    active_id = created_p.get("id", "")
+                    active_proj = created_p
+
+        # 3. Creazione Regola Fissata + Atomic Instinct per Quality Gate (da q_routine o regole)
+        if question_id == "q_routine" or "regol" in q_low or "quality gate" in q_low or "standard" in q_low:
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+            mem_id = f"mem_onb_{int(time.time() * 1000)}"
+            rule_entry = {
+                "id": mem_id,
+                "text": clean_ans,
+                "category": active_proj["name"] if active_proj else "Standard Pipeline",
+                "project_id": active_id or None,
+                "pinned": True,
+                "created_at": now_str,
+            }
+            mems = _load_json(MEMORY_FILE, [])
+            if not isinstance(mems, list):
+                mems = []
+            if not any(isinstance(m, dict) and m.get("text", "").strip().lower() == ans_low for m in mems):
+                mems.insert(0, rule_entry)
+                _save_json(MEMORY_FILE, mems)
+            try:
+                self.storage_manager.save_memory(
+                    text=clean_ans,
+                    category=rule_entry["category"],
+                    source="onboarding",
+                    project_id=active_id or None,
+                    pinned=True,
+                    memory_id=mem_id,
+                )
+            except Exception:
+                pass
+            if active_proj:
+                notes = active_proj.setdefault("notes", [])
+                if clean_ans not in notes:
+                    notes.append(clean_ans)
+                    self._save_projects()
+            summary["rule_pinned"] = clean_ans
+
+            # Registra anche come Atomic Instinct v2.1 per il Quality Gate
+            try:
+                eng = get_instinct_engine(storage_manager=self.storage_manager, data_dir=self.data_dir)
+                inst = eng.add_instinct(
+                    trigger="Durante lavorazione e controllo Quality Gate",
+                    action=clean_ans,
+                    confidence=0.90,
+                    scope="project" if active_id else "global",
+                    project_id=active_id or None,
+                    domain="quality-gate",
+                )
+                summary["instinct_added"] = inst
+            except Exception:
+                pass
+
+        # 4. Stile Operativo Co-Pilota + Context Mode + Primo Task Kanban (da q_style)
+        if question_id == "q_style" or "stile" in cat_low or "collabori" in q_low:
+            try:
+                eng = get_instinct_engine(storage_manager=self.storage_manager, data_dir=self.data_dir)
+                inst = eng.add_instinct(
+                    trigger="Quando Neko collabora e risponde all'utente",
+                    action=clean_ans,
+                    confidence=0.92,
+                    scope="global",
+                    project_id=None,
+                    domain="co-pilot-style",
+                )
+                summary["instinct_added"] = inst
+            except Exception:
+                pass
+
+            # Imposta Context Mode iniziale in base alla preferenza
+            try:
+                hr = get_hooks_runner() if get_hooks_runner else None
+                if hr:
+                    if "ricerca" in ans_low or "analitico" in ans_low or "debug" in ans_low:
+                        hr.set_context_mode("ricerca")
+                    elif "verifica" in ans_low or "controllo" in ans_low or "quality" in ans_low:
+                        hr.set_context_mode("revisione")
+                    else:
+                        hr.set_context_mode("operativo")
+            except Exception:
+                pass
+
+            # Se la Kanban è vuota, crea subito il primo Task operativo collegato al progetto attivo
+            todos = _load_json(TODO_FILE, [])
+            if not isinstance(todos, list):
+                todos = []
+            if len(todos) == 0:
+                proj_label = active_proj["name"] if active_proj else "Generale"
+                task_title = (
+                    f"Setup operativo e checklist: {proj_label}"
+                    if active_proj
+                    else "Pianificazione attività operative con Neko"
+                )
+                if "—" in clean_ans:
+                    custom_part = clean_ans.split("—", 1)[1].strip()
+                    if custom_part:
+                        task_title = custom_part[:80].capitalize()
+                todo_id = f"todo_onb_{int(time.time() * 1000)}"
+                today_iso = datetime.now().strftime("%Y-%m-%d")
+                new_todo = {
+                    "id": todo_id,
+                    "title": task_title,
+                    "project": active_proj["name"] if active_proj else "",
+                    "due_label": "Oggi",
+                    "due_date": today_iso,
+                    "status": "todo",
+                    "priority": "high",
+                    "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "subtasks": [],
+                }
+                todos.append(new_todo)
+                _save_json(TODO_FILE, todos)
+                try:
+                    self.storage_manager.save_todo(new_todo)
+                except Exception:
+                    pass
+                summary["todo_added"] = new_todo
+
+        return summary
+
     def save_onboarding_answer(self, question_id: str, answer_text: str, category: str = "", question_text: str = ""):
         clean_ans = (answer_text or "").strip()
         if not clean_ans:
             return self.get_onboarding_state(category=category)
 
         with self._lock:
+            if not question_id:
+                unanswered_ids = [
+                    q["id"] for q in self.ONBOARDING_QUESTIONS if q["id"] not in self.profile.get("answers", {})
+                ]
+                question_id = unanswered_ids[0] if unanswered_ids else f"q_custom_{int(time.time() * 1000)}"
+
             q_obj = next((q for q in self.ONBOARDING_QUESTIONS if q["id"] == question_id), None)
             cached_ai_q = self.profile.get("last_ai_question")
             if not q_obj and isinstance(cached_ai_q, dict) and cached_ai_q.get("id") == question_id:
@@ -2175,17 +2431,45 @@ class MemoryAndProjectsManager:
                 "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
             }
 
-            # Elabora in tempo reale con Ollama per sintetizzare il tratto e generare la prossima domanda su misura!
-            ai_res = self._call_ollama_profiling(
-                latest_question=q_txt,
-                latest_answer=clean_ans,
-                category_hint="",
+            # Integra subito la risposta nei sottosistemi di Neko (Skill, Progetti, Regole, Istinti, Kanban)
+            integration_summary = self._integrate_onboarding_answer_into_system(
+                question_id=question_id,
+                category=cat,
+                question_text=q_txt,
+                clean_ans=clean_ans,
             )
-            if ai_res:
-                if ai_res.get("extracted_trait"):
-                    self.profile["answers"][question_id]["ai_trait"] = ai_res["extracted_trait"]
-                if ai_res.get("next_question"):
-                    self.profile["last_ai_question"] = ai_res["next_question"]
+
+            # Controlla se ci sono ancora domande base non risposte
+            answered_now = self.profile.get("answers", {})
+            remaining_seed = [q for q in self.ONBOARDING_QUESTIONS if q["id"] not in answered_now]
+
+            if not remaining_seed:
+                # Tutte le 5 domande base sono state completate: chiama Ollama per sintesi o domanda extra
+                ai_res = self._call_ollama_profiling(
+                    latest_question=q_txt,
+                    latest_answer=clean_ans,
+                    category_hint="",
+                )
+                if ai_res:
+                    if ai_res.get("extracted_trait"):
+                        self.profile["answers"][question_id]["ai_trait"] = ai_res["extracted_trait"]
+                    if ai_res.get("next_question"):
+                        self.profile["last_ai_question"] = ai_res["next_question"]
+            else:
+                # Durante le prime 5 domande base, arricchisci in background senza bloccare la UI!
+                def _bg_enrich(qid=question_id, qtext=q_txt, ans=clean_ans):
+                    try:
+                        res = self._call_ollama_profiling(latest_question=qtext, latest_answer=ans, category_hint="")
+                        if res and res.get("extracted_trait"):
+                            with self._lock:
+                                if qid in self.profile.get("answers", {}):
+                                    self.profile["answers"][qid]["ai_trait"] = res["extracted_trait"]
+                                    self._rebuild_traits()
+                                    self._save_profile()
+                    except Exception:
+                        pass
+
+                threading.Thread(target=_bg_enrich, daemon=True).start()
 
             self._rebuild_traits()
             self._save_profile()
@@ -2194,7 +2478,9 @@ class MemoryAndProjectsManager:
                 proj_id = question_id[len("q_ctx_") :]
                 self.add_project_note(proj_id, clean_ans)
 
-            return self.get_onboarding_state(category=None, exclude_id=question_id)
+            st = self.get_onboarding_state(category=None, exclude_id=question_id)
+            st["integration_summary"] = integration_summary
+            return st
 
     def delete_onboarding_answer(self, question_id: str):
         with self._lock:
@@ -5426,12 +5712,35 @@ class CompanionRequestHandler(http.server.SimpleHTTPRequestHandler):
                     category=category, exclude_id=exclude_id, generate_ai=gen_ai
                 )
                 return self._send_json({"ok": True, "onboarding": st})
-            # Default: save answer
+            # Default: save answer ("answer" or "save_answer")
             qid = body.get("question_id", "")
             ans = body.get("answer", "")
             qtxt = body.get("question_text", "")
             st = mem_proj_manager.save_onboarding_answer(qid, ans, category=category or "", question_text=qtxt)
-            return self._send_json({"ok": True, "onboarding": st})
+            # Reload ollama_bridge memories & todos so live snapshot is immediately consistent
+            try:
+                ollama_bridge.memories = _load_json(MEMORY_FILE, [])
+                ollama_bridge.todos = _load_json(TODO_FILE, [])
+            except Exception:
+                pass
+            p_state = mem_proj_manager.get_projects_state()
+            active_proj = p_state.get("active_project")
+            inst_list = (getattr(monitor, "instinct_engine", None) or get_instinct_engine()).get_all_instincts()
+            return self._send_json(
+                {
+                    "ok": True,
+                    "onboarding": st,
+                    "system_updates": {
+                        "skills_learned": mem_proj_manager.get_skills_learned(),
+                        "profile_traits": list(mem_proj_manager.profile.get("traits", [])),
+                        "projects": list(p_state.get("projects", [])),
+                        "active_project_name": active_proj["name"] if active_proj else "",
+                        "memories": ollama_bridge.get_memories(),
+                        "todos_list": ollama_bridge.load_todos(),
+                        "instincts": inst_list,
+                    },
+                }
+            )
 
         if self.path.startswith("/projects"):
             action = body.get("action", "list")

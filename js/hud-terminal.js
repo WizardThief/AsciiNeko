@@ -1230,7 +1230,7 @@ class HudTerminal {
       const clean = (answerText || '').trim();
       if (!clean || !this.currentQuestion || !this.actions.conosciamociAction) return;
       if (this.elOnboardQText) {
-        this.elOnboardQText.textContent = '🧠 Neko sta analizzando la tua risposta con l\'AI e preparando la prossima domanda...';
+        this.elOnboardQText.textContent = '🧠 Neko sta integrando la tua risposta nei sottosistemi (Skill, Progetti, Regole & Istinti)...';
       }
       if (this.elOnboardOptions) {
         this.elOnboardOptions.innerHTML = '';
@@ -1245,7 +1245,12 @@ class HudTerminal {
       if (this.elOnboardInput) this.elOnboardInput.value = '';
       if (res && res.onboarding) {
         this.renderOnboardingState(res.onboarding);
-        this.say(`🐾 Perfetto! Ho analizzato la tua risposta e aggiornato il tuo Profilo Utente.`);
+        this.renderCopilotHud();
+        this.renderHomeNextTaskChip();
+        if (this.activeWorkspace === 'view-memory') this.renderMemoryDashboard();
+        if (this.activeWorkspace === 'view-projects') this.renderProjectHub();
+        if (this.activeWorkspace === 'view-todo') this.renderKanbanBoard();
+        this.say(this.formatOnboardingFeedback(clean, res.onboarding.integration_summary));
       }
     };
 
@@ -1822,9 +1827,36 @@ class HudTerminal {
     });
   }
 
+  formatOnboardingFeedback(answerText, summary) {
+    if (!summary) return `🐾 Profilo aggiornato con "${answerText}".`;
+    const parts = [`🐾 Ricevuto: "${answerText}".`];
+    if (Array.isArray(summary.skills_added) && summary.skills_added.length > 0) {
+      parts.push(`🛠️ Skill registrate: ${summary.skills_added.join(', ')}`);
+    }
+    if (summary.project_created) {
+      parts.push(`🚢 Progetto creato e messo in Focus: "${summary.project_created}"`);
+    }
+    if (summary.rule_pinned) {
+      parts.push(`📌 Regola Quality Gate fissata in Memoria`);
+    }
+    if (summary.instinct_added) {
+      parts.push(`🧬 Istinto Atomico attivo (${Math.round((summary.instinct_added.confidence || 0.9) * 100)}%)`);
+    }
+    if (summary.todo_added && summary.todo_added.title) {
+      parts.push(`✅ Primo task aggiunto in Kanban: "${summary.todo_added.title}"`);
+    }
+    return parts.join(' • ');
+  }
+
   // --- RENDERING TAB 1: "🐾 CONOSCIAMOCI" (Tutorial Adattivo AI & Offline Fallback) ---
   renderOnboardingState(onb) {
     if (!onb) return;
+    if (this.state && this.state.system) {
+      this.state.system.onboarding = onb;
+      if (onb.profile && Array.isArray(onb.profile.traits)) {
+        this.state.system.profileTraits = onb.profile.traits;
+      }
+    }
     const traits = onb.profile && Array.isArray(onb.profile.traits) ? onb.profile.traits : [];
     const ansCount = onb.answered_count || 0;
     const reqSteps = onb.required_steps || 5;
@@ -1852,7 +1884,7 @@ class HudTerminal {
       }
       if (this.elTutorialStepTitle) {
         const offlineTag = isOllamaOffline ? ' <span class="offline-badge">[● OLLAMA OFFLINE]</span>' : '';
-        this.elTutorialStepTitle.innerHTML = `Configurazione Iniziale di Neko (Passo ${Math.min(reqSteps, ansCount + 1)} di ${reqSteps})${offlineTag}`;
+        this.elTutorialStepTitle.innerHTML = `Configurazione Sistema Neko + ECC (Passo ${Math.min(reqSteps, ansCount + 1)} di ${reqSteps})${offlineTag}`;
       }
     } else {
       this.isMandatoryTutorial = false;
@@ -1864,8 +1896,10 @@ class HudTerminal {
       }
       if (wasMandatory && isCompleted) {
         this.closeModal();
+        this.renderCopilotHud();
+        this.renderHomeNextTaskChip();
         this.say(
-          '🎉 Tutorial iniziale completato! Ora so chi sei e come lavori. Trovi sempre "🐾 Conosciamoci" dentro ⚙️ Impostazioni & Memorie!'
+          '🎉 Configurazione Iniziale completata! Ho popolato il tuo Co-Pilot HUD, le tue Skill, il Progetto in Focus, le Regole Quality Gate e la Kanban To-Do!'
         );
       }
     }
@@ -1876,37 +1910,62 @@ class HudTerminal {
         : `Passo ${Math.min(reqSteps, ansCount + 1)}/${reqSteps}`;
     }
 
-    // Domande Statiche Fallback se Ollama è offline o non risponde
+    // Domande Base Integrate con il Sistema ECC
     const fallbackQuestions = [
       {
-        id: 'fb_professione',
-        category: 'Professione',
-        question: 'Qual è la tua professione o attività principale?',
-        options: ['Architetto / ArchViz Specialist', '3D Generalist', 'Environment Artist', 'Game Developer / Modeler']
+        id: 'q_identity',
+        category: 'Identità & Attività',
+        question: 'Ciao! Sono Neko, il tuo Co-Pilota desktop. Qual è il tuo ruolo principale o su quale ambito lavori ogni giorno?',
+        options: [
+          '3D Artist / ArchViz & Modellazione (3ds Max, Blender, V-Ray, Corona)',
+          'Sviluppatore Software / Web & Realtime 3D (Python, JS/TS, Rust, Three.js)',
+          'Game Dev & Technical Artist (Unreal Engine, Unity, Shader & Pipeline)',
+          'Design, Progettazione CAD/BIM & Direzione Creativa'
+        ]
       },
       {
-        id: 'fb_software',
-        category: 'Software',
-        question: 'Quali software 3D o DCC utilizzi maggiormente?',
-        options: ['3ds Max', 'Blender', 'Unreal Engine', 'AutoCAD / Revit']
+        id: 'q_tools',
+        category: 'Lavoro & Strumenti',
+        question: 'Quali software, linguaggi o motori usi ogni giorno? (Li registrerò nelle tue Skill e nel Radar Finestra Attiva)',
+        options: [
+          '3ds Max, V-Ray / Corona, Photoshop & After Effects',
+          'Blender, Export GLB / Draco, Three.js & WebGL',
+          'VS Code / Cursor, Python, Git, Docker & Terminale',
+          'Unreal Engine 5, Substance Painter, ZBrush & AutoCAD'
+        ]
       },
       {
-        id: 'fb_organizzazione',
-        category: 'Organizzazione',
-        question: 'Come preferisci organizzare le scadenze e i progetti?',
-        options: ['Google Calendar', 'To-Do List rapide', 'Note per progetto', 'Scadenze mentali']
+        id: 'q_projects',
+        category: 'Clienti & Progetti',
+        question: "Su quale progetto o cliente stai lavorando ora? (Scrivi il nome sotto es. 'Villa Moderna - Cliente Rossi' o scegli un'opzione per crearlo nell'Hub)",
+        options: [
+          'Progetto ArchViz & Rendering per Cliente',
+          'Sviluppo App / Piattaforma Software & Web',
+          'Produzione Asset 3D & Scena Realtime Interattiva',
+          'Gestione Multi-Progetto & Task Operativi Giornalieri'
+        ]
       },
       {
-        id: 'fb_formati',
-        category: 'Formati',
-        question: 'Quali formati di esportazione utilizzi di solito?',
-        options: ['EXR 32-bit (ACEScg)', 'TIFF / PNG 16-bit', 'JPG sRGB rapido']
+        id: 'q_routine',
+        category: 'Routine & Orari',
+        question: 'Qual è la regola tecnica, lo standard di pipeline o il vincolo cliente che devo SEMPRE verificare nei Quality Gate?',
+        options: [
+          'Workflow colore ACEScg rigoroso, scala metrica corretta e gerarchie pulite',
+          'Ottimizzazione mesh, compressione Draco/WebP e budget poligoni sotto controllo',
+          'Codice modulare, testato, zero file temporanei e architettura pulita',
+          'Rispetto tassativo di palette colori, logo e linee guida del cliente'
+        ]
       },
       {
-        id: 'fb_notifiche',
-        category: 'Notifiche',
-        question: 'Quali notifiche preferisci ricevere durante il render?',
-        options: ['Avviso sonoro a fine render', 'Notifica visiva discreta', 'Nessuna notifica']
+        id: 'q_style',
+        category: 'Stile & Preferenze',
+        question: 'Ultima domanda: come vuoi che collabori con te e quale prima attività mettiamo in coda oggi nella Kanban?',
+        options: [
+          'Sintetico, tecnico e dritto al punto — prepara la checklist operativa di oggi',
+          'Co-Pilota proattivo: avvisami subito su scadenze, regole cliente e anomalie',
+          'Guidato passo-passo con comandi rapidi e verifica pre-consegna',
+          'Analitico e approfondito per ricerca tecnica, problem solving e debug'
+        ]
       }
     ];
 
@@ -1933,7 +1992,7 @@ class HudTerminal {
             if (!this.actions.conosciamociAction) return;
             if (this.elOnboardQText) {
               this.elOnboardQText.textContent =
-                '🧠 Neko sta analizzando la tua risposta e preparando la prossima domanda...';
+                '🧠 Neko sta integrando la tua risposta nei sottosistemi (Skill, Progetti, Regole & Istinti)...';
             }
             this.elOnboardOptions.innerHTML = '';
             const res = await this.actions.conosciamociAction({
@@ -1945,7 +2004,12 @@ class HudTerminal {
             });
             if (res && res.onboarding) {
               this.renderOnboardingState(res.onboarding);
-              this.say(`🐾 Perfetto! Ho aggiornato il tuo profilo con "${opt}".`);
+              this.renderCopilotHud();
+              this.renderHomeNextTaskChip();
+              if (this.activeWorkspace === 'view-memory') this.renderMemoryDashboard();
+              if (this.activeWorkspace === 'view-projects') this.renderProjectHub();
+              if (this.activeWorkspace === 'view-todo') this.renderKanbanBoard();
+              this.say(this.formatOnboardingFeedback(opt, res.onboarding.integration_summary));
             }
           });
           this.elOnboardOptions.appendChild(btn);
@@ -4156,21 +4220,42 @@ class HudTerminal {
         const answer = this.elMemProfilingInput ? this.elMemProfilingInput.value.trim() : '';
         if (!answer) return;
         if (this.elMemProfilingInput) this.elMemProfilingInput.value = '';
+        let res = null;
         if (this.actions.conosciamociAction) {
-          await this.actions.conosciamociAction({
-            action: 'save_answer',
-            category: this.currentOnboardCategory || 'Preferenze',
+          res = await this.actions.conosciamociAction({
+            action: 'answer',
+            question_id: this.currentQuestion ? this.currentQuestion.id : '',
+            category: (this.currentQuestion && this.currentQuestion.category) || this.currentOnboardCategory || 'Profilo',
+            question_text: this.currentQuestion ? this.currentQuestion.question : '',
             answer
           });
         }
-        this.say(`👤 Preferenza salvata nel profilo: "${answer}"`);
-        this.rollProfilingQuestion();
+        if (res && res.onboarding) {
+          this.renderOnboardingState(res.onboarding);
+          this.say(this.formatOnboardingFeedback(answer, res.onboarding.integration_summary));
+        } else {
+          this.say(`👤 Preferenza salvata nel profilo: "${answer}"`);
+          this.rollProfilingQuestion();
+        }
+        this.renderCopilotHud();
         this.renderMemoryDashboard();
       });
     }
 
     if (this.elBtnMemProfilingNext) {
-      this.elBtnMemProfilingNext.addEventListener('click', () => {
+      this.elBtnMemProfilingNext.addEventListener('click', async () => {
+        if (this.actions.conosciamociAction) {
+          const res = await this.actions.conosciamociAction({
+            action: 'random',
+            exclude_id: this.currentQuestion ? this.currentQuestion.id : '',
+            generate_ai: true
+          });
+          if (res && res.onboarding) {
+            this.renderOnboardingState(res.onboarding);
+            this.renderMemoryDashboard();
+            return;
+          }
+        }
         this.rollProfilingQuestion();
         this.renderMemoryDashboard();
       });
@@ -5468,36 +5553,69 @@ class HudTerminal {
   }
 
   rollProfilingQuestion() {
+    if (this.state && this.state.system && this.state.system.onboarding && this.state.system.onboarding.next_question) {
+      const nq = this.state.system.onboarding.next_question;
+      if (!this.currentQuestion || nq.id !== this.currentQuestion.id) {
+        this.currentQuestion = nq;
+        this.currentOnboardCategory = nq.category || 'Profilo';
+        return;
+      }
+    }
     const fallbackQuestions = [
       {
-        id: 'fb_professione',
-        category: 'Professione',
-        question: 'Qual è la tua professione o attività principale?',
-        options: ['Architetto / ArchViz Specialist', '3D Generalist', 'Environment Artist', 'Game Developer / Modeler']
+        id: 'q_identity',
+        category: 'Identità & Attività',
+        question: 'Qual è il tuo ruolo principale o su quale ambito lavori ogni giorno?',
+        options: [
+          '3D Artist / ArchViz & Modellazione (3ds Max, Blender, V-Ray, Corona)',
+          'Sviluppatore Software / Web & Realtime 3D (Python, JS/TS, Rust, Three.js)',
+          'Game Dev & Technical Artist (Unreal Engine, Unity, Shader & Pipeline)',
+          'Design, Progettazione CAD/BIM & Direzione Creativa'
+        ]
       },
       {
-        id: 'fb_software',
-        category: 'Software',
-        question: 'Quali software 3D o DCC utilizzi maggiormente?',
-        options: ['Blender', '3ds Max', 'Unreal Engine', 'AutoCAD / Revit']
+        id: 'q_tools',
+        category: 'Lavoro & Strumenti',
+        question: 'Quali software, linguaggi o motori usi ogni giorno nella tua pipeline?',
+        options: [
+          '3ds Max, V-Ray / Corona, Photoshop & After Effects',
+          'Blender, Export GLB / Draco, Three.js & WebGL',
+          'VS Code / Cursor, Python, Git, Docker & Terminale',
+          'Unreal Engine 5, Substance Painter, ZBrush & AutoCAD'
+        ]
       },
       {
-        id: 'fb_organizzazione',
-        category: 'Organizzazione',
-        question: 'Come preferisci organizzare le scadenze e i progetti?',
-        options: ['Google Calendar', 'To-Do Kanban rapide', 'Schede Hub Progetto', 'Scadenze mentali']
+        id: 'q_projects',
+        category: 'Clienti & Progetti',
+        question: 'Su quale progetto o cliente stai lavorando in questo momento?',
+        options: [
+          'Progetto ArchViz & Rendering per Cliente',
+          'Sviluppo App / Piattaforma Software & Web',
+          'Produzione Asset 3D & Scena Realtime Interattiva',
+          'Gestione Multi-Progetto & Task Operativi Giornalieri'
+        ]
       },
       {
-        id: 'fb_tech',
-        category: 'Tecnologie',
-        question: 'Quali tecnologie usi per lo sviluppo web e realtime?',
-        options: ['Three.js', 'Rust / WebAssembly', 'GLB / Draco compression', 'WebGL / WebGPU']
+        id: 'q_routine',
+        category: 'Routine & Orari',
+        question: 'Qual è la regola tecnica o il vincolo cliente da verificare sempre nei Quality Gate?',
+        options: [
+          'Workflow colore ACEScg rigoroso, scala metrica corretta e gerarchie pulite',
+          'Ottimizzazione mesh, compressione Draco/WebP e budget poligoni sotto controllo',
+          'Codice modulare, testato, zero file temporanei e architettura pulita',
+          'Rispetto tassativo di palette colori, logo e linee guida del cliente'
+        ]
       },
       {
-        id: 'fb_clienti',
-        category: 'Clienti',
-        question: 'Quali regole particolari richiedono i tuoi clienti (es. Intermarine)?',
-        options: ['Colori logo precisi (Blu Marino)', 'Ottimizzazione mesh 3D', 'Format GLB realtime', 'Rendering fotorealistico']
+        id: 'q_style',
+        category: 'Stile & Preferenze',
+        question: 'Come preferisci che collabori con te e quale attività mettiamo in coda oggi?',
+        options: [
+          'Sintetico, tecnico e dritto al punto — prepara la checklist operativa di oggi',
+          'Co-Pilota proattivo: avvisami subito su scadenze, regole cliente e anomalie',
+          'Guidato passo-passo con comandi rapidi e verifica pre-consegna',
+          'Analitico e approfondito per ricerca tecnica, problem solving e debug'
+        ]
       }
     ];
     const rand = fallbackQuestions[Math.floor(Math.random() * fallbackQuestions.length)];
@@ -5869,15 +5987,24 @@ class HudTerminal {
       this.elMemProfilingOptions.querySelectorAll('.profiling-chip').forEach((btn) => {
         btn.addEventListener('click', async () => {
           const ans = btn.getAttribute('data-ans');
+          let res = null;
           if (this.actions.conosciamociAction) {
-            await this.actions.conosciamociAction({
-              action: 'save_answer',
-              category: this.currentOnboardCategory || 'Preferenze',
+            res = await this.actions.conosciamociAction({
+              action: 'answer',
+              question_id: this.currentQuestion ? this.currentQuestion.id : '',
+              category: (this.currentQuestion && this.currentQuestion.category) || this.currentOnboardCategory || 'Profilo',
+              question_text: this.currentQuestion ? this.currentQuestion.question : '',
               answer: ans
             });
           }
-          this.say(`👤 Preferenza salvata nel profilo: "${ans}"`);
-          this.rollProfilingQuestion();
+          if (res && res.onboarding) {
+            this.renderOnboardingState(res.onboarding);
+            this.say(this.formatOnboardingFeedback(ans, res.onboarding.integration_summary));
+          } else {
+            this.say(`👤 Preferenza salvata nel profilo: "${ans}"`);
+            this.rollProfilingQuestion();
+          }
+          this.renderCopilotHud();
           this.renderMemoryDashboard();
         });
       });
