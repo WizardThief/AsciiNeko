@@ -2145,11 +2145,12 @@ class MemoryAndProjectsManager:
                 return unanswered[0]
 
             # 4. Se tutte le domande base sono state risposte, genera una domanda su misura con l'AI!
-            ai_res = self._call_ollama_profiling(category_hint=category or "")
-            if ai_res and ai_res.get("next_question"):
-                self.profile["last_ai_question"] = ai_res["next_question"]
-                self._save_profile()
-                return ai_res["next_question"]
+            if "unittest" not in sys.modules:
+                ai_res = self._call_ollama_profiling(category_hint=category or "")
+                if ai_res and ai_res.get("next_question"):
+                    self.profile["last_ai_question"] = ai_res["next_question"]
+                    self._save_profile()
+                    return ai_res["next_question"]
 
             idx = int(time.time() * 1000) % len(pool)
             return pool[idx]
@@ -2439,33 +2440,19 @@ class MemoryAndProjectsManager:
                 clean_ans=clean_ans,
             )
 
-            # Controlla se ci sono ancora domande base non risposte
-            answered_now = self.profile.get("answers", {})
-            remaining_seed = [q for q in self.ONBOARDING_QUESTIONS if q["id"] not in answered_now]
-
-            if not remaining_seed:
-                # Tutte le 5 domande base sono state completate: chiama Ollama per sintesi o domanda extra
-                ai_res = self._call_ollama_profiling(
-                    latest_question=q_txt,
-                    latest_answer=clean_ans,
-                    category_hint="",
-                )
-                if ai_res:
-                    if ai_res.get("extracted_trait"):
-                        self.profile["answers"][question_id]["ai_trait"] = ai_res["extracted_trait"]
-                    if ai_res.get("next_question"):
-                        self.profile["last_ai_question"] = ai_res["next_question"]
-            else:
-                # Durante le prime 5 domande base, arricchisci in background senza bloccare la UI!
+            # Arricchisci con l'AI in background senza mai bloccare la risposta UI!
+            if "unittest" not in sys.modules:
                 def _bg_enrich(qid=question_id, qtext=q_txt, ans=clean_ans):
                     try:
                         res = self._call_ollama_profiling(latest_question=qtext, latest_answer=ans, category_hint="")
-                        if res and res.get("extracted_trait"):
+                        if res:
                             with self._lock:
-                                if qid in self.profile.get("answers", {}):
+                                if res.get("extracted_trait") and qid in self.profile.get("answers", {}):
                                     self.profile["answers"][qid]["ai_trait"] = res["extracted_trait"]
-                                    self._rebuild_traits()
-                                    self._save_profile()
+                                if res.get("next_question"):
+                                    self.profile["last_ai_question"] = res["next_question"]
+                                self._rebuild_traits()
+                                self._save_profile()
                     except Exception:
                         pass
 

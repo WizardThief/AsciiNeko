@@ -1549,7 +1549,23 @@ class TestTier4CyberStudioHygiene(IsolatedCyberStudioTestCase):
             self.assertIsNotNone(st5["integration_summary"]["todo_added"])
             self.assertEqual(st5["integration_summary"]["todo_added"]["project"], "Villa sul Lago")
         finally:
+            try:
+                if "mgr" in locals() and getattr(mgr, "storage_manager", None):
+                    mgr.storage_manager.close()
+            except Exception:
+                pass
             ai_monitor._apply_data_dir(PRODUCTION_DATA_DIR)
+            try:
+                ai_monitor.get_storage_manager(PRODUCTION_DATA_DIR).close()
+            except Exception:
+                pass
+            for fn in ("neko_storage.db", "neko_storage.db-wal", "neko_storage.db-shm"):
+                p = os.path.join(PRODUCTION_DATA_DIR, fn)
+                if os.path.exists(p) and fn not in self._prod_data_snapshot:
+                    try:
+                        os.remove(p)
+                    except OSError:
+                        pass
 
 
 if __name__ == "__main__":
