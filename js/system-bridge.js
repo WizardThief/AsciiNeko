@@ -816,6 +816,9 @@ class SystemBridge {
     if (Array.isArray(data.skills_learned)) {
       this.state.system.skillsLearned = data.skills_learned;
     }
+    if (Array.isArray(data.profile_traits)) {
+      this.state.system.profileTraits = data.profile_traits;
+    }
     if (Array.isArray(data.memories)) {
       this.state.system.memories = data.memories;
       this.state.system.memoriesList = data.memories;

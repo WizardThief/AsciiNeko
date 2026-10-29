@@ -165,9 +165,13 @@ class InstinctEngine:
                 if i_id not in json_by_id:
                     json_by_id[i_id] = inst
 
-            # 3. Seed initial instincts idempotently
+            # 3. Seed initial instincts idempotently (unless clean_slate mode is active)
+            if os.path.isfile(os.path.join(self.data_dir, ".clean_slate")):
+                seeds_to_apply = []
+            else:
+                seeds_to_apply = INITIAL_SEEDS
             now_iso = datetime.now(timezone.utc).isoformat()
-            for seed in INITIAL_SEEDS:
+            for seed in seeds_to_apply:
                 s_id = seed["id"]
                 s_trig_norm = normalize_instinct_text(seed["trigger"])
                 s_act_norm = normalize_instinct_text(seed["action"])

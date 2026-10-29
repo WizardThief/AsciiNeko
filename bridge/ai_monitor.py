@@ -352,6 +352,8 @@ def _migrate_todos_and_projects_on_startup(data_dir: str):
     4. Auto-creates/links project 'Nave Intermarine' in projects.json and neko_storage.db.
     5. Links Intermarine memories to 'proj_nave_intermarine' and marks them pinned.
     """
+    if os.path.isfile(os.path.join(data_dir, ".clean_slate")):
+        return
     p_profile = os.path.join(data_dir, "profile.json")
     p_projects = os.path.join(data_dir, "projects.json")
     p_todo = os.path.join(data_dir, "todo.json")
@@ -5186,6 +5188,7 @@ class SystemStateMonitor:
                 "memory_count": len(mems) + traits_count + proj_notes_count,
                 "memories": list(mems[:50]),
                 "skills_learned": self.mem_proj.get_skills_learned() if hasattr(self.mem_proj, "get_skills_learned") else [],
+                "profile_traits": list(self.mem_proj.profile.get("traits", [])),
                 "todo_count": len(todos),
                 "todos_list": list(todos[:15]),
                 "projects": list(p_state.get("projects", [])),

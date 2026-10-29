@@ -4809,15 +4809,15 @@ class HudTerminal {
 
     const system = (this.state && this.state.system) ? this.state.system : {};
     const projects = Array.isArray(system.projectsList) ? system.projectsList : [];
-    const activeProjName = system.activeProjectName || (projects.length > 0 && projects[0] ? projects[0].name : 'Nave Intermarine');
+    const activeProjName = system.activeProjectName || (projects.length > 0 && projects[0] ? projects[0].name : 'Nessun progetto attivo');
     const activeProj = projects.find((p) => p && p.name === activeProjName) || (projects.length > 0 ? projects[0] : null);
 
     // 1. Radar Card (#copilot-radar-body)
     if (this.elCopilotRadarBody) {
       const rawWin = system.activeWindow || system.active_window || {};
       const activeWin = typeof rawWin === 'object' ? rawWin : { title: String(rawWin) };
-      const activeApp = activeWin.app || activeWin.app_name || system.active_app || '3ds Max 2026';
-      const activeDoc = activeWin.title || activeWin.window_title || (activeProj ? activeProj.name : 'Nave Intermarine.max');
+      const activeApp = activeWin.app || activeWin.app_name || system.active_app || 'Desktop';
+      const activeDoc = activeWin.title || activeWin.window_title || (activeProj ? activeProj.name : 'In attesa di focus operativo');
       const wsPath = activeProj ? (activeProj.workspace_path || '') : '';
       const wsSummary = activeProj ? (activeProj.workspace_summary || null) : null;
       const modToday = (wsSummary && wsSummary.modified_today_count !== undefined) ? wsSummary.modified_today_count : 0;
@@ -5009,7 +5009,6 @@ class HudTerminal {
     if (this.state.system && Array.isArray(this.state.system.projectsList)) {
       this.state.system.projectsList.forEach((p) => { if (p.name) allProjects.add(p.name); });
     }
-    allProjects.add('Nave Intermarine');
 
     if (this.elKanbanFilters) {
       let filterHtml = `<button type="button" class="proj-filter-btn ${this.kanbanProjectFilter === 'all' ? 'active' : ''}" data-filter-proj="all">Tutti</button>`;
@@ -5112,22 +5111,8 @@ class HudTerminal {
       ? this.state.system.projectsList
       : (Array.isArray(this.projectsState.projects) && this.projectsState.projects.length > 0 ? this.projectsState.projects : []);
 
-    if (!rawProjects.some((p) => p.name && p.name.toLowerCase().includes('intermarine'))) {
-      rawProjects = [
-        {
-          id: 'proj_intermarine_1',
-          name: 'Nave Intermarine',
-          client: 'Intermarine',
-          notes: '⭐ Intermarine vuole sempre il colore blu per il suo Logo',
-          stack: ['Blender', 'GLB Draco', 'Rust', 'Three.js'],
-          is_active: 1
-        },
-        ...rawProjects
-      ];
-    }
-
-    const activeList = rawProjects.filter((p) => p.is_active !== 0);
-    const archiveList = rawProjects.filter((p) => p.is_active === 0);
+    const activeList = rawProjects.filter((p) => p.is_active !== 0 && p.status !== 'archived');
+    const archiveList = rawProjects.filter((p) => p.is_active === 0 || p.status === 'archived');
 
     if (this.elHubProjActiveCount) this.elHubProjActiveCount.textContent = String(activeList.length);
     if (this.elHubProjArchCount) this.elHubProjArchCount.textContent = String(archiveList.length);
@@ -5173,8 +5158,11 @@ class HudTerminal {
       const done = linked.filter((t) => t.status === 'done').length;
       const pct = total > 0 ? Math.round((done / total) * 100) : 0;
 
-      const rule = p.notes || (p.client ? `⭐ ${p.client} vuole sempre il colore blu per il suo Logo` : 'Nessuna regola specifica registrata');
-      const stack = Array.isArray(p.stack) ? p.stack : (typeof p.stack === 'string' ? p.stack.split(',') : ['Blender', 'GLB Draco', 'Rust', 'Three.js']);
+      const rawNotes = Array.isArray(p.notes) ? p.notes.join(' • ') : (p.notes || '');
+      const rule = rawNotes || 'Nessuna regola specifica registrata';
+      const stack = Array.isArray(p.tech_stack)
+        ? p.tech_stack
+        : (Array.isArray(p.stack) ? p.stack : (typeof p.stack === 'string' && p.stack.trim() ? p.stack.split(',') : []));
 
       let tasksHtml = '';
       if (linked.length > 0) {
@@ -5307,7 +5295,11 @@ class HudTerminal {
       `;
     });
 
-    this.elHubProjectsGrid.innerHTML = html;
+    if (activeList.length === 0) {
+      this.elHubProjectsGrid.innerHTML = '<div style="color:var(--text-muted); font-size:13px; padding:28px; text-align:center; grid-column: 1 / -1;">✨ Nessun progetto attivo. Clicca <strong>+ Nuovo Progetto</strong> o chiedi a Neko in chat di crearne uno!</div>';
+    } else {
+      this.elHubProjectsGrid.innerHTML = html;
+    }
     this.populatePlaybooksDropdown();
   }
 
@@ -5371,14 +5363,6 @@ class HudTerminal {
         }
       }
     });
-
-    if (allEvents.length === 0) {
-      allEvents.push({ id: 'demo1', title: 'Cleanup modello in Blender', date: '2026-11-02', time: '10:00', source: 'todo' });
-      allEvents.push({ id: 'demo2', title: 'Export GLB Draco per Three.js', date: '2026-11-03', time: '14:30', source: 'todo' });
-      allEvents.push({ id: 'demo3', title: 'Pipeline Rust + Three.js Realtime', date: '2026-11-04', time: '09:00', source: 'todo' });
-      allEvents.push({ id: 'demo4', title: 'Call Allineamento Cliente Intermarine', date: '2026-11-05', time: '11:00', source: 'google' });
-      allEvents.push({ id: 'demo5', title: 'Interattività Realtime Finale', date: '2026-11-06', time: '16:00', source: 'todo' });
-    }
 
     if (this.elTabCalBadge) {
       this.elTabCalBadge.textContent = String(allEvents.length);
@@ -5733,15 +5717,11 @@ class HudTerminal {
     if (this.elMemSkillsList) this.elMemSkillsList.style.display = isInstinctsTab ? 'none' : 'flex';
 
     // Atomic Instincts v2.1
-    let instincts = (this.state.system && Array.isArray(this.state.system.instinctsList) && this.state.system.instinctsList.length > 0)
+    let instincts = (this.state.system && Array.isArray(this.state.system.instinctsList))
       ? this.state.system.instinctsList
-      : ((this.state.memory && Array.isArray(this.state.memory.instincts) && this.state.memory.instincts.length > 0)
+      : ((this.state.memory && Array.isArray(this.state.memory.instincts))
         ? this.state.memory.instincts
-        : [
-            { id: 'ins_1', trigger: 'Esportazione modello 3D per Three.js', action: 'Applica compressione Draco GLB e normalizza scale metriche', scope: 'global', confidence: 0.95, domain: '3d_realtime', usage_count: 14 },
-            { id: 'ins_2', trigger: 'Materiali e render V-Ray ArchViz', action: 'Verifica ACEScg e color space OCIO per texture e decals', scope: 'project', confidence: 0.88, domain: 'archviz', usage_count: 8 },
-            { id: 'ins_3', trigger: 'Logo e colori nave Intermarine', action: 'Usa sempre tonalità Blu Marino esatta #002244', scope: 'project', confidence: 0.92, domain: 'intermarine', usage_count: 21 }
-          ]);
+        : []);
 
     if (this.elCountInstincts) this.elCountInstincts.textContent = String(instincts.length);
 
@@ -5797,45 +5777,42 @@ class HudTerminal {
       }
     }
 
-    let skills = (this.state.system && Array.isArray(this.state.system.skillsLearned) && this.state.system.skillsLearned.length > 0)
+    let skills = (this.state.system && Array.isArray(this.state.system.skillsLearned))
       ? this.state.system.skillsLearned
-      : [
-          { id: 'sk1', name: 'Blender 3D', category: '3D & Modellazione', level: 'Avanzato', evidence: 'Cleanup mesh e modellazione nave' },
-          { id: 'sk2', name: 'Export GLB / Draco', category: '3D & Modellazione', level: 'Esperto', evidence: 'Compressione realtime Three.js' },
-          { id: 'sk3', name: 'Rust', category: 'Pipeline & Scripting', level: 'Intermedio', evidence: 'Elaborazione dati realtime' },
-          { id: 'sk4', name: 'Three.js & WebGL', category: 'Sviluppo Web & Realtime', level: 'Avanzato', evidence: 'Viewer interattivo' },
-          { id: 'sk5', name: '3ds Max & V-Ray', category: '3D & Modellazione', level: 'Esperto', evidence: 'ArchViz fotorealistico' },
-          { id: 'sk6', name: 'Unreal Engine', category: 'Sviluppo Web & Realtime', level: 'Avanzato', evidence: 'Scene realtime fotorealistiche' }
-        ];
+      : [];
 
     if (this.elMemSkillsCount) this.elMemSkillsCount.textContent = String(skills.length);
     if (this.elCountSkills) this.elCountSkills.textContent = String(skills.length);
 
     if (this.elMemSkillsList) {
-      const groups = {};
-      skills.forEach((s) => {
-        const cat = s.category || 'Competenze Generali';
-        if (!groups[cat]) groups[cat] = [];
-        groups[cat].push(s);
-      });
-
       let skillsHtml = '';
-      for (const [catName, catSkills] of Object.entries(groups)) {
-        skillsHtml += `
-          <div class="mem-skill-group">
-            <div class="mem-skill-cat-title">${this.escapeHtml(catName)} (${catSkills.length})</div>
-            ${catSkills.map((s) => `
-              <div class="mem-skill-card">
-                <div>
-                  <strong>${this.escapeHtml(s.name)}</strong>
-                  <span class="mem-skill-badge" style="margin-left:6px;">${this.escapeHtml(s.level || 'Avanzato')}</span>
-                  ${s.evidence ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${this.escapeHtml(s.evidence)}</div>` : ''}
+      if (skills.length === 0) {
+        skillsHtml = '<div style="color:var(--text-muted);font-size:12px;padding:16px;text-align:center;">Nessuna competenza registrata. Aggiungine una o parla con Neko!</div>';
+      } else {
+        const groups = {};
+        skills.forEach((s) => {
+          const cat = s.category || 'Competenze Generali';
+          if (!groups[cat]) groups[cat] = [];
+          groups[cat].push(s);
+        });
+
+        for (const [catName, catSkills] of Object.entries(groups)) {
+          skillsHtml += `
+            <div class="mem-skill-group">
+              <div class="mem-skill-cat-title">${this.escapeHtml(catName)} (${catSkills.length})</div>
+              ${catSkills.map((s) => `
+                <div class="mem-skill-card">
+                  <div>
+                    <strong>${this.escapeHtml(s.name)}</strong>
+                    <span class="mem-skill-badge" style="margin-left:6px;">${this.escapeHtml(s.level || 'Avanzato')}</span>
+                    ${s.evidence ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${this.escapeHtml(s.evidence)}</div>` : ''}
+                  </div>
+                  <button type="button" class="term-btn term-btn-sm btn-del-skill" data-skill-id="${this.escapeHtml(s.id)}" title="Rimuovi">✕</button>
                 </div>
-                <button type="button" class="term-btn term-btn-sm btn-del-skill" data-skill-id="${this.escapeHtml(s.id)}" title="Rimuovi">✕</button>
-              </div>
-            `).join('')}
-          </div>
-        `;
+              `).join('')}
+            </div>
+          `;
+        }
       }
       this.elMemSkillsList.innerHTML = skillsHtml;
       if (this.elMemProfileSkillsListPane3) {
@@ -5843,15 +5820,9 @@ class HudTerminal {
       }
     }
 
-    let rules = [
-      { id: 'r1', text: 'Intermarine vuole sempre il colore blu per il suo Logo', category: 'Intermarine', pinned: 1 },
-      { id: 'r2', text: 'Logo ufficiale Nave Intermarine = Blu Marino', category: 'Intermarine', pinned: 1 },
-      { id: 'r3', text: 'Esportazione realtime richiede compressione Draco per Three.js', category: 'Tecnica', pinned: 0 }
-    ];
-
-    if (this.state.system && Array.isArray(this.state.system.memoriesList) && this.state.system.memoriesList.length > 0) {
-      rules = this.state.system.memoriesList;
-    }
+    let rules = (this.state.system && Array.isArray(this.state.system.memoriesList))
+      ? this.state.system.memoriesList
+      : [];
 
     const filteredRules = this._memRulesSearchQuery
       ? rules.filter((r) => r.text.toLowerCase().includes(this._memRulesSearchQuery) || (r.category && r.category.toLowerCase().includes(this._memRulesSearchQuery)))
@@ -5912,27 +5883,31 @@ class HudTerminal {
       });
     }
 
-    const defaultTraits = [
-      'Professione: 3D Generalist / Web Realtime Developer',
-      'Strumenti chiave: Blender, Three.js, Rust, 3ds Max, Unreal Engine',
-      'Pipeline: Esportazione GLB Draco + Three.js interattivo',
-      'Cliente attivo: Intermarine (Nave Intermarine)'
-    ];
+    const profileTraits = (this.state.system && Array.isArray(this.state.system.profileTraits))
+      ? this.state.system.profileTraits
+      : [];
 
-    if (this.elMemProfileCount) this.elMemProfileCount.textContent = String(defaultTraits.length);
+    if (this.elMemProfileCount) this.elMemProfileCount.textContent = String(profileTraits.length);
 
     if (this.elMemProfileTraitsList) {
-      this.elMemProfileTraitsList.innerHTML = defaultTraits.map((t) => `
-        <div class="mem-rule-card">
-          <div class="mem-rule-header">
-            <span class="badge-due">Tratto Profilo</span>
-            <div>
-              <button type="button" class="trait-pin-btn pinned" title="Tratto permanente">⭐ Pinned</button>
+      if (profileTraits.length === 0) {
+        this.elMemProfileTraitsList.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:16px;text-align:center;">Nessun tratto del profilo salvato. Rispondi alle domande qui sopra o parla di te a Neko!</div>';
+      } else {
+        this.elMemProfileTraitsList.innerHTML = profileTraits.map((t) => {
+          const traitText = typeof t === 'object' ? (t.text || t.value || JSON.stringify(t)) : String(t);
+          return `
+            <div class="mem-rule-card">
+              <div class="mem-rule-header">
+                <span class="badge-due">Tratto Profilo</span>
+                <div>
+                  <button type="button" class="trait-pin-btn pinned" title="Tratto permanente">⭐ Pinned</button>
+                </div>
+              </div>
+              <div class="mem-rule-text">${this.escapeHtml(traitText)}</div>
             </div>
-          </div>
-          <div class="mem-rule-text">${this.escapeHtml(t)}</div>
-        </div>
-      `).join('');
+          `;
+        }).join('');
+      }
     }
 
     if (this.elTabMemBadge) {
