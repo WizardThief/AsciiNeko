@@ -2779,10 +2779,18 @@ class HudTerminal {
     this.applyTelemetryThreshold(this.elVramStat, vramPct);
 
     // F13 & F14: Active Window, Active Project Name & AFK Detection (>300s)
-    const activeApp = this.state.system ? this.state.system.active_window || '' : '';
+    const rawActiveApp = this.state.system
+      ? (this.state.system.active_window || this.state.system.activeWindow || '')
+      : '';
+    const activeApp = (rawActiveApp && typeof rawActiveApp === 'object')
+      ? (rawActiveApp.app_name || rawActiveApp.app || rawActiveApp.window_title || rawActiveApp.title || '')
+      : String(rawActiveApp || '');
     if (this.elActiveAppBadge) {
-      if (activeApp) {
+      if (activeApp && activeApp !== '[object Object]') {
         this.elActiveAppBadge.textContent = activeApp;
+        this.elActiveAppBadge.title = (rawActiveApp && typeof rawActiveApp === 'object')
+          ? `${rawActiveApp.app_name || rawActiveApp.app || ''} — ${rawActiveApp.window_title || rawActiveApp.title || ''}`
+          : activeApp;
         this.elActiveAppBadge.style.display = 'inline-block';
       } else {
         this.elActiveAppBadge.style.display = 'none';
@@ -2839,7 +2847,6 @@ class HudTerminal {
       this.elClock.textContent = now.toLocaleTimeString('it-IT', {
         hour: '2-digit',
         minute: '2-digit',
-        second: '2-digit',
         hour12: false
       });
     }
@@ -3380,6 +3387,7 @@ class HudTerminal {
     this.elBtnMemProfilingSave = document.getElementById('btn-mem-profiling-save');
     this.elBtnMemProfilingNext = document.getElementById('btn-mem-profiling-next');
     this.elMemProfileTraitsList = document.getElementById('mem-profile-traits-list');
+    this.elMemProfileSkillsListPane3 = document.getElementById('mem-profile-skills-list-pane3');
 
     // Milestone 4 (F22-F28) Elements
     // F22: Dynamic Context Mode
@@ -3499,7 +3507,12 @@ class HudTerminal {
     }
 
     this.bindWorkspaceEvents();
+    if (this.elAiDock) {
+      this.elAiDock.classList.remove('term-collapsed');
+      this.isTerminalCollapsed = false;
+    }
     this.switchWorkspace('view-home');
+    this.renderCopilotHud();
   }
 
   bindWorkspaceEvents() {
@@ -4801,9 +4814,10 @@ class HudTerminal {
 
     // 1. Radar Card (#copilot-radar-body)
     if (this.elCopilotRadarBody) {
-      const activeWin = system.activeWindow || {};
-      const activeApp = activeWin.app || system.active_app || '3ds Max 2026';
-      const activeDoc = activeWin.title || (activeProj ? activeProj.name : 'Nave Intermarine.max');
+      const rawWin = system.activeWindow || system.active_window || {};
+      const activeWin = typeof rawWin === 'object' ? rawWin : { title: String(rawWin) };
+      const activeApp = activeWin.app || activeWin.app_name || system.active_app || '3ds Max 2026';
+      const activeDoc = activeWin.title || activeWin.window_title || (activeProj ? activeProj.name : 'Nave Intermarine.max');
       const wsPath = activeProj ? (activeProj.workspace_path || '') : '';
       const wsSummary = activeProj ? (activeProj.workspace_summary || null) : null;
       const modToday = (wsSummary && wsSummary.modified_today_count !== undefined) ? wsSummary.modified_today_count : 0;
@@ -4912,11 +4926,16 @@ class HudTerminal {
     // 3. Brain & Rules Card (#copilot-brain-body & #copilot-tok-val)
     if (this.elCopilotBrainBody) {
       const budget = system.contextBudget || { used_tokens: 3420, max_tokens: 8192, used_pct: 42 };
+      const budgetPct = budget.usage_pct !== undefined
+        ? Math.round(budget.usage_pct)
+        : (budget.used_pct !== undefined ? Math.round(budget.used_pct) : 42);
       if (this.elCopilotTokVal) {
-        this.elCopilotTokVal.textContent = `${budget.used_tokens || 3420} tok (${budget.used_pct || 42}%)`;
+        this.elCopilotTokVal.textContent = `${budget.used_tokens || 3420} tok (${budgetPct}%)`;
       }
 
-      const memories = Array.isArray(system.memories) ? system.memories : [];
+      const memories = Array.isArray(system.memories)
+        ? system.memories
+        : (Array.isArray(system.memoriesList) ? system.memoriesList : []);
       const pinnedRule = memories.find((m) => m && m.pinned)
         || memories.find((m) => m && m.category && m.category.toLowerCase().includes('regola'))
         || (memories.length > 0 ? memories[0] : null);
@@ -5819,6 +5838,9 @@ class HudTerminal {
         `;
       }
       this.elMemSkillsList.innerHTML = skillsHtml;
+      if (this.elMemProfileSkillsListPane3) {
+        this.elMemProfileSkillsListPane3.innerHTML = skillsHtml;
+      }
     }
 
     let rules = [
@@ -6219,7 +6241,10 @@ class HudTerminal {
     const skillsReg = (this.state.system && Array.isArray(this.state.system.skillsRegistry)) ? this.state.system.skillsRegistry : [];
     const memKey = `${skills.length}:${instincts.length}:${budgetTokens}:${this.state.system ? this.state.system.memoryCount : 0}:${mcpConns.map((c) => (c.id || '') + c.enabled).join(',')}:${skillsReg.map((s) => (s.id || '') + s.enabled).join(',')}`;
 
-    const activeWin = (this.state.system && this.state.system.activeWindow) ? (this.state.system.activeWindow.title || this.state.system.activeWindow.app || '') : '';
+    const rawAw = (this.state.system && (this.state.system.activeWindow || this.state.system.active_window)) || null;
+    const activeWin = rawAw
+      ? (typeof rawAw === 'object' ? (rawAw.title || rawAw.window_title || rawAw.app || rawAw.app_name || '') : String(rawAw))
+      : '';
     const copilotKey = `${todoKey}:${projKey}:${activeWin}:${budgetTokens}`;
 
     if (this.activeWorkspace === 'view-home') {

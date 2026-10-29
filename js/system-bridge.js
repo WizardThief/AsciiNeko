@@ -734,7 +734,16 @@ class SystemBridge {
     if (typeof data.vram_total_gb === 'number') this.state.system.vram_total_gb = data.vram_total_gb;
     if (typeof data.vram_percent === 'number') this.state.system.vram_percent = data.vram_percent;
 
-    if (data.active_window) this.state.system.active_window = data.active_window;
+    if (data.active_window) {
+      this.state.system.active_window = data.active_window;
+      if (typeof data.active_window === 'object') {
+        this.state.system.activeWindow = {
+          app: data.active_window.app || data.active_window.app_name || '',
+          title: data.active_window.title || data.active_window.window_title || '',
+          ...data.active_window
+        };
+      }
+    }
     if (typeof data.is_afk === 'boolean') this.state.system.is_afk = data.is_afk;
     if (data.afk) this.state.system.afk = data.afk;
     if (typeof data.afk_idle_seconds === 'number') this.state.system.afk_idle_seconds = data.afk_idle_seconds;
@@ -806,6 +815,10 @@ class SystemBridge {
     }
     if (Array.isArray(data.skills_learned)) {
       this.state.system.skillsLearned = data.skills_learned;
+    }
+    if (Array.isArray(data.memories)) {
+      this.state.system.memories = data.memories;
+      this.state.system.memoriesList = data.memories;
     }
     if (Array.isArray(data.projects)) {
       this.state.system.projectsList = data.projects;

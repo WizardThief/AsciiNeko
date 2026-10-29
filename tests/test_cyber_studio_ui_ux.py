@@ -1434,6 +1434,66 @@ class TestTier4CyberStudioHygiene(IsolatedCyberStudioTestCase):
         self.assertEqual(proc.returncode, 0, f"Hotkey test failed:\n{proc.stderr}\n{proc.stdout}")
         self.assertIn("SUCCESS_HOTKEYS_VERIFIED", proc.stdout)
 
+    def test_html_dom_hierarchy_and_sibling_integrity(self):
+        """
+        Ensures #status-matrix-panel, #neko-modal-overlay, #neko-copilot-hud,
+        #hud-workspace-container, and #ai-terminal-dock are all direct children
+        of #hud-layer (preventing #neko-modal-overlay from swallowing the HUD or chat dock).
+        """
+        from html.parser import HTMLParser
+
+        void_tags = {
+            "area", "base", "br", "col", "embed", "hr", "img", "input",
+            "link", "meta", "param", "source", "track", "wbr",
+        }
+
+        class HierarchyParser(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.stack = []
+                self.mismatches = []
+                self.parents = {}
+
+            def handle_starttag(self, tag, attrs):
+                if tag in void_tags:
+                    return
+                attr_dict = dict(attrs)
+                el_id = attr_dict.get("id", "")
+                parent_id = self.stack[-1][1] if self.stack else None
+                if el_id:
+                    self.parents[el_id] = parent_id
+                self.stack.append((tag, el_id))
+
+            def handle_endtag(self, tag):
+                if tag in void_tags:
+                    return
+                if not self.stack:
+                    self.mismatches.append(f"Unexpected closing </{tag}>")
+                    return
+                top_tag, _ = self.stack[-1]
+                if top_tag == tag:
+                    self.stack.pop()
+                else:
+                    self.mismatches.append(f"Expected </{top_tag}>, got </{tag}>")
+
+        parser = HierarchyParser()
+        parser.feed(self.html)
+        self.assertEqual(parser.mismatches, [], f"HTML tag mismatches found: {parser.mismatches}")
+        self.assertEqual(parser.stack, [], f"Unclosed HTML tags at EOF: {parser.stack}")
+
+        for top_level_id in (
+            "status-matrix-panel",
+            "neko-modal-overlay",
+            "neko-copilot-hud",
+            "hud-workspace-container",
+            "ai-terminal-dock",
+        ):
+            self.assertEqual(
+                parser.parents.get(top_level_id),
+                "hud-layer",
+                f"#{top_level_id} must be a direct child of #hud-layer, got #{parser.parents.get(top_level_id)}",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

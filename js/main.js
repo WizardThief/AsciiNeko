@@ -145,8 +145,13 @@
   window.addEventListener('mousedown', (e) => {
     if (
       e.target.closest('#status-matrix-panel') ||
+      e.target.closest('#neko-copilot-hud') ||
+      e.target.closest('#hud-workspace-container') ||
       e.target.closest('#ai-terminal-dock') ||
       e.target.closest('#neko-modal-overlay') ||
+      e.target.closest('.neko-modal-overlay') ||
+      e.target.closest('#hud-slide-drawer') ||
+      e.target.closest('#hud-smart-banner') ||
       e.target.closest('.hud-restore-pill') ||
       e.target.closest('#hud-deadline-toast')
     ) {
@@ -171,6 +176,11 @@
     if (
       e.target.closest('#ai-terminal-dock') ||
       e.target.closest('#status-matrix-panel') ||
+      e.target.closest('#neko-copilot-hud') ||
+      e.target.closest('#hud-workspace-container') ||
+      e.target.closest('.neko-modal-overlay') ||
+      e.target.closest('#hud-slide-drawer') ||
+      e.target.closest('#hud-smart-banner') ||
       e.target.closest('#hud-deadline-toast')
     ) return;
     e.preventDefault();

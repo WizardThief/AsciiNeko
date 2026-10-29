@@ -107,11 +107,12 @@ body.color-safe-active {
   inset: 0;
   z-index: 10;
   pointer-events: none;
-  padding: 14px 20px 20px 20px;
+  padding: 10px 14px 14px 14px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  align-items: flex-end;
+  align-items: stretch;
+  overflow: hidden;
 }
 
 .hud-layer.hud-minimal .hud-collapsible {
@@ -137,23 +138,26 @@ body.view-home .hud-layer.hud-hidden #neko-copilot-hud {
   display: none !important;
 }
 
-/* TOP BAR: Cyber-Studio 3-Zone Balanced Navigation */
+/* TOP BAR: Cyber-Studio 3-Zone Balanced Navigation (Adaptive 768px - 2560px) */
 .hud-top-bar {
   pointer-events: auto;
   align-self: stretch;
   width: 100%;
-  background: var(--bg-surface-1, rgba(12, 14, 20, 0.9));
+  flex-shrink: 0;
+  background: var(--bg-surface-1, rgba(12, 14, 20, 0.92));
   border: 1px solid var(--border-hairline, rgba(255, 255, 255, 0.08));
   border-radius: 8px;
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  padding: 6px 14px;
+  padding: 5px 10px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 6px 8px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
   transition: border-color 0.25s ease, box-shadow 0.25s ease;
+  z-index: 25;
 }
 
 .hud-top-bar:hover {
@@ -163,11 +167,12 @@ body.view-home .hud-layer.hud-hidden #neko-copilot-hud {
 .top-bar-zone {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
+  white-space: nowrap;
 }
 
 .top-bar-zone-left {
-  flex: 1;
+  flex: 0 1 auto;
   justify-content: flex-start;
   min-width: 0;
 }
@@ -178,7 +183,7 @@ body.view-home .hud-layer.hud-hidden #neko-copilot-hud {
 }
 
 .top-bar-zone-right {
-  flex: 1;
+  flex: 0 1 auto;
   justify-content: flex-end;
   min-width: 0;
 }
@@ -186,19 +191,23 @@ body.view-home .hud-layer.hud-hidden #neko-copilot-hud {
 .top-bar-section {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  white-space: nowrap;
 }
 
 .top-bar-divider {
-  color: var(--border-hairline, rgba(255, 255, 255, 0.12));
+  color: var(--border-hairline, rgba(255, 255, 255, 0.14));
   font-size: 11px;
+  padding: 0 1px;
 }
 
 .status-dot {
   width: 6px;
   height: 6px;
+  border-radius: 50%;
   background: var(--text-secondary);
   display: inline-block;
+  flex-shrink: 0;
 }
 
 .status-dot.ai-active {
@@ -208,8 +217,9 @@ body.view-home .hud-layer.hud-hidden #neko-copilot-hud {
 
 .sys-stat {
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .sys-stat strong {
@@ -219,6 +229,7 @@ body.view-home .hud-layer.hud-hidden #neko-copilot-hud {
 
 .sys-sep {
   color: var(--text-muted);
+  font-size: 10px;
 }
 
 /* Pills Assistente Locale in Top Bar */
@@ -355,6 +366,7 @@ body.view-home .hud-layer.hud-hidden #neko-copilot-hud {
   padding: 5px 10px;
   cursor: pointer;
   transition: all 0.15s ease;
+  white-space: nowrap;
 }
 
 .term-btn:hover {
@@ -374,15 +386,22 @@ body.view-home .hud-layer.hud-hidden #neko-copilot-hud {
   padding: 4px 10px;
   font-size: 12px;
   border-color: var(--border-dim);
+  white-space: nowrap;
+}
+
+.hud-top-bar .term-btn-sm {
+  padding: 3px 7px;
+  font-size: 11px;
 }
 
 .clock-inline {
-  font-size: 13px;
+  font-size: 11.5px;
   font-weight: 600;
   color: var(--text-bright);
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
   font-variant-numeric: tabular-nums;
-  padding: 0 6px;
+  padding: 0 4px;
+  white-space: nowrap;
 }
 
 .session-timer-badge {
@@ -393,8 +412,9 @@ body.view-home .hud-layer.hud-hidden #neko-copilot-hud {
   background: rgba(255, 255, 255, 0.07);
   border: 1px solid var(--border-mid);
   color: var(--text-bright);
-  font-size: 13px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .session-timer-badge.visible {
@@ -430,23 +450,28 @@ body.view-home .hud-layer.hud-hidden #neko-copilot-hud {
   border-color: var(--border-bright);
 }
 
-/* BOTTOM AI TERMINAL DOCK */
+/* BOTTOM AI TERMINAL DOCK (Always visible at bottom of HUD) */
 .ai-terminal-dock {
   pointer-events: auto;
   align-self: center;
-  width: min(820px, 94vw);
-  background: var(--bg-panel);
-  border: 1px solid var(--border-dim);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  padding: 8px 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.65);
+  flex-shrink: 0;
+  width: min(880px, 96vw);
+  background: rgba(10, 13, 20, 0.92);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  border-radius: 10px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  padding: 8px 14px;
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.72);
   transition: all 0.25s ease;
+  z-index: 25;
+  position: relative;
 }
 
 .ai-terminal-dock:hover,
 .ai-terminal-dock:focus-within {
-  border-color: var(--border-mid);
+  border-color: var(--mode-accent, #38bdf8);
+  box-shadow: 0 12px 40px var(--mode-glow, rgba(56, 189, 248, 0.18));
 }
 
 .ai-terminal-dock.term-collapsed .ai-term-body,
@@ -1711,9 +1736,15 @@ body.mini-widget-mode .ai-output-line {
   background: rgba(56, 189, 248, 0.18);
   border: 1px solid rgba(56, 189, 248, 0.5);
   color: #bae6fd;
-  font-size: 13px;
-  padding: 2px 7px;
+  font-size: 11px;
+  padding: 2px 6px;
   border-radius: 4px;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  vertical-align: middle;
 }
 
 .afk-status-badge {
@@ -2041,27 +2072,28 @@ textarea.ai-input-field {
 .hud-workspace-nav {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   background: rgba(255, 255, 255, 0.04);
-  padding: 2px 4px;
+  padding: 2px 3px;
   border-radius: 6px;
   border: 1px solid var(--border-dim);
+  flex-shrink: 0;
 }
 
 .workspace-tab-btn {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-secondary);
   background: transparent;
   border: 1px solid transparent;
   border-radius: 4px;
-  padding: 4px 10px;
+  padding: 3px 8px;
   cursor: pointer;
   transition: all 0.15s ease;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   white-space: nowrap;
 }
 
@@ -2073,15 +2105,15 @@ textarea.ai-input-field {
 
 .workspace-tab-btn.active {
   color: #fff;
-  background: rgba(56, 189, 248, 0.2);
-  border-color: #38bdf8;
-  box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
+  background: rgba(var(--mode-accent-rgb, 56, 189, 248), 0.2);
+  border-color: var(--mode-accent, #38bdf8);
+  box-shadow: 0 0 10px var(--mode-glow, rgba(56, 189, 248, 0.25));
 }
 
 .tab-badge {
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 700;
-  padding: 1px 6px;
+  padding: 1px 5px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.12);
   color: var(--text-primary);
@@ -2089,31 +2121,62 @@ textarea.ai-input-field {
 }
 
 .workspace-tab-btn.active .tab-badge {
-  background: #38bdf8;
+  background: var(--mode-accent, #38bdf8);
   color: #020617;
 }
 
 .tab-btn-settings {
-  padding: 4px 8px;
-  font-size: 14px;
+  padding: 3px 7px;
+  font-size: 13px;
 }
 
-/* --- 2. Subtle Home Next-Task Chip --- */
+/* Adaptive Top Bar Breakpoints: 1-row at >=1120px, clean 2-row wrap below 1120px */
+@media (max-width: 1240px) {
+  .hud-top-bar .sys-sep {
+    display: none;
+  }
+  .hud-top-bar #hardware-telemetry {
+    gap: 6px;
+  }
+  .hud-top-bar #active-proj-name-badge {
+    display: none !important;
+  }
+}
+
+@media (max-width: 1120px) {
+  .hud-top-bar {
+    padding: 6px 10px;
+    gap: 6px;
+  }
+  .top-bar-zone-center {
+    order: -1;
+    width: 100%;
+    justify-content: center;
+  }
+  .top-bar-zone-left {
+    flex: 1 1 auto;
+  }
+  .top-bar-zone-right {
+    flex: 0 1 auto;
+  }
+}
+
+/* --- 2. Subtle Home Next-Task Chip (Suppressed in Top Bar when Co-Pilot HUD is active) --- */
 .home-next-task-chip {
-  display: inline-flex;
+  display: none !important;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-size: 11.5px;
   color: #fde68a;
   background: rgba(245, 158, 11, 0.12);
   border: 1px solid rgba(245, 158, 11, 0.4);
   border-radius: 20px;
-  padding: 4px 14px;
+  padding: 3px 10px;
   cursor: pointer;
   transition: all 0.2s ease;
   white-space: nowrap;
-  margin-left: 6px;
+  margin-left: 4px;
 }
 
 .home-next-task-chip:hover {
@@ -2157,7 +2220,7 @@ textarea.ai-input-field {
   pointer-events: auto;
   display: flex;
   flex-direction: column;
-  margin: 8px 0 10px 0;
+  margin: 6px 0 8px 0;
   border-radius: 8px;
   background: rgba(10, 13, 20, 0.94);
   border: 1px solid var(--border-mid);
@@ -2184,9 +2247,10 @@ body.view-home #hud-workspace-container {
   min-height: 0;
   display: flex;
   justify-content: space-between;
-  align-items: stretch;
+  align-items: flex-start;
   pointer-events: none;
-  margin: 10px 0;
+  margin: 8px 0;
+  overflow: hidden;
   z-index: 12;
   transition: opacity 0.25s ease, transform 0.25s ease;
 }
@@ -2203,11 +2267,13 @@ body.view-home .hud-layer.hud-hidden #neko-copilot-hud {
 }
 
 .copilot-flank {
-  width: clamp(240px, 20vw, 320px);
-  max-width: 340px;
+  width: clamp(235px, 21vw, 310px);
+  max-width: 320px;
+  max-height: 100%;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   pointer-events: auto;
 }
 
@@ -2222,26 +2288,27 @@ body.view-home .hud-layer.hud-hidden #neko-copilot-hud {
 .copilot-center-clearance {
   flex: 1;
   min-width: 240px;
+  height: 100%;
   pointer-events: none;
 }
 
 .copilot-card {
-  background: var(--bg-surface-1, rgba(13, 17, 24, 0.85));
-  border: 1px solid var(--border-hairline, rgba(255, 255, 255, 0.08));
+  background: var(--bg-surface-1, rgba(13, 17, 24, 0.86));
+  border: 1px solid var(--border-hairline, rgba(255, 255, 255, 0.1));
   border-radius: 8px;
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
-  padding: 12px 14px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 7px;
   transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 
 .copilot-card:hover {
   border-color: var(--mode-accent, #38bdf8);
-  box-shadow: 0 10px 36px var(--mode-glow, rgba(56, 189, 248, 0.15));
+  box-shadow: 0 10px 32px var(--mode-glow, rgba(56, 189, 248, 0.16));
 }
 
 .copilot-card-header {
@@ -2249,8 +2316,8 @@ body.view-home .hud-layer.hud-hidden #neko-copilot-hud {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  border-bottom: 1px solid var(--border-hairline, rgba(255, 255, 255, 0.06));
-  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-hairline, rgba(255, 255, 255, 0.07));
+  padding-bottom: 5px;
 }
 
 .copilot-card-title-group {
@@ -2258,21 +2325,21 @@ body.view-home .hud-layer.hud-hidden #neko-copilot-hud {
   align-items: center;
   gap: 6px;
   font-family: var(--font-sans);
-  font-weight: 600;
-  font-size: 11.5px;
+  font-weight: 700;
+  font-size: 11px;
   letter-spacing: 0.5px;
   text-transform: uppercase;
   color: var(--mode-accent, #38bdf8);
 }
 
 .copilot-card-icon {
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .copilot-card-title {
   font-family: var(--font-sans);
-  font-weight: 600;
-  font-size: 11.5px;
+  font-weight: 700;
+  font-size: 11px;
   letter-spacing: 0.5px;
   color: var(--mode-accent, #38bdf8);
 }
@@ -2283,59 +2350,331 @@ body.view-home .hud-layer.hud-hidden #neko-copilot-hud {
   border-radius: 50%;
   background: #10b981;
   box-shadow: 0 0 6px #10b981;
+  flex-shrink: 0;
 }
 
-.copilot-status-badge {
+.copilot-status-badge,
+.card-status-badge {
   font-size: 10px;
   font-weight: 700;
   padding: 2px 6px;
   border-radius: 4px;
   background: rgba(56, 189, 248, 0.15);
   color: #38bdf8;
-  border: 1px solid rgba(56, 189, 248, 0.3);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  white-space: nowrap;
+}
+
+.card-status-badge.status-doing {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.45);
+}
+
+.card-status-badge.status-free {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border-color: rgba(16, 185, 129, 0.35);
 }
 
 .copilot-budget-mini {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .copilot-card-body {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  font-size: 12px;
-}
-
-.copilot-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.copilot-label {
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-.copilot-val {
-  color: var(--text-bright);
-  font-weight: 600;
+  gap: 6px;
   font-size: 11.5px;
 }
 
-.copilot-actions-row {
+.copilot-row,
+.copilot-metric-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 6px;
-  margin-top: 4px;
+}
+
+.copilot-label,
+.copilot-metric-label {
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.copilot-val,
+.copilot-app-tag,
+.copilot-proj-focus {
+  color: var(--text-bright);
+  font-weight: 600;
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 175px;
+}
+
+.copilot-app-tag {
+  color: #38bdf8;
+}
+
+.copilot-proj-focus {
+  color: #fde68a;
+}
+
+.copilot-doc-title {
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  padding: 3px 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copilot-ws-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 5px;
+  padding: 4px 7px;
+}
+
+.copilot-ws-row.copilot-unbound {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.copilot-ws-path,
+.copilot-ws-unbound {
+  font-size: 11px;
+  color: #bae6fd;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.copilot-ws-unbound {
+  color: var(--text-muted);
+}
+
+.copilot-ws-btns {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.copilot-mini-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-dim);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.copilot-mini-btn:hover {
+  background: rgba(56, 189, 248, 0.22);
+  border-color: #38bdf8;
+  color: #fff;
+}
+
+.copilot-radar-telemetry {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.radar-chip {
+  font-size: 10.5px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.radar-chip.chip-active {
+  background: rgba(245, 158, 11, 0.14);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #fde68a;
+}
+
+.radar-chip.chip-git {
+  background: rgba(16, 185, 129, 0.14);
+  border-color: rgba(16, 185, 129, 0.35);
+  color: #6ee7b7;
+}
+
+.copilot-task-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+
+.copilot-task-indicator {
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.copilot-task-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.copilot-task-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-bright);
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.copilot-task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.badge-proj-tag,
+.badge-due-tag,
+.badge-prio-tag {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+.badge-proj-tag {
+  background: rgba(56, 189, 248, 0.14);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.badge-due-tag {
+  background: rgba(245, 158, 11, 0.14);
+  color: #fde68a;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.badge-prio-tag {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.badge-prio-tag.prio-high {
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.copilot-actions-row,
+.copilot-task-actions,
+.copilot-brain-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
   flex-wrap: wrap;
 }
 
+.copilot-btn-action {
+  flex: 1;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.38);
+  border-radius: 5px;
+  color: #e0f2fe;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.copilot-btn-action:hover {
+  background: rgba(56, 189, 248, 0.26);
+  border-color: #38bdf8;
+  color: #fff;
+}
+
+.copilot-task-empty {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  padding: 4px 0;
+}
+
+.copilot-task-empty p {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.copilot-brain-section {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.copilot-brain-label {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.copilot-rule-callout {
+  font-size: 11px;
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.1);
+  border-left: 2px solid #f59e0b;
+  border-radius: 3px;
+  padding: 4px 7px;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.copilot-instinct-badge {
+  font-size: 11px;
+  color: #e9d5ff;
+  background: rgba(168, 85, 247, 0.12);
+  border-left: 2px solid #a855f7;
+  border-radius: 3px;
+  padding: 4px 7px;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 /* Color-safe override */
-.color-safe .hud-workspace-container {
+.color-safe .hud-workspace-container,
+.color-safe .copilot-card {
   background: #0c0d12 !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;

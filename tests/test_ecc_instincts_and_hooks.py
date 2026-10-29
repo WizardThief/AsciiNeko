@@ -938,8 +938,11 @@ class TestTier4RealWorldWorkload(IsolatedTestCase):
 
         # Step 7: Final Data Hygiene Verification
         # Confirm that production data directory remained 100% untouched
-        prod_mems = os.listdir(PRODUCTION_DATA_DIR)
-        self.assertNotIn("session_checkpoint.json", prod_mems)
+        self.assertEqual(
+            self._prod_data_snapshot,
+            self._capture_dir_snapshot(PRODUCTION_DATA_DIR),
+            "Production data directory was modified during test!",
+        )
 
 
 if __name__ == "__main__":
