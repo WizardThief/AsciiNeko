@@ -1834,7 +1834,7 @@ class HudTerminal {
       parts.push(`🛠️ Skill registrate: ${summary.skills_added.join(', ')}`);
     }
     if (summary.project_created) {
-      parts.push(`🚢 Progetto creato e messo in Focus: "${summary.project_created}"`);
+      parts.push(`📌 Progetto creato e messo in Focus: "${summary.project_created}"`);
     }
     if (summary.rule_pinned) {
       parts.push(`📌 Regola Quality Gate fissata in Memoria`);
@@ -1910,61 +1910,61 @@ class HudTerminal {
         : `Passo ${Math.min(reqSteps, ansCount + 1)}/${reqSteps}`;
     }
 
-    // Domande Base Integrate con il Sistema ECC
+    // Domande Base Universali Integrate con il Sistema ECC
     const fallbackQuestions = [
       {
         id: 'q_identity',
         category: 'Identità & Attività',
-        question: 'Ciao! Sono Neko, il tuo Co-Pilota desktop. Qual è il tuo ruolo principale o su quale ambito lavori ogni giorno?',
+        question: 'Ciao! Sono Neko, il tuo assistente personale sul desktop. Di cosa ti occupi principalmente nella tua giornata?',
         options: [
-          '3D Artist / ArchViz & Modellazione (3ds Max, Blender, V-Ray, Corona)',
-          'Sviluppatore Software / Web & Realtime 3D (Python, JS/TS, Rust, Three.js)',
-          'Game Dev & Technical Artist (Unreal Engine, Unity, Shader & Pipeline)',
-          'Design, Progettazione CAD/BIM & Direzione Creativa'
+          'Sviluppo Software, Programmazione, Dati o IT',
+          'Business, Management, Consulenza, Marketing o Ufficio',
+          'Design, Comunicazione, Multimedia, Architettura o Creatività',
+          'Studio, Ricerca, Scrittura o Libera Professione'
         ]
       },
       {
         id: 'q_tools',
         category: 'Lavoro & Strumenti',
-        question: 'Quali software, linguaggi o motori usi ogni giorno? (Li registrerò nelle tue Skill e nel Radar Finestra Attiva)',
+        question: 'Quali programmi, app o strumenti usi più spesso sul PC? (Scegli un\'opzione o scrivi i tuoi qui sotto)',
         options: [
-          '3ds Max, V-Ray / Corona, Photoshop & After Effects',
-          'Blender, Export GLB / Draco, Three.js & WebGL',
-          'VS Code / Cursor, Python, Git, Docker & Terminale',
-          'Unreal Engine 5, Substance Painter, ZBrush & AutoCAD'
+          'Browser, Email, Google Workspace / Pacchetto Office (Excel, Word, Docs)',
+          'Notion, Calendario, Appunti, Gestione Task & Video-call',
+          'VS Code / Cursor, Terminale, Git, Python e strumenti di sviluppo',
+          'Software di Design, Grafica, Video, CAD o Creatività'
         ]
       },
       {
         id: 'q_projects',
         category: 'Clienti & Progetti',
-        question: "Su quale progetto o cliente stai lavorando ora? (Scrivi il nome sotto es. 'Villa Moderna - Cliente Rossi' o scegli un'opzione per crearlo nell'Hub)",
+        question: 'Su quale progetto, obiettivo o attività ti stai concentrando in questo periodo? (Puoi anche scrivere il nome specifico qui sotto)',
         options: [
-          'Progetto ArchViz & Rendering per Cliente',
-          'Sviluppo App / Piattaforma Software & Web',
-          'Produzione Asset 3D & Scena Realtime Interattiva',
-          'Gestione Multi-Progetto & Task Operativi Giornalieri'
+          'Un progetto principale con scadenze e obiettivi da raggiungere',
+          'Gestione di clienti, commesse, preventivi o consegne',
+          'Sviluppo di un prodotto, applicazione o progetto personale',
+          'Studio, ricerca o organizzazione delle attività giornaliere'
         ]
       },
       {
         id: 'q_routine',
         category: 'Routine & Orari',
-        question: 'Qual è la regola tecnica, lo standard di pipeline o il vincolo cliente che devo SEMPRE verificare nei Quality Gate?',
+        question: 'Qual è la regola, la priorità o il metodo di lavoro più importante che vuoi che io ricordi sempre?',
         options: [
-          'Workflow colore ACEScg rigoroso, scala metrica corretta e gerarchie pulite',
-          'Ottimizzazione mesh, compressione Draco/WebP e budget poligoni sotto controllo',
-          'Codice modulare, testato, zero file temporanei e architettura pulita',
-          'Rispetto tassativo di palette colori, logo e linee guida del cliente'
+          'Dare sempre priorità alle scadenze imminenti e alle attività urgenti',
+          'Tenere traccia precisa di note, accordi e regole per ogni progetto o cliente',
+          'Controllare sempre qualità, ordine e dettagli prima di chiudere un\'attività',
+          'Aiutarmi a restare concentrato su un obiettivo alla volta senza perdere il filo'
         ]
       },
       {
         id: 'q_style',
         category: 'Stile & Preferenze',
-        question: 'Ultima domanda: come vuoi che collabori con te e quale prima attività mettiamo in coda oggi nella Kanban?',
+        question: 'Ultima domanda: come preferisci che comunichi con te e quale prima attività mettiamo in lista per oggi?',
         options: [
-          'Sintetico, tecnico e dritto al punto — prepara la checklist operativa di oggi',
-          'Co-Pilota proattivo: avvisami subito su scadenze, regole cliente e anomalie',
-          'Guidato passo-passo con comandi rapidi e verifica pre-consegna',
-          'Analitico e approfondito per ricerca tecnica, problem solving e debug'
+          'Diretto, sintetico e pratico — vai subito al sodo in 2-3 righe',
+          'Proattivo: ricordami scadenze, priorità e proponimi il prossimo passo',
+          'Ordinato per punti elenco e checklist chiare passo-passo',
+          'Approfondito, analitico e dettagliato quando affrontiamo un problema'
         ]
       }
     ];
@@ -4939,7 +4939,7 @@ class HudTerminal {
         </div>
         <div class="copilot-metric-row">
           <span class="copilot-metric-label">Progetto Focus:</span>
-          <strong class="copilot-proj-focus">🚢 ${this.escapeHtml(activeProj ? activeProj.name : activeProjName)}</strong>
+          <strong class="copilot-proj-focus">📌 ${this.escapeHtml(activeProj ? activeProj.name : activeProjName)}</strong>
         </div>
         ${folderActionHtml}
         <div class="copilot-radar-telemetry">
@@ -5033,7 +5033,7 @@ class HudTerminal {
         || (instincts.length > 0 ? instincts[0] : null);
       const instinctAction = topInstinct
         ? (topInstinct.action || topInstinct.action_text || topInstinct.trigger || '')
-        : 'Mantieni standard ACEScg e precisione geometrica';
+        : 'Nessun istinto registrato — rispondi a Conosciamoci o lavora con Neko';
 
       this.elCopilotBrainBody.innerHTML = `
         <div class="copilot-brain-section">
@@ -5329,7 +5329,7 @@ class HudTerminal {
           <div class="proj-card-zone proj-zone-header hub-proj-card-header">
             <div class="hub-proj-header">
               <div style="display:flex; align-items:center; gap:8px;">
-                <h3 class="hub-proj-title">🚢 ${this.escapeHtml(pName)}</h3>
+                <h3 class="hub-proj-title">📌 ${this.escapeHtml(pName)}</h3>
                 ${isFocus ? '<span class="badge-focus">🎯 IN FOCUS</span>' : ''}
               </div>
               <span class="hub-proj-client-pill">Cliente: ${this.escapeHtml(p.client || 'Diretto')}</span>
@@ -5565,56 +5565,56 @@ class HudTerminal {
       {
         id: 'q_identity',
         category: 'Identità & Attività',
-        question: 'Qual è il tuo ruolo principale o su quale ambito lavori ogni giorno?',
+        question: 'Di cosa ti occupi principalmente nella tua giornata?',
         options: [
-          '3D Artist / ArchViz & Modellazione (3ds Max, Blender, V-Ray, Corona)',
-          'Sviluppatore Software / Web & Realtime 3D (Python, JS/TS, Rust, Three.js)',
-          'Game Dev & Technical Artist (Unreal Engine, Unity, Shader & Pipeline)',
-          'Design, Progettazione CAD/BIM & Direzione Creativa'
+          'Sviluppo Software, Programmazione, Dati o IT',
+          'Business, Management, Consulenza, Marketing o Ufficio',
+          'Design, Comunicazione, Multimedia, Architettura o Creatività',
+          'Studio, Ricerca, Scrittura o Libera Professione'
         ]
       },
       {
         id: 'q_tools',
         category: 'Lavoro & Strumenti',
-        question: 'Quali software, linguaggi o motori usi ogni giorno nella tua pipeline?',
+        question: 'Quali programmi, app o strumenti usi più spesso sul PC?',
         options: [
-          '3ds Max, V-Ray / Corona, Photoshop & After Effects',
-          'Blender, Export GLB / Draco, Three.js & WebGL',
-          'VS Code / Cursor, Python, Git, Docker & Terminale',
-          'Unreal Engine 5, Substance Painter, ZBrush & AutoCAD'
+          'Browser, Email, Google Workspace / Pacchetto Office (Excel, Word, Docs)',
+          'Notion, Calendario, Appunti, Gestione Task & Video-call',
+          'VS Code / Cursor, Terminale, Git, Python e strumenti di sviluppo',
+          'Software di Design, Grafica, Video, CAD o Creatività'
         ]
       },
       {
         id: 'q_projects',
         category: 'Clienti & Progetti',
-        question: 'Su quale progetto o cliente stai lavorando in questo momento?',
+        question: 'Su quale progetto, obiettivo o attività ti stai concentrando in questo periodo?',
         options: [
-          'Progetto ArchViz & Rendering per Cliente',
-          'Sviluppo App / Piattaforma Software & Web',
-          'Produzione Asset 3D & Scena Realtime Interattiva',
-          'Gestione Multi-Progetto & Task Operativi Giornalieri'
+          'Un progetto principale con scadenze e obiettivi da raggiungere',
+          'Gestione di clienti, commesse, preventivi o consegne',
+          'Sviluppo di un prodotto, applicazione o progetto personale',
+          'Studio, ricerca o organizzazione delle attività giornaliere'
         ]
       },
       {
         id: 'q_routine',
         category: 'Routine & Orari',
-        question: 'Qual è la regola tecnica o il vincolo cliente da verificare sempre nei Quality Gate?',
+        question: 'Qual è la regola, la priorità o il metodo di lavoro più importante che vuoi che io ricordi sempre?',
         options: [
-          'Workflow colore ACEScg rigoroso, scala metrica corretta e gerarchie pulite',
-          'Ottimizzazione mesh, compressione Draco/WebP e budget poligoni sotto controllo',
-          'Codice modulare, testato, zero file temporanei e architettura pulita',
-          'Rispetto tassativo di palette colori, logo e linee guida del cliente'
+          'Dare sempre priorità alle scadenze imminenti e alle attività urgenti',
+          'Tenere traccia precisa di note, accordi e regole per ogni progetto o cliente',
+          'Controllare sempre qualità, ordine e dettagli prima di chiudere un\'attività',
+          'Aiutarmi a restare concentrato su un obiettivo alla volta senza perdere il filo'
         ]
       },
       {
         id: 'q_style',
         category: 'Stile & Preferenze',
-        question: 'Come preferisci che collabori con te e quale attività mettiamo in coda oggi?',
+        question: 'Come preferisci che comunichi con te e quale attività mettiamo in lista per oggi?',
         options: [
-          'Sintetico, tecnico e dritto al punto — prepara la checklist operativa di oggi',
-          'Co-Pilota proattivo: avvisami subito su scadenze, regole cliente e anomalie',
-          'Guidato passo-passo con comandi rapidi e verifica pre-consegna',
-          'Analitico e approfondito per ricerca tecnica, problem solving e debug'
+          'Diretto, sintetico e pratico — vai subito al sodo in 2-3 righe',
+          'Proattivo: ricordami scadenze, priorità e proponimi il prossimo passo',
+          'Ordinato per punti elenco e checklist chiare passo-passo',
+          'Approfondito, analitico e dettagliato quando affrontiamo un problema'
         ]
       }
     ];
@@ -6057,9 +6057,9 @@ class HudTerminal {
     }
     if (playbooks.length === 0) {
       playbooks = [
-        { slug: 'archviz_exterior', title: 'ArchViz Exterior Visualization' },
-        { slug: 'realtime_ship_model', title: 'Realtime Ship Modeling & Draco GLB' },
-        { slug: 'vray_aces_pipeline', title: '3ds Max V-Ray ACEScg Pipeline' }
+        { slug: 'gestione_progetto_cliente', title: 'Gestione Progetto & Consegna Cliente' },
+        { slug: 'sviluppo_software_release', title: 'Sviluppo Software & Release Checklist' },
+        { slug: 'ricerca_e_documentazione', title: 'Studio, Ricerca & Documentazione' }
       ];
     }
     const currentVal = this.elHubPlaybookSelect.value;

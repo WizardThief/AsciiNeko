@@ -1700,62 +1700,62 @@ class MemoryAndProjectsManager:
         {
             "id": "q_identity",
             "category": "Identità & Attività",
-            "question": "Ciao! Sono Neko, il tuo Co-Pilota desktop. Qual è il tuo ruolo principale o su quale ambito lavori ogni giorno?",
+            "question": "Ciao! Sono Neko, il tuo assistente personale sul desktop. Di cosa ti occupi principalmente nella tua giornata?",
             "options": [
-                "3D Artist / ArchViz & Modellazione (3ds Max, Blender, V-Ray, Corona)",
-                "Sviluppatore Software / Web & Realtime 3D (Python, JS/TS, Rust, Three.js)",
-                "Game Dev & Technical Artist (Unreal Engine, Unity, Shader & Pipeline)",
-                "Design, Progettazione CAD/BIM & Direzione Creativa",
+                "Sviluppo Software, Programmazione, Dati o IT",
+                "Business, Management, Consulenza, Marketing o Ufficio",
+                "Design, Comunicazione, Multimedia, Architettura o Creatività",
+                "Studio, Ricerca, Scrittura o Libera Professione",
             ],
-            "trait_prefix": "Ruolo e ambito principale",
+            "trait_prefix": "Ruolo e attività principale",
         },
         {
             "id": "q_tools",
             "category": "Lavoro & Strumenti",
-            "question": "Quali software, linguaggi o motori usi ogni giorno? (Li registrerò nelle tue Skill e nel Radar Finestra Attiva)",
+            "question": "Quali programmi, app o strumenti usi più spesso sul PC? (Scegli un'opzione o scrivi i tuoi qui sotto)",
             "options": [
-                "3ds Max, V-Ray / Corona, Photoshop & After Effects",
-                "Blender, Export GLB / Draco, Three.js & WebGL",
-                "VS Code / Cursor, Python, Git, Docker & Terminale",
-                "Unreal Engine 5, Substance Painter, ZBrush & AutoCAD",
+                "Browser, Email, Google Workspace / Pacchetto Office (Excel, Word, Docs)",
+                "Notion, Calendario, Appunti, Gestione Task & Video-call",
+                "VS Code / Cursor, Terminale, Git, Python e strumenti di sviluppo",
+                "Software di Design, Grafica, Video, CAD o Creatività",
             ],
-            "trait_prefix": "Stack e strumenti quotidiani",
+            "trait_prefix": "Strumenti usati quotidianamente",
         },
         {
             "id": "q_projects",
             "category": "Clienti & Progetti",
-            "question": "Su quale progetto o cliente stai lavorando ora? (Scrivi il nome sotto es. 'Villa Moderna - Cliente Rossi' o scegli un'opzione per crearlo nell'Hub)",
+            "question": "Su quale progetto, obiettivo o attività ti stai concentrando in questo periodo? (Puoi anche scrivere il nome specifico qui sotto)",
             "options": [
-                "Progetto ArchViz & Rendering per Cliente",
-                "Sviluppo App / Piattaforma Software & Web",
-                "Produzione Asset 3D & Scena Realtime Interattiva",
-                "Gestione Multi-Progetto & Task Operativi Giornalieri",
+                "Un progetto principale con scadenze e obiettivi da raggiungere",
+                "Gestione di clienti, commesse, preventivi o consegne",
+                "Sviluppo di un prodotto, applicazione o progetto personale",
+                "Studio, ricerca o organizzazione delle attività giornaliere",
             ],
-            "trait_prefix": "Progetto attivo in focus",
+            "trait_prefix": "Progetto e focus attuale",
         },
         {
             "id": "q_routine",
             "category": "Routine & Orari",
-            "question": "Qual è la regola tecnica, lo standard di pipeline o il vincolo cliente che devo SEMPRE verificare nei Quality Gate?",
+            "question": "Qual è la regola, la priorità o il metodo di lavoro più importante che vuoi che io ricordi sempre?",
             "options": [
-                "Workflow colore ACEScg rigoroso, scala metrica corretta e gerarchie pulite",
-                "Ottimizzazione mesh, compressione Draco/WebP e budget poligoni sotto controllo",
-                "Codice modulare, testato, zero file temporanei e architettura pulita",
-                "Rispetto tassativo di palette colori, logo e linee guida del cliente",
+                "Dare sempre priorità alle scadenze imminenti e alle attività urgenti",
+                "Tenere traccia precisa di note, accordi e regole per ogni progetto o cliente",
+                "Controllare sempre qualità, ordine e dettagli prima di chiudere un'attività",
+                "Aiutarmi a restare concentrato su un obiettivo alla volta senza perdere il filo",
             ],
-            "trait_prefix": "Regola d'oro e standard Quality Gate",
+            "trait_prefix": "Regola e metodo di lavoro",
         },
         {
             "id": "q_style",
             "category": "Stile & Preferenze",
-            "question": "Ultima domanda: come vuoi che collabori con te e quale prima attività mettiamo in coda oggi nella Kanban?",
+            "question": "Ultima domanda: come preferisci che comunichi con te e quale prima attività mettiamo in lista per oggi?",
             "options": [
-                "Sintetico, tecnico e dritto al punto — prepara la checklist operativa di oggi",
-                "Co-Pilota proattivo: avvisami subito su scadenze, regole cliente e anomalie",
-                "Guidato passo-passo con comandi rapidi e verifica pre-consegna",
-                "Analitico e approfondito per ricerca tecnica, problem solving e debug",
+                "Diretto, sintetico e pratico — vai subito al sodo in 2-3 righe",
+                "Proattivo: ricordami scadenze, priorità e proponimi il prossimo passo",
+                "Ordinato per punti elenco e checklist chiare passo-passo",
+                "Approfondito, analitico e dettagliato quando affrontiamo un problema",
             ],
-            "trait_prefix": "Stile operativo Co-Pilota",
+            "trait_prefix": "Stile di collaborazione preferito",
         },
     ]
 
@@ -2106,11 +2106,117 @@ class MemoryAndProjectsManager:
                 "total_questions": max(len(self.ONBOARDING_QUESTIONS), ans_count + 1),
             }
 
+    def _adapt_seed_question(self, q: Dict[str, Any], answered: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Adatta dinamicamente le opzioni delle domande base (Passo 2, 3, 4) in base
+        a cosa l'utente ha risposto al Passo 1 (q_identity), così chi fa sviluppo,
+        business, studio o design vede opzioni 100% pertinenti al proprio mondo.
+        """
+        q_copy = dict(q)
+        id_ans = (answered.get("q_identity", {}).get("answer") or "").lower()
+        if not id_ans:
+            return q_copy
+
+        is_dev = any(k in id_ans for k in ("sviluppo", "programmaz", "software", "it", "dati", "code", "dev", "web"))
+        is_biz = any(k in id_ans for k in ("business", "management", "consulenz", "marketing", "ufficio", "vendit", "aziend"))
+        is_des = any(k in id_ans for k in ("design", "creativ", "multimedia", "architett", "grafic", "video", "3d"))
+        is_stu = any(k in id_ans for k in ("studio", "ricerca", "scrittur", "universit", "scuola", "libera professione"))
+
+        qid = q_copy.get("id")
+        if qid == "q_tools":
+            if is_dev:
+                q_copy["options"] = [
+                    "VS Code / Cursor, Terminale, Git & Docker",
+                    "Python, Backend, Database, API & Cloud",
+                    "JavaScript / TypeScript, React, Node.js & Web",
+                    "Sviluppo Desktop, Mobile o Sistemi (C++, Rust, C#, Go)",
+                ]
+            elif is_biz:
+                q_copy["options"] = [
+                    "Browser, Email, Google Workspace / Office (Excel, Word, PowerPoint)",
+                    "Notion, Trello, Asana, Slack / Teams & Gestione Progetti",
+                    "CRM, Gestionali, Analisi Dati, Finanza & Fogli di Calcolo",
+                    "Calendario, Video-call (Meet/Zoom), Presentazioni & Documenti",
+                ]
+            elif is_des:
+                q_copy["options"] = [
+                    "Figma, Canva, Suite Adobe (Photoshop, Illustrator, InDesign)",
+                    "Premiere, After Effects, DaVinci Resolve (Video & Motion)",
+                    "AutoCAD, Revit, Rhino, SketchUp (Architettura & Progettazione)",
+                    "Blender, 3ds Max, Cinema 4D, Unreal (Grafica 3D & Rendering)",
+                ]
+            elif is_stu:
+                q_copy["options"] = [
+                    "Browser, Lettore PDF, Word / Google Docs & Fogli di calcolo",
+                    "Notion, Obsidian, Appunti digitali & Mappe concettuali",
+                    "Strumenti di ricerca, analisi dati, bibliografia o LaTeX",
+                    "Editor di scrittura, sintesi, traduzione e calendario studio",
+                ]
+        elif qid == "q_projects":
+            if is_dev:
+                q_copy["options"] = [
+                    "Sviluppo di un'applicazione, sito web o piattaforma software",
+                    "Automazione, intelligenza artificiale, script o analisi dati",
+                    "Manutenzione, nuove funzioni e bugfixing su progetti attivi",
+                    "Gestione di più repository e task tecnici in parallelo",
+                ]
+            elif is_biz:
+                q_copy["options"] = [
+                    "Gestione clienti, commesse, preventivi e scadenze",
+                    "Strategia, marketing, campagne o lancio di un nuovo progetto",
+                    "Coordinamento operativo, riunioni e obiettivi settimanali",
+                    "Amministrazione, reportistica e organizzazione quotidiana",
+                ]
+            elif is_des:
+                q_copy["options"] = [
+                    "Progetto creativo, design o comunicazione per un cliente",
+                    "Progettazione architettonica, tecnica o direzione lavori",
+                    "Produzione di contenuti multimediali, video o visual",
+                    "Gestione di più commesse creative e portfolio personale",
+                ]
+            elif is_stu:
+                q_copy["options"] = [
+                    "Preparazione di esami, tesi o progetto di ricerca",
+                    "Stesura di articoli, report, saggi o documentazione",
+                    "Percorso di formazione e apprendimento di nuove competenze",
+                    "Gestione organizzata di incarichi, letture e scadenze",
+                ]
+        elif qid == "q_routine":
+            if is_dev:
+                q_copy["options"] = [
+                    "Codice pulito, modulare, testato e zero file inutili",
+                    "Verificare sempre sicurezza, performance e casi limite prima del rilascio",
+                    "Documentare le decisioni tecniche e mantenere commit ordinati",
+                    "Rispettare le priorità e risolvere prima i bug bloccanti",
+                ]
+            elif is_biz:
+                q_copy["options"] = [
+                    "Rispettare sempre le scadenze, le priorità e gli accordi coi clienti",
+                    "Comunicazioni chiare, sintetiche e orientate ai risultati",
+                    "Verificare sempre numeri, dettagli e allegati prima di ogni invio",
+                    "Tenere ordine quotidiano tra call, follow-up e attività urgenti",
+                ]
+            elif is_des:
+                q_copy["options"] = [
+                    "Rispettare sempre linee guida, stile richiesto e brief del cliente",
+                    "File ordinati, nomenclature pulite e controllo qualità prima della consegna",
+                    "Cura dei dettagli visivi e gestione puntuale delle revisioni",
+                    "Bilanciare creatività e rispetto rigoroso delle scadenze",
+                ]
+            elif is_stu:
+                q_copy["options"] = [
+                    "Fonti verificate, precisione nei contenuti e chiarezza espositiva",
+                    "Suddividere lo studio o il lavoro lungo in tappe giornaliere",
+                    "Rileggere e controllare sempre la qualità prima della consegna",
+                    "Mantenere appunti, riferimenti e scadenze sempre in ordine",
+                ]
+        return q_copy
+
     def get_random_question(self, category=None, exclude_id=None, generate_ai=False):
         with self._lock:
             answered = self.profile.get("answers", {})
 
-            # 1. Se l'utente ha chiesto esplicitamente una nuova domanda AI (o se ha già risposto alle prime domande base)
+            # 1. Se l'utente ha chiesto esplicitamente una nuova domanda AI ("🎲 Nuova domanda su misura")
             if generate_ai and len(answered) >= 1:
                 ai_res = self._call_ollama_profiling(category_hint=category or "")
                 if ai_res and ai_res.get("next_question"):
@@ -2118,18 +2224,7 @@ class MemoryAndProjectsManager:
                     self._save_profile()
                     return ai_res["next_question"]
 
-            # 2. Se c'è già una domanda AI generata dopo l'ultima risposta e non stiamo chiedendo di cambiarla
-            cached_ai_q = self.profile.get("last_ai_question")
-            if (
-                cached_ai_q
-                and isinstance(cached_ai_q, dict)
-                and cached_ai_q.get("id") != exclude_id
-                and cached_ai_q.get("id") not in answered
-                and (not category or cached_ai_q.get("category") == category)
-            ):
-                return cached_ai_q
-
-            # 3. Altrimenti proponi in ordine le domande seme universali non ancora risposte
+            # 2. Durante i 5 passi iniziali, proponi in ordine le 5 domande base (adattate alle risposte precedenti!)
             pool = [
                 q
                 for q in self.ONBOARDING_QUESTIONS
@@ -2142,7 +2237,18 @@ class MemoryAndProjectsManager:
 
             unanswered = [q for q in pool if q["id"] not in answered]
             if unanswered:
-                return unanswered[0]
+                return self._adapt_seed_question(unanswered[0], answered)
+
+            # 3. Dopo aver completato le 5 domande base, usa eventuale domanda AI già pronta
+            cached_ai_q = self.profile.get("last_ai_question")
+            if (
+                cached_ai_q
+                and isinstance(cached_ai_q, dict)
+                and cached_ai_q.get("id") != exclude_id
+                and cached_ai_q.get("id") not in answered
+                and (not category or cached_ai_q.get("category") == category)
+            ):
+                return cached_ai_q
 
             # 4. Se tutte le domande base sono state risposte, genera una domanda su misura con l'AI!
             if "unittest" not in sys.modules:
@@ -2153,38 +2259,56 @@ class MemoryAndProjectsManager:
                     return ai_res["next_question"]
 
             idx = int(time.time() * 1000) % len(pool)
-            return pool[idx]
+            return self._adapt_seed_question(pool[idx], answered)
 
     KNOWN_ONBOARDING_SKILLS = [
+        ("Python", "python", "Sviluppo Software & Scripting"),
+        ("JavaScript / TypeScript", "javascript", "Sviluppo Web"),
+        ("TypeScript", "typescript", "Sviluppo Web"),
+        ("React", "react", "Frontend & Web"),
+        ("Node.js", "node.js", "Backend & API"),
+        ("Rust", "rust", "Sviluppo Software & Performance"),
+        ("C++", "c++", "Sviluppo Software & Sistemi"),
+        ("C#", "c#", "Sviluppo Software"),
+        ("Go", " golang", "Sviluppo Backend"),
+        ("SQL / Database", "database", "Dati & Backend"),
+        ("VS Code / Cursor", "vs code", "Ambiente di Sviluppo"),
+        ("VS Code / Cursor", "cursor", "Ambiente di Sviluppo"),
+        ("Git", "git", "Version Control & Dev"),
+        ("Docker", "docker", "DevOps & Cloud"),
+        ("Excel / Fogli di Calcolo", "excel", "Produttività & Analisi"),
+        ("Excel / Fogli di Calcolo", "fogli di calcolo", "Produttività & Analisi"),
+        ("Google Workspace / Office", "google workspace", "Produttività & Ufficio"),
+        ("Microsoft Office", "office", "Produttività & Ufficio"),
+        ("Word / Google Docs", "word", "Documentazione & Scrittura"),
+        ("PowerPoint / Presentazioni", "powerpoint", "Presentazioni & Business"),
+        ("Notion", "notion", "Organizzazione & Knowledge"),
+        ("Obsidian", "obsidian", "Organizzazione & Note"),
+        ("Trello / Asana", "trello", "Project Management"),
+        ("Slack / Teams", "slack", "Comunicazione & Team"),
+        ("CRM & Gestionali", "crm", "Business & Vendite"),
+        ("Marketing & Strategia", "marketing", "Business & Comunicazione"),
+        ("Project Management", "management", "Gestione & Organizzazione"),
+        ("Figma", "figma", "UI/UX & Design"),
+        ("Canva", "canva", "Design & Comunicazione"),
+        ("Photoshop", "photoshop", "Design & Grafica"),
+        ("Illustrator", "illustrator", "Graphic Design"),
+        ("InDesign", "indesign", "Editorial Design"),
+        ("Premiere Pro", "premiere", "Video Editing"),
+        ("After Effects", "after effects", "Motion & Video"),
+        ("DaVinci Resolve", "davinci", "Video & Color"),
+        ("AutoCAD", "autocad", "CAD & Progettazione"),
+        ("Revit", "revit", "BIM & Architettura"),
+        ("Rhino", "rhino", "CAD & Modellazione"),
+        ("SketchUp", "sketchup", "Architettura & 3D"),
         ("3ds Max", "3ds max", "Grafica 3D & ArchViz"),
         ("Blender", "blender", "Grafica 3D & Modellazione"),
-        ("V-Ray", "v-ray", "Rendering & Shading"),
-        ("Corona", "corona", "Rendering & Shading"),
-        ("Unreal Engine", "unreal", "Game Engine & Realtime"),
-        ("Unity", "unity", "Game Engine & Realtime"),
-        ("Export GLB / Draco", "draco", "Pipeline 3D Realtime"),
-        ("Export GLB / Draco", "glb", "Pipeline 3D Realtime"),
-        ("Three.js", "three.js", "Web & Realtime 3D"),
-        ("WebGL", "webgl", "Web & Realtime 3D"),
-        ("Python", "python", "Sviluppo Software & Scripting"),
-        ("Rust", "rust", "Sviluppo Realtime & Performance"),
-        ("JavaScript / TypeScript", "js/ts", "Sviluppo Web"),
-        ("JavaScript", "javascript", "Sviluppo Web"),
-        ("TypeScript", "typescript", "Sviluppo Web"),
-        ("Photoshop", "photoshop", "Design & Post-Produzione"),
-        ("After Effects", "after effects", "Motion & Compositing"),
-        ("Substance Painter", "substance", "Texturing & Materiali"),
-        ("ZBrush", "zbrush", "Sculpting 3D"),
-        ("AutoCAD", "autocad", "CAD & Progettazione"),
-        ("Revit", "revit", "BIM & Progettazione"),
-        ("Rhino", "rhino", "CAD & Modellazione NURBS"),
-        ("Maya", "maya", "Grafica 3D & Animazione"),
-        ("Cinema 4D", "cinema 4d", "Grafica 3D & Motion"),
-        ("Houdini", "houdini", "VFX & Procedural 3D"),
-        ("VS Code / Cursor", "vs code", "Ambiente di Sviluppo"),
-        ("Git", "git", "Version Control & Dev"),
-        ("Docker", "docker", "DevOps & Infrastruttura"),
-        ("Figma", "figma", "UI/UX Design"),
+        ("V-Ray", "v-ray", "Rendering & Visualizzazione"),
+        ("Corona", "corona", "Rendering & Visualizzazione"),
+        ("Unreal Engine", "unreal", "Realtime & 3D"),
+        ("Unity", "unity", "Game Dev & Interactive"),
+        ("Three.js", "three.js", "Web & 3D"),
+        ("LaTeX", "latex", "Ricerca & Scrittura Scientifica"),
     ]
 
     def _integrate_onboarding_answer_into_system(
